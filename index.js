@@ -104,49 +104,47 @@ bot.on("messageCreate", (msg) => {
     if (prompt.includes('{')) { prompt = replaceRandoms(prompt) }
     var args = parseArgs(prompt.split(' '),{string: ['template','init_img','sampler']})
     promptError = false
-    args.number = 1
-    for (let i = 0; i < args.number; i++) {
-      var dateAdded = moment()
-      promptError = false
-      var pixelLimit = config.pixelLimit
-      // if (Number.isInteger(args.width) && Number.isInteger(args.height)) { if ((args.width * args.height) > pixelLimit) { promptError = true} } else if (args.width) { if ((args.width * 512) > pixelLimit) { promptError = true} } else if (args.height) { if ((args.height * 512) > pixelLimit) { promptError = true}}
-      if (!args.width) {args.width = 512 } else { if (!Number.isInteger(args.width) || args.width > 3950){ promptError = true } } // args.width = 512
-      if (!args.height) {args.height = 512 } else { if (!Number.isInteger(args.height) || args.height > 2250){ promptError = true } } // args.height = 512
-      if (!args.steps) { args.steps = 50 } else { if (!Number.isInteger(args.steps) || args.steps > 250){ promptError = true } }// max 250 steps, default 50
-      if (!args.seed) {args.seed = Math.floor(Math.random() * 4294967295)} else { if (!Number.isInteger(args.seed) || args.seed > 4294967295 || args.seed <= 0) { promptError = true} }
-      if (!args.strength) {args.strength = 0.75 } else { if (args.strength > 1||args.strength < 0){ promptError = true } }
-      args.c = 4 // DISABLED // if (!args.c) {args.c = 4} else { args.c = sanitize(args.c); if (args.c > 30 || args.c < 0){ promptError = true}}
-      if (!args.scale) {args.scale = 7.5 } else { if (!Number.isInteger(args.scale)){ console.log(args.scale); promptError = true } } // || args.height > 30 || args.scale < 0
-      if (!args.sampler) { console.log('no sampler, setting k_eular_a'); args.sampler = 'k_eular_a' } else { console.log('sampler set to ' + args.sampler)}
-      if (args.G) {args.G = 1}
-      var newprompt = sanitize(args._.join(' '))
-      console.log('Prompt is: ' + newprompt)
-      var useRenderer = 'localApi'
-      newJob = {
-        authorid: msg.author.id,
-        authorname: msg.author.username + '#' + msg.author.discriminator,
-        dateAdded: dateAdded, dateRenderStart: null, dateRenderFinish: null, 
-        seed: args.seed,
-        number: args.number,
-        width: args.width,
-        height: args.height,
-        steps: args.steps,
-        prompt: newprompt,
-        c: args.c,
-        scale: args.scale,
-        sampler: args.sampler,
-        renderer: useRenderer,
-        msg: msg,
-        G: args.G || undefined
-      }
-      if (args.seamless) { newJob.seamless = 'on' }
-      if (args.template) { console.log(args.template); newJob.template = args.template; newJob.strength = args.strength }
-      if (promptError === false) {
-        queue.push(newJob);
-        msg.addReaction('✔️') 
-        // msg.delete().catch(() => {})
-      } else { console.log('failed to push to queue'); msg.addReaction('⛔') }
+    var dateAdded = moment()
+    promptError = false
+    var pixelLimit = config.pixelLimit
+    // if (Number.isInteger(args.width) && Number.isInteger(args.height)) { if ((args.width * args.height) > pixelLimit) { promptError = true} } else if (args.width) { if ((args.width * 512) > pixelLimit) { promptError = true} } else if (args.height) { if ((args.height * 512) > pixelLimit) { promptError = true}}
+    if (!args.width) {args.width = 512 } else { if (!Number.isInteger(args.width) || args.width > 3950){ promptError = true } } // args.width = 512
+    if (!args.height) {args.height = 512 } else { if (!Number.isInteger(args.height) || args.height > 2250){ promptError = true } } // args.height = 512
+    if (!args.steps) { args.steps = 50 } else { if (!Number.isInteger(args.steps) || args.steps > 250){ promptError = true } }// max 250 steps, default 50
+    if (!args.seed) {args.seed = Math.floor(Math.random() * 4294967295)} else { if (!Number.isInteger(args.seed) || args.seed > 4294967295 || args.seed <= 0) { promptError = true} }
+    if (!args.strength) {args.strength = 0.75 } else { if (args.strength > 1||args.strength < 0){ promptError = true } }
+    args.c = 4 // DISABLED // if (!args.c) {args.c = 4} else { args.c = sanitize(args.c); if (args.c > 30 || args.c < 0){ promptError = true}}
+    if (!args.scale) {args.scale = 7.5 } else { if (!Number.isInteger(args.scale)){ console.log(args.scale); promptError = true } } // || args.height > 30 || args.scale < 0
+    if (!args.sampler) { console.log('no sampler, setting k_eular_a'); args.sampler = 'k_eular_a' } else { console.log('sampler set to ' + args.sampler)}
+    if (args.G) {args.G = 1}
+    if (!args.n) { args.n = 1 } else { if (!Number.isInteger(args.n) || args.n > 4) { console.log(args.n); promptError = true }} // 4 max
+    var newprompt = sanitize(args._.join(' '))
+    console.log('Prompt is: ' + newprompt)
+    var useRenderer = 'localApi'
+    newJob = {
+      authorid: msg.author.id,
+      authorname: msg.author.username + '#' + msg.author.discriminator,
+      dateAdded: dateAdded, dateRenderStart: null, dateRenderFinish: null, 
+      seed: args.seed,
+      n: args.n,
+      width: args.width,
+      height: args.height,
+      steps: args.steps,
+      prompt: newprompt,
+      c: args.c,
+      scale: args.scale,
+      sampler: args.sampler,
+      renderer: useRenderer,
+      msg: msg,
+      G: args.G || undefined
     }
+    if (args.seamless) { newJob.seamless = 'on' }
+    if (args.template) { console.log(args.template); newJob.template = args.template; newJob.strength = args.strength }
+    if (promptError === false) {
+      queue.push(newJob);
+      msg.addReaction('✔️') 
+      // msg.delete().catch(() => {})
+    } else { console.log('failed to push to queue'); msg.addReaction('⛔') }
     processQueue()
   }
 })
@@ -163,11 +161,10 @@ function encodeImageFileAsURL(file) {
 }
 async function addRenderApi (job) {
   var initimg = null
-  console.log(job.msg.attachments[0])
+  // console.log(job.msg.attachments[0])
   if (job.template !== undefined) { initimg = 'data:image/png;base64,' + base64Encode('allrenders\\sdbot\\' + job.template + '.png') }
   if (job.msg.attachments.length > 0 && job.msg.attachments[0].content_type === 'image/png') { // && job.msg.attachments.width === '512' && job.msg.attachments.height === '512'
-    // WIP - allow using discord image attachments as init
-    console.log('attachment spotted')
+    console.log('fetching attachment from ' + job.msg.attachments[0].proxy_url) 
     await axios.get(job.msg.attachments[0].proxy_url, {responseType: 'arraybuffer'})
       .then(res => { initimg = 'data:image/ping;base64,' + Buffer.from(res.data).toString('base64') })
       .catch(err => { console.error('unable to fetch url: ' + job.msg.attachments[0].proxy_url); console.error(err) })
@@ -177,7 +174,7 @@ async function addRenderApi (job) {
   var prompt = job.prompt
   var postObject = {
       "prompt": prompt,
-      "iterations": 1,
+      "iterations": job.n,
       "steps": job.steps,
       "cfg_scale": job.scale,
       "sampler_name": job.sampler,
@@ -197,10 +194,58 @@ async function addRenderApi (job) {
   if (job.seamless) { postObject.seamless = 'on' }
   axios.post(apiUrl, postObject)
     .then(res => {
-      console.log(res.data[res.data.length-1])
-      // in future use this response instead of filewatcher + queue
+      if (queue.length > 0) { console.log('Moving item to pastjobs: ' + queue[0].prompt + ' by ' + queue[0].authorname); finished.push(queue.shift()) }
+      var data = res.data.split("\n")
+      data.pop() // Remove blank line from the end of api output
+      data.forEach(line => {
+        line = JSON.parse(line)
+        if (line.event !== 'result'){ return } else { postRender(line) }
+      })
+      rendering = false
+      processQueue()
     })
     .catch(error => { console.log('error'); console.error(error) })
+}
+
+function postRender (render) {
+  console.log('postRender')
+  console.log(render)
+  fs.readFile(render.url, null, function(err, data) {
+    if (err) { console.error(err) } else {
+      filename = render.url.split('\\')[render.url.split('\\').length-1].replace(".png","")
+      var last = finished[finished.length-1] // find a better way to get requesting user
+      last.dateRenderFinish = moment()
+      var msg = '`!dream "' + render.config.prompt + '"\n` for <@' + last.authorid + '>'
+      if (render.config.width !== 512 || render.config.height !== 512) { msg+= ':straight_ruler:`' + render.config.width + 'x' + render.config.height + '`' }
+      if (last.G) { msg+= ':mag:**`Upscaled x 2`**'}
+      if (last.seamless) { msg+= ':knot:**`Seamless Tiling`**'}
+      if (last.template) { msg+= ':frame_photo:`' + last.template + '` :muscle: `' + render.config.strength + '`'}
+      msg+= ':seedling: `' + filename.split('.')[1] + '`:scales:`' + render.config.cfg_scale + '`:recycle:`' + render.config.steps + '`'
+      msg+= ':stopwatch:`' + timeDiff(moment(),last.dateAdded) + 's`:brain:`' + timeDiff(last.dateRenderFinish, last.dateRenderStart) + 's` :file_cabinet: `' + filename + '` :eye: `' + render.config.sampler_name + '`'
+      var newMessage = {
+        content: msg,
+        messageReference: { channelId: last.msg.channel.id, failIfNotExists: false, guildID: last.msg.guildID, message_id: last.msg.id },
+        components: [
+          {
+            type: Constants.ComponentTypes.ACTION_ROW,
+            components: [
+              {
+                type: Constants.ComponentTypes.BUTTON,
+                style: Constants.ButtonStyles.SECONDARY,
+                label: "New seed",
+                custom_id: "refresh",
+                emoji: { name: '🎲', id: null},
+                disabled: false
+              }
+            ]
+          }
+        ]
+      }
+      if (last.template) { newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Remove template", custom_id: "refreshNoTemplate", emoji: { name: '🎲', id: null}, disabled: false }) } 
+      if (last.G !== 1) { newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Use as template", custom_id: "template", emoji: { name: '📷', id: null}, disabled: false })  } 
+      bot.createMessage(artspamchannelid, newMessage, {file: data, name: filename + '.png' })
+    }
+  })
 }
 
 function processQueue () {
@@ -220,52 +265,10 @@ function process (file) {
         if (err) { console.error(err); } else {
           filename = file.replace("allrenders\\sdbot\\", "").replace(".png","")
           if (finished.length > 0) {finished[finished.length-1].file = filename} // bad
-          if (file.includes('sdbot') && queue.length > 0) {
-            rendering = false
-            if (queue.length > 0) { console.log('Moving item to pastjobs: ' + queue[0].prompt + ' by ' + queue[0].authorname); finished.push(queue.shift()) }
-            var last = finished[finished.length-1]
-            last.dateRenderFinish = moment()
-            msg = '`!dream "' + last.prompt + '"\n` for <@' + last.authorid + '>'
-            var embed = { description: last.prompt, fields: [ { name: 'seed', value: last.seed, inline: true }, { name: 'steps', value: last.steps, inline: true }, { name: 'width', value: last.width, inline: true }, { name: 'height', value: last.height, inline: true }, { name: 'seed', value: last.seed, inline: true }, { name: 'author', value: last.authorname, inline: true } ] }
-            if (last.width !== 512 || last.height !== 512) { msg+= ':straight_ruler:`' + last.width + 'x' + last.height + '`' }
-            if (last.G) { msg+= ':mag:**`Upscaled x 2`**'}
-            if (last.seamless) { msg+= ':knot:**`Seamless Tiling`**'}
-            if (last.template) {
-              embed.fields.push({ name: 'template', value: last.template}, {name: 'strength', value: last.strength }); msg+= ':frame_photo:`' + last.template + '` :muscle: `' + last.strength + '` :seedling: `' + last.seed + '`:scales:`' + last.scale + '`:recycle:`' + last.steps + '`'
-            } else {
-              msg+= ':seedling:`' + last.seed + '`:scales:`' + last.scale + '`:recycle:`' + last.steps + '`'
-            }
-          
-            embed.fields.push({ name: 'waited', value: timeDiff(moment(),last.dateAdded)},{ name: 'rendered', value: timeDiff(last.dateRenderFinish, last.dateRenderStart)})
-            msg+= ':stopwatch:`' + timeDiff(moment(),last.dateAdded) + 's`:brain:`' + timeDiff(last.dateRenderFinish, last.dateRenderStart) + 's` :file_cabinet: `' + filename + '` :eye: `' + last.sampler + '`'
-            var newMessage = {
-                content: msg,
-                messageReference: { channellId: last.msg.channel.id, failIfNotExists: false, guildID: last.msg.guildID, messageID: last.msg.id },
-                components: [
-                {
-                  type: Constants.ComponentTypes.ACTION_ROW,
-                  components: [
-                      {
-                          type: Constants.ComponentTypes.BUTTON,
-                          style: Constants.ButtonStyles.SECONDARY,
-                          label: "New seed",
-                          custom_id: "refresh",
-                          emoji: { name: '🎲', id: null},
-                          disabled: false
-                      }
-                  ]
-                }]
-              }
-            if (last.template) { newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Remove template", custom_id: "refreshNoTemplate", emoji: { name: '🎲', id: null}, disabled: false }) } 
-            if (last.G !== 1) { newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Use as template", custom_id: "template", emoji: { name: '📷', id: null}, disabled: false })  } 
-            bot.createMessage(artspamchannelid, newMessage, {file: data, name: file })
-            processQueue()
-          } else {
-            filename = file
-            if (file.includes('allrenders\\sdbot')) { filename = file.replace("allrenders\\sdbot\\", "").replace(".png","") }
-            msg = ':file_cabinet:' + filename
-            bot.createMessage(artspamchannelid, msg, {file: data, name: file })
-          }
+          filename = file
+          if (file.includes('allrenders\\sdbot')) { filename = file.replace("allrenders\\sdbot\\", "").replace(".png","") }
+          msg = ':file_cabinet:' + filename
+          bot.createMessage(artspamchannelid, msg, {file: data, name: file })
         }
       }, 300)
     }
@@ -314,22 +317,25 @@ function replaceRandoms (input) {
 }
 
 const log = console.log.bind(console)
-const renders = chokidar.watch(config.watchFolder, {
-  persistent: true,
-  ignoreInitial: true,
-  usePolling: false,
-   awaitWriteFinish: {
-     stabilityThreshold: 500,
-     pollInterval: 500
-   }
-})
-renders
-  .on('all', (event, file) => {
-    // log(`File ${file} has been ${event}`)
+
+if (config.filewatcher==="true") { // Easy disable folder monitoring and posting with config key
+  const renders = chokidar.watch(config.watchFolder, {
+    persistent: true,
+    ignoreInitial: true,
+    usePolling: false,
+    awaitWriteFinish: {
+      stabilityThreshold: 500,
+      pollInterval: 500
+    }
   })
-  .on('change', file => {
-    // process(file)
-  })
-  .on('add', file => {
-    process(file)
-  })
+  renders
+    .on('all', (event, file) => {
+      // log(`File ${file} has been ${event}`)
+    })
+    .on('change', file => {
+      // process(file)
+    })
+    .on('add', file => {
+      process(file)
+    })
+}
