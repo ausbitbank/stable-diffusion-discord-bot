@@ -7,7 +7,6 @@ const chokidar = require('chokidar')
 const moment = require('moment')
 var parseArgs = require('minimist')
 const axios = require('axios')
-// edit discord bot login below
 const bot = new Eris(config.discordBotKey, {
   intents: ["guildMessages"],
   description: "Just a slave to the art, maaan",
@@ -32,7 +31,7 @@ bot.on("interactionCreate", (interaction) => {
         console.log('refresh request')
         // look in finished for the job.msg.id matching the interaction.message.messageReference.messageID
           var newJob = finished.find(x => x.msg.id === interaction.message.messageReference.messageID)
-        if (newJob) { //  && queue.filter(x=> { x.authorid === interaction.member.user.id }).length < 10)
+        if (newJob) {
           console.log('job details found')
           if (interaction.data.custom_id === 'upscale') {
             console.log('upscale request')
@@ -94,17 +93,18 @@ bot.on("messageCreate", (msg) => {
   if((msg.content.startsWith("!prompt")) && msg.channel.id === artspamchannelid) {
     var promptPrefix = msg.content.replace('!prompt','')
     if (promptPrefix.trim().length > 0) { chat('!dream \"' + replaceRandoms(promptPrefix).trim() + ' ' + getRandomPrompt().replace('!dream \"','')) } else { chat(getRandomPrompt()) } 
-  } else if(msg.content.startsWith("!dothething") && msg.channel.id === artspamchannelid) {
+  } else if(msg.content.startsWith("!dothething") && msg.channel.id === artspamchannelid && msg.author.id === config.adminID) {
     rendering = false
+    queue = []
+    console.log('admin wiped queue')
     msg.delete().catch(() => {})
-    processQueue()
   } else if(msg.content.startsWith("!dream") && msg.channel.id === artspamchannelid) {
     console.log('dream request')
     var prompt = msg.content.substr(7, msg.content.length)
     if (prompt.includes('{')) { prompt = replaceRandoms(prompt) }
     var args = parseArgs(prompt.split(' '),{string: ['template','init_img','sampler']})
     promptError = false
-    args.number = 1 //if (!args.number) {args.number = 1} else { if (args.number > 1 || !Number.isInteger(args.number)) { args.number = 1; promptError = true }}
+    args.number = 1
     for (let i = 0; i < args.number; i++) {
       var dateAdded = moment()
       promptError = false
@@ -112,19 +112,16 @@ bot.on("messageCreate", (msg) => {
       // if (Number.isInteger(args.width) && Number.isInteger(args.height)) { if ((args.width * args.height) > pixelLimit) { promptError = true} } else if (args.width) { if ((args.width * 512) > pixelLimit) { promptError = true} } else if (args.height) { if ((args.height * 512) > pixelLimit) { promptError = true}}
       if (!args.width) {args.width = 512 } else { if (!Number.isInteger(args.width) || args.width > 3950){ promptError = true } } // args.width = 512
       if (!args.height) {args.height = 512 } else { if (!Number.isInteger(args.height) || args.height > 2250){ promptError = true } } // args.height = 512
-      if (!args.steps) { args.steps = 50 } else { if (!Number.isInteger(args.steps) || args.steps > 250){ promptError = true } }// max 150 steps, default 50
+      if (!args.steps) { args.steps = 50 } else { if (!Number.isInteger(args.steps) || args.steps > 250){ promptError = true } }// max 250 steps, default 50
       if (!args.seed) {args.seed = Math.floor(Math.random() * 4294967295)} else { if (!Number.isInteger(args.seed) || args.seed > 4294967295 || args.seed <= 0) { promptError = true} }
-      if (!args.strength) {args.strength = 0.75 } else { if (args.strength > 1||args.strength < 0.2){ promptError = true } }
+      if (!args.strength) {args.strength = 0.75 } else { if (args.strength > 1||args.strength < 0){ promptError = true } }
       args.c = 4 // DISABLED // if (!args.c) {args.c = 4} else { args.c = sanitize(args.c); if (args.c > 30 || args.c < 0){ promptError = true}}
       if (!args.scale) {args.scale = 7.5 } else { if (!Number.isInteger(args.scale)){ console.log(args.scale); promptError = true } } // || args.height > 30 || args.scale < 0
       if (!args.sampler) { console.log('no sampler, setting k_eular_a'); args.sampler = 'k_eular_a' } else { console.log('sampler set to ' + args.sampler)}
       if (args.G) {args.G = 1}
-      //console.log('after')
       var newprompt = sanitize(args._.join(' '))
       console.log('Prompt is: ' + newprompt)
       var useRenderer = 'localApi'
-      // if (args.renderer === 'local') { useRenderer = 'local' }
-      // console.log(msg)
       newJob = {
         authorid: msg.author.id,
         authorname: msg.author.username + '#' + msg.author.discriminator,
@@ -164,16 +161,16 @@ function encodeImageFileAsURL(file) {
   reader.onloadend = function() { console.log('RESULT', reader.result); return reader.result }
   reader.readAsDataURL(file)
 }
-function addRenderApi (job) {
+async function addRenderApi (job) {
   var initimg = null
+  console.log(job.msg.attachments[0])
   if (job.template !== undefined) { initimg = 'data:image/png;base64,' + base64Encode('allrenders\\sdbot\\' + job.template + '.png') }
-  if (job.msg.attachments !== undefined && job.msg.attachments.content_type === 'image/png' && job.msg.attachments.width === '512' && job.msg.attachments.height === '512') {
+  if (job.msg.attachments.length > 0 && job.msg.attachments[0].content_type === 'image/png') { // && job.msg.attachments.width === '512' && job.msg.attachments.height === '512'
     // WIP - allow using discord image attachments as init
     console.log('attachment spotted')
-    var image = axios.get(job.msg.attachments.proxy_url, {responseType: 'arraybuffer'})
-    var returnedB64 = Buffer.from(image.data).toString('base64')
-    initimg = 'data:image/ping;base64,' + returnedB64
-    console.log(initimg)
+    await axios.get(job.msg.attachments[0].proxy_url, {responseType: 'arraybuffer'})
+      .then(res => { initimg = 'data:image/ping;base64,' + Buffer.from(res.data).toString('base64') })
+      .catch(err => { console.error('unable to fetch url: ' + job.msg.attachments[0].proxy_url); console.error(err) })
   }
   if (job.strength === undefined){ job.strength = 0.75 }
   if (job.sampler === undefined){ job.sampler = 'k_euler_a' }
@@ -296,7 +293,7 @@ function getRandomStar() { var prompts = fs.readFileSync('stars.txt', 'utf8'); p
 function replaceRandoms (input) {
   console.log('replaceRandoms')
   var output = input // Disabled randomisers, works fine if you add the required filenames above to script folder ^^
-  /* var output = input.replaceAll('{prompt}',getRandomPrompt())
+  var output = input.replaceAll('{prompt}',getRandomPrompt())
   output = output.replaceAll('{artist}',getRandomArtist())
   output = output.replaceAll('{city}',getRandomCity())
   output = output.replaceAll('{genre}',getRandomGenre())
@@ -312,7 +309,7 @@ function replaceRandoms (input) {
   // output = output.replaceAll('{adverb}',getRandomAdverb())
   output = output.replaceAll('{adjective}',getRandomAdjective())
   output = output.replaceAll('{star}',getRandomStar())
-  console.log(output) */
+  console.log(output)
   return output
 }
 
