@@ -44,9 +44,11 @@ bot.on("interactionCreate", (interaction) => {
           newJob.authorName = interaction.member.user.username + '#' + interaction.member.user.discriminator
           newJob.dateAdded = moment()
           newJob.dateRenderStart = null
+          newJob.n = 1
           newJob.dateRenderFinish = null
           newJob.msg = interaction.message
           if (interaction.data.custom_id === 'refreshNoTemplate' && newJob.template) { delete newJob.template }
+          console.log(newJob)
           queue.push(newJob)
           console.log('processQueue from interaction')
           processQueue()
@@ -163,7 +165,8 @@ async function addRenderApi (job) {
   var initimg = null
   // console.log(job.msg.attachments[0])
   if (job.template !== undefined) { initimg = 'data:image/png;base64,' + base64Encode('allrenders\\sdbot\\' + job.template + '.png') }
-  if (job.msg.attachments.length > 0 && job.msg.attachments[0].content_type === 'image/png') { // && job.msg.attachments.width === '512' && job.msg.attachments.height === '512'
+  console.log(job.msg.author.bot)
+  if (job.msg.author.bot !== 'true' && job.msg.attachments.length > 0 && job.msg.attachments[0].content_type === 'image/png') { // && job.msg.attachments.width === '512' && job.msg.attachments.height === '512'
     console.log('fetching attachment from ' + job.msg.attachments[0].proxy_url) 
     await axios.get(job.msg.attachments[0].proxy_url, {responseType: 'arraybuffer'})
       .then(res => { initimg = 'data:image/ping;base64,' + Buffer.from(res.data).toString('base64') })
