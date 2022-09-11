@@ -6,6 +6,7 @@ Currently only tested on windows 10 with an nvidia 1080ti 11gb.
 You'll need to have https://github.com/lstein/stable-diffusion installed and working on your system first, as well as nodejs and npm.
 
 To install bot dependancies : `npm install chokidar moment axios eris dotenv minimist`
+
 Get yourself a bot api key from https://discord.com/developers/applications
 
 Rename `.env.example` to `.env` and enter your own details
@@ -17,6 +18,7 @@ Invite to your server with `https://discord.com/oauth2/authorize?client_id= BOT 
 ## Current features:
 - Most features from the lstein fork are available via bot
 - Simple buttons for refresh and using templates/init-images
+- Attach an image with your chat message to use as template/init-image
 - Basic FIFO queue system
 - Watch folder for new files, autopost to discord with filename/info if available
 - Prompt and keyword randomisation from txt files
