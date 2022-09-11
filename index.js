@@ -26,154 +26,124 @@ var newJob = {}
 bot.on("ready", async () => { console.log("Ready to go") })
 
 bot.on("interactionCreate", (interaction) => {
-    if(interaction instanceof Eris.ComponentInteraction) {
-      if (interaction.data.custom_id === 'refresh' || interaction.data.custom_id === 'refreshNoTemplate' || interaction.data.custom_id === 'refreshBatch' || interaction.data.custom_id === 'upscale') {
-        console.log('refresh request')
-        // look in finished for the job.msg.id matching the interaction.message.messageReference.messageID
-          var newJob = finished.find(x => x.msg.id === interaction.message.messageReference.messageID)
-        if (newJob) {
-          console.log('job details found')
-          if (interaction.data.custom_id === 'upscale') {
-            console.log('upscale request')
-            newJob.G = 1
-          } else {
-            newJob.G = undefined
-            newJob.seed = Math.floor(Math.random() * 4294967295)
-          }
-          newJob.authorid = interaction.member.user.id
-          newJob.authorName = interaction.member.user.username + '#' + interaction.member.user.discriminator
-          newJob.dateAdded = moment()
-          newJob.dateRenderStart = null
-          newJob.n = 1
-          newJob.dateRenderFinish = null
-          newJob.msg = interaction.message
-          if (interaction.data.custom_id === 'refreshNoTemplate' && newJob.template) { delete newJob.template }
-          console.log(newJob)
-          queue.push(newJob)
-          console.log('processQueue from interaction')
-          processQueue()
-          console.log('edit button')
-          return interaction.editParent({embed:{footer:{text: interaction.member.user.username + ' chose ' + interaction.data.custom_id}} ,components:[]}).catch((e) => {console.log(e)})
-        } else {
-          console.error('unable to refresh render')
-          return interaction.createMessage({
-            content: "Error",
-            flags: 64
-          })
-        }
-        console.log(newJob)
-      } else if (interaction.data.custom_id === 'template' || interaction.data.custom_id === 'templateNewPromptAnswer') {
-        console.log('template request')
-        if (interaction.data.custom_id === 'templateNewPromptAnswer') { console.log('templateNewPromptAnswer'); console.log(interaction) }
-        var newJob = finished.find(x => x.msg.id === interaction.message.messageReference.messageID)
-        if (newJob) {
-          console.log('job details found')
-          newJob.seed = Math.floor(Math.random() * 4294967295)
-          newJob.authorid = interaction.member.user.id
-          newJob.authorName = interaction.member.user.username + '#' + interaction.member.user.discriminator
-          newJob.dateAdded = moment()
-          newJob.dateRenderStart = null
-          newJob.dateRenderFinish = null
-          newJob.msg = interaction.message
-          newJob.template = newJob.file
-          if (newJob.strength === undefined) {newJob.strength = 0.8}
-          queue.push(newJob)
-          processQueue()
-          return interaction.editParent({embed:{footer:{text: interaction.member.user.username + ' chose ' + interaction.data.custom_id}} ,components:[]}).catch((e) => {console.log(e)})
-        } else {
-          console.error('unable to refresh render')
-          return interaction.createMessage({
-            content: "Unable to refresh automatically",
-            flags: 64
-          })
-        }
+  console.log(interaction)
+  if(interaction instanceof Eris.ComponentInteraction) {
+    if (interaction.data.custom_id.startsWith('refresh')) { // || interaction.data.custom_id === 'refreshNoTemplate' || interaction.data.custom_id === 'refreshBatch' || interaction.data.custom_id === 'upscale') {
+      console.log('refresh request')
+      var id = interaction.data.custom_id.split('-')[1]
+      var newJob = queue[id-1]
+      if (newJob) {
+        newJob.seed = getRandomSeed()
+        var cmd = getCmd(newJob)
+        if (!interaction.data.custom_id.startsWith('refreshNoTemplate')) { if (newJob.template){ cmd+= ' --template ' + newJob.template } } else { console.log('refreshNoTemplate') }
+        request({cmd: cmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
+        return interaction.editParent({embed:{footer:{text: interaction.member.user.username + ' chose ' + interaction.data.custom_id.split('-')[0] + ' id ' + interaction.data.custom_id.split('-')[1] }} ,components:[]}).catch((e) => {console.log(e)})
+      } else {
+        console.error('unable to refresh render')
+        return interaction.createMessage({
+          content: "Error, working on it",
+          flags: 64
+        })
+      }
+    } else if (interaction.data.custom_id.startsWith('template')) {
+      console.log('template request')
+      console.log(interaction.data.custom_id)
+      id=interaction.data.custom_id.split('-')[1]
+      var newJob = queue[id-1]
+      if (newJob) {
+        console.log('job details found')
+        // newJob.template = newJob.file // 
+        var cmd = getCmd(newJob)
+        cmd+= ' --template ' + interaction.data.custom_id.split('-')[2]
+        request({cmd: cmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
+        return interaction.editParent({embed:{footer:{text: interaction.member.user.username + ' chose ' + interaction.data.custom_id.split('-')[0] + ' id ' + interaction.data.custom_id.split('-')[1] }} ,components:[]}).catch((e) => {console.log(e)})
+      } else {
+        console.error('template request failed')
+        return interaction.createMessage({
+          content: "Unable to use template",
+          flags: 64
+        })
       }
     }
+  }
 })
 
 bot.on("messageCreate", (msg) => {
   if((msg.content.startsWith("!prompt")) && msg.channel.id === artspamchannelid) {
-    var promptPrefix = msg.content.replace('!prompt','')
-    if (promptPrefix.trim().length > 0) { chat('!dream \"' + replaceRandoms(promptPrefix).trim() + ' ' + getRandomPrompt().replace('!dream \"','')) } else { chat(getRandomPrompt()) } 
-  } else if(msg.content.startsWith("!dothething") && msg.channel.id === artspamchannelid && msg.author.id === config.adminID) {
-    rendering = false
-    queue = []
-    console.log('admin wiped queue')
+    request({cmd: msg.content.replace('!prompt','').trim() + ' ' + getRandomPrompt(), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
     msg.delete().catch(() => {})
+  } else if(msg.content.startsWith("!dothething") && msg.channel.id === artspamchannelid && msg.author.id === config.adminID) {
+    rendering = false; queue = []; console.log('admin wiped queue'); msg.delete().catch(() => {})
   } else if(msg.content.startsWith("!dream") && msg.channel.id === artspamchannelid) {
-    console.log('dream request')
-    var prompt = msg.content.substr(7, msg.content.length)
-    if (prompt.includes('{')) { prompt = replaceRandoms(prompt) }
-    var args = parseArgs(prompt.split(' '),{string: ['template','init_img','sampler']})
-    promptError = false
-    var dateAdded = moment()
-    promptError = false
-    var pixelLimit = config.pixelLimit
-    // if (Number.isInteger(args.width) && Number.isInteger(args.height)) { if ((args.width * args.height) > pixelLimit) { promptError = true} } else if (args.width) { if ((args.width * 512) > pixelLimit) { promptError = true} } else if (args.height) { if ((args.height * 512) > pixelLimit) { promptError = true}}
-    if (!args.width) {args.width = 512 } else { if (!Number.isInteger(args.width) || args.width > 3950){ promptError = true } } // args.width = 512
-    if (!args.height) {args.height = 512 } else { if (!Number.isInteger(args.height) || args.height > 2250){ promptError = true } } // args.height = 512
-    if (!args.steps) { args.steps = 50 } else { if (!Number.isInteger(args.steps) || args.steps > 250){ promptError = true } }// max 250 steps, default 50
-    if (!args.seed) {args.seed = Math.floor(Math.random() * 4294967295)} else { if (!Number.isInteger(args.seed) || args.seed > 4294967295 || args.seed <= 0) { promptError = true} }
-    if (!args.strength) {args.strength = 0.75 } else { if (args.strength > 1||args.strength < 0){ promptError = true } }
-    args.c = 4 // DISABLED // if (!args.c) {args.c = 4} else { args.c = sanitize(args.c); if (args.c > 30 || args.c < 0){ promptError = true}}
-    if (!args.scale) {args.scale = 7.5 } else { if (!Number.isInteger(args.scale)){ console.log(args.scale); promptError = true } } // || args.height > 30 || args.scale < 0
-    if (!args.sampler) { console.log('no sampler, setting k_eular_a'); args.sampler = 'k_eular_a' } else { console.log('sampler set to ' + args.sampler)}
-    if (args.G) {args.G = 1}
-    if (!args.n) { args.n = 1 } else { if (!Number.isInteger(args.n) || args.n > 4) { console.log(args.n); promptError = true }} // 4 max
-    var newprompt = sanitize(args._.join(' '))
-    console.log('Prompt is: ' + newprompt)
-    var useRenderer = 'localApi'
-    newJob = {
-      authorid: msg.author.id,
-      authorname: msg.author.username + '#' + msg.author.discriminator,
-      dateAdded: dateAdded, dateRenderStart: null, dateRenderFinish: null, 
-      seed: args.seed,
-      n: args.n,
-      width: args.width,
-      height: args.height,
-      steps: args.steps,
-      prompt: newprompt,
-      c: args.c,
-      scale: args.scale,
-      sampler: args.sampler,
-      renderer: useRenderer,
-      msg: msg,
-      G: args.G || undefined
-    }
-    if (args.seamless) { newJob.seamless = 'on' }
-    if (args.template) { console.log(args.template); newJob.template = args.template; newJob.strength = args.strength }
-    if (promptError === false) {
-      queue.push(newJob);
-      msg.addReaction('✔️') 
-      // msg.delete().catch(() => {})
-    } else { console.log('failed to push to queue'); msg.addReaction('⛔') }
-    processQueue()
+    request({cmd: msg.content.substr(7, msg.content.length), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
+    msg.delete().catch(() => {})
   }
 })
-
 bot.connect()
 
-function chat(msg) { if (msg !== null && msg !== '') { bot.createMessage(artspamchannelid, msg) } }
-function sanitize (prompt) { return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\[\] ,.\:]/g, '') }
-function base64Encode(file) { var body = fs.readFileSync(file); return body.toString('base64') }
-function encodeImageFileAsURL(file) {
-  var reader = new FileReader()
-  reader.onloadend = function() { console.log('RESULT', reader.result); return reader.result }
-  reader.readAsDataURL(file)
+function request(request){
+  // request = { cmd: string, userid: int, username: string, discriminator: int, bot: false, channelid: int, attachments: {}, }
+  console.log('request'); console.log(request)//tmp logging
+  if (request.cmd.includes('{')) { request.cmd = replaceRandoms(prompt) } // swap randomizers
+  var args = parseArgs(request.cmd.split(' '),{string: ['template','init_img','sampler']}) // parse arguments
+  // messy code below contains defaults values, check numbers are actually numbers and within acceptable ranges etc
+  if (!args.width || !Number.isInteger(args.width) || (512*args.width>config.pixelLimit)) { args.width = 512 }
+  if (!args.height || !Number.isInteger(args.height) || (512*args.height>config.pixelLimit)) { args.height = 512 }
+  if (!args.steps || !Number.isInteger(args.steps) || args.steps > 250) { args.steps = 50 } // max 250 steps, default 50
+  if (!args.seed || !Number.isInteger(args.seed) || args.seed < 1 || args.seed > 4294967295 ) { args.seed = getRandomSeed() }
+  if (!args.strength || args.strength > 1 || args.strength < 0 ) { args.strength = 0.75 }
+  if (!args.scale || args.scale > 30 || args.scale > 0 ) { args.scale = 7.5 }
+  if (!args.sampler || ['ddim','plms','k_lms','k_dpm_2','k_dpm_2_a','k_euler','k_euler_a','k_heun'].includes(args.sampler)) { args.sampler = 'k_euler_a' }
+  if (!args.n || !Number.isInteger(args.n) || args.n > 5 || args.n < 1) { args.n = 1 }
+  if (!args.seamless) { args.seamless = 'off'} else { args.seamless = 'on' }
+  if (!args.renderer || ['localApi'].includes(args.renderer)) { args.renderer = 'localApi'}
+  if (args.template) { newJob.template = sanitize(args.template) } else { newJob.template = null }
+  args.timestamp = moment()
+  args.prompt = sanitize(args._.join(' '))
+  queue.push({
+    id: queue.length+1,
+    status: 'new',
+    cmd: request.cmd,
+    userid: request.userid,
+    username: request.username,
+    discriminator: request.discriminator,
+    timestampRequested: args.timestamp,
+    channel: request.channelid,
+    attachments: request.attachments,
+    seed: args.seed,
+    n: args.n,
+    width: args.width,
+    height: args.height,
+    steps: args.steps,
+    prompt: args.prompt,
+    scale: args.scale,
+    sampler: args.sampler,
+    renderer: args.renderer,
+    strength: args.strength,
+    template: args.template
+  })
+  processQueue()
 }
-async function addRenderApi (job) {
+
+function getCmd(newJob){ return newJob.prompt+' --width ' + newJob.width + ' --height ' + newJob.height + ' --seed ' + newJob.seed + ' --scale ' + newJob.scale + ' --strength ' + newJob.strength + ' --n 1' }
+function getRandomSeed() {return Math.floor(Math.random() * 4294967295)}
+function chat(msg) { if (msg !== null && msg !== '') { bot.createMessage(artspamchannelid, msg) } }
+function sanitize (prompt) { return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '') }
+function base64Encode(file) { var body = fs.readFileSync(file); return body.toString('base64') }
+async function addRenderApi (id) {
+  var job = queue[queue.findIndex(x => x.id === id)] 
   var initimg = null
-  // console.log(job.msg.attachments[0])
+  job.status = 'rendering'
+  console.log(job)
   if (job.template !== undefined) { initimg = 'data:image/png;base64,' + base64Encode('allrenders\\sdbot\\' + job.template + '.png') }
-  console.log(job.msg.author.bot)
-  if (job.msg.author.bot !== 'true' && job.msg.attachments.length > 0 && job.msg.attachments[0].content_type === 'image/png') { // && job.msg.attachments.width === '512' && job.msg.attachments.height === '512'
-    console.log('fetching attachment from ' + job.msg.attachments[0].proxy_url) 
-    await axios.get(job.msg.attachments[0].proxy_url, {responseType: 'arraybuffer'})
-      .then(res => { initimg = 'data:image/ping;base64,' + Buffer.from(res.data).toString('base64') })
-      .catch(err => { console.error('unable to fetch url: ' + job.msg.attachments[0].proxy_url); console.error(err) })
+  if (job.attachments.length > 0 && job.attachments[0].content_type === 'image/png') { // && job.msg.attachments.width === '512' && job.msg.attachments.height === '512'
+    console.log('fetching attachment from ' + job.attachments[0].proxy_url)
+    await axios.get(job.attachments[0].proxy_url, {responseType: 'arraybuffer'})
+      .then(res => { initimg = 'data:image/ping;base64,' + Buffer.from(res.data).toString('base64'); job.initimg = initimg })
+      .catch(err => { console.error('unable to fetch url: ' + job.attachments[0].proxy_url); console.error(err) })
   }
-  if (job.strength === undefined){ job.strength = 0.75 }
-  if (job.sampler === undefined){ job.sampler = 'k_euler_a' }
+  if (job.strength === undefined){ console.log('no strength defined, setting to 0.75'); job.strength = 0.75 }
+  if (job.sampler === undefined){ console.log('no sampler defined, setting to k_euler_a');job.sampler = 'k_euler_a' }
   var prompt = job.prompt
   var postObject = {
       "prompt": prompt,
@@ -189,75 +159,66 @@ async function addRenderApi (job) {
       "initimg": initimg,
       "strength": job.strength,
       "fit": "on",
-      "gfpgan_strength": 0.8,
-      "upscale_level": '',
+      "gfpgan_strength": 0,
+      "upscale_level": '', // 2 or 4 or ''
       "upscale_strength": 0.75,
       "initimg_name": ''
     }
   if (job.seamless) { postObject.seamless = 'on' }
   axios.post(apiUrl, postObject)
     .then(res => {
-      if (queue.length > 0) { console.log('Moving item to pastjobs: ' + queue[0].prompt + ' by ' + queue[0].authorname); finished.push(queue.shift()) }
+      // if (queue.length > 0) { console.log('Moving item to pastjobs: ' + queue[0].prompt + ' by ' + queue[0].authorname); finished.push(queue.shift()) }
       var data = res.data.split("\n")
       data.pop() // Remove blank line from the end of api output
       data.forEach(line => {
         line = JSON.parse(line)
-        if (line.event !== 'result'){ return } else { postRender(line) }
+        if (line.event !== 'result'){ return } else { 
+          line.config.id = job.id
+          postRender(line) }
       })
       rendering = false
+      job.status = 'done'
       processQueue()
     })
     .catch(error => { console.log('error'); console.error(error) })
 }
 
-function postRender (render) {
+async function postRender (render) {
   console.log('postRender')
   console.log(render)
   fs.readFile(render.url, null, function(err, data) {
     if (err) { console.error(err) } else {
       filename = render.url.split('\\')[render.url.split('\\').length-1].replace(".png","")
-      var last = finished[finished.length-1] // find a better way to get requesting user
-      last.dateRenderFinish = moment()
-      var msg = '`!dream "' + render.config.prompt + '"\n` for <@' + last.authorid + '>'
+      var job = queue[queue.findIndex(x => x.id === render.config.id)]
+      // job.status = 'done'
+      console.log('postrender job')
+      console.log(job)
+      job.dateRenderFinish = moment()
+      var msg = '`!dream "' + render.config.prompt + '"` for <@' + job.userid + '>\n'
       if (render.config.width !== 512 || render.config.height !== 512) { msg+= ':straight_ruler:`' + render.config.width + 'x' + render.config.height + '`' }
-      if (last.G) { msg+= ':mag:**`Upscaled x 2`**'}
-      if (last.seamless) { msg+= ':knot:**`Seamless Tiling`**'}
-      if (last.template) { msg+= ':frame_photo:`' + last.template + '` :muscle: `' + render.config.strength + '`'}
-      msg+= ':seedling: `' + filename.split('.')[1] + '`:scales:`' + render.config.cfg_scale + '`:recycle:`' + render.config.steps + '`'
-      msg+= ':stopwatch:`' + timeDiff(moment(),last.dateAdded) + 's`:brain:`' + timeDiff(last.dateRenderFinish, last.dateRenderStart) + 's` :file_cabinet: `' + filename + '` :eye: `' + render.config.sampler_name + '`'
-      var newMessage = {
-        content: msg,
-        messageReference: { channelId: last.msg.channel.id, failIfNotExists: false, guildID: last.msg.guildID, message_id: last.msg.id },
-        components: [
-          {
-            type: Constants.ComponentTypes.ACTION_ROW,
-            components: [
-              {
-                type: Constants.ComponentTypes.BUTTON,
-                style: Constants.ButtonStyles.SECONDARY,
-                label: "New seed",
-                custom_id: "refresh",
-                emoji: { name: '🎲', id: null},
-                disabled: false
-              }
-            ]
-          }
-        ]
-      }
-      if (last.template) { newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Remove template", custom_id: "refreshNoTemplate", emoji: { name: '🎲', id: null}, disabled: false }) } 
-      if (last.G !== 1) { newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Use as template", custom_id: "template", emoji: { name: '📷', id: null}, disabled: false })  } 
-      bot.createMessage(artspamchannelid, newMessage, {file: data, name: filename + '.png' })
+      if (job.G) { msg+= ':mag:**`Upscaled x 2`**'}
+      if (job.seamless) { msg+= ':knot:**`Seamless Tiling`**'}
+      if (job.template) { msg+= ':frame_photo:`' + job.template + '` :muscle: `' + render.config.strength + '`'}
+      if (job.initimg) { msg+= ':frame_photo:` attached template` :muscle: `' + render.config.strength + '`'}
+      // if (last.msg.author.bot !== 'true' && last.msg.attachments.length > 0 && last.msg.attachments[0].content_type === 'image/png') { msg+= ':paperclip:**custom template** :muscle: `' + render.config.strength + '`'}
+      msg+= ':seedling: `' + render.seed + '`:scales:`' + render.config.cfg_scale + '`:recycle:`' + render.config.steps + '`'
+      msg+= ':stopwatch:`' + timeDiff(job.timestampRequested, moment()) + 's` :file_cabinet: `' + filename + '` :eye: `' + render.config.sampler_name + '`'
+      var newMessage = { content: msg, components: [ { type: Constants.ComponentTypes.ACTION_ROW, components: [ ] } ] }
+      newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "New seed", custom_id: "refresh-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })
+      if (job.template) { newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Remove template", custom_id: "refreshNoTemplate-" + job.id, emoji: { name: '🎲', id: null}, disabled: false }) } 
+      newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Use as template", custom_id: "template-" + job.id + '-' + filename, emoji: { name: '📷', id: null}, disabled: false })
+      bot.createMessage(job.channel, newMessage, {file: data, name: filename + '.png' })
     }
   })
 }
 
 function processQueue () {
-  if (queue.length > 0 && rendering === false) {
+  var nextJob = queue[queue.findIndex(x => x.status === 'new')] // queue[queue.findIndex(x => x.id === id)
+  if (nextJob !== undefined && rendering === false) {
     rendering = true
-    console.log('starting prompt: ' + queue[0].prompt)
-    queue[0].dateRenderStart = moment()
-    finished.push(queue[0])
-    addRenderApi(queue[0])
+    console.log('starting prompt: ' + nextJob.prompt)
+    // finished.push(queue[0])
+    addRenderApi(nextJob.id)
   } else if (rendering === true) { console.error('already rendering') }
 }
 
@@ -267,18 +228,15 @@ function process (file) {
       fs.readFile(file, null, function(err, data) { 
         if (err) { console.error(err); } else {
           filename = file.replace("allrenders\\sdbot\\", "").replace(".png","")
-          if (finished.length > 0) {finished[finished.length-1].file = filename} // bad
-          filename = file
-          if (file.includes('allrenders\\sdbot')) { filename = file.replace("allrenders\\sdbot\\", "").replace(".png","") }
           msg = ':file_cabinet:' + filename
-          bot.createMessage(artspamchannelid, msg, {file: data, name: file })
+          bot.createMessage(artspamchannelid, msg, {file: data, name: filename })
         }
       }, 300)
     }
   )}
 }
 
-function timeDiff (date1,date2) { return date1.diff(date2, 'seconds') }
+function timeDiff (date1,date2) { return date2.diff(date1, 'seconds') }
 function getRandomPrompt () { var prompts = fs.readFileSync('prompts.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
 function getRandomArtist () { var prompts = fs.readFileSync('artist.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
 function getRandomCity () { var prompts = fs.readFileSync('city.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
