@@ -76,6 +76,8 @@ bot.on("messageCreate", (msg) => {
     rendering = false; queue = []; console.log('admin wiped queue'); msg.delete().catch(() => {})
   } else if(msg.content.startsWith("!dream") && msg.channel.id === artspamchannelid) {
     request({cmd: msg.content.substr(7, msg.content.length), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
+  } else if(msg.content === '!queue') {
+    queueStatus()
     msg.delete().catch(() => {})
   }
 })
@@ -125,6 +127,14 @@ function request(request){
   processQueue()
 }
 
+function queueStatus() {
+  var statusNew = queue.filter(x => x.status === 'new').length
+  var statusDone = queue.filter(x => x.status === 'done').length
+  var statusRendering = queue.filter(x => x.status === 'rendering').length
+  var statusFailed = queue.filter(x => x.status === 'failed').length
+  var statusUserCount = queue.map(x => x.userid).filter(unique).length
+  chat(':information_source: New: `' + statusNew + '`, Rendering: `' + statusRendering + '`, Failed: `' + statusFailed + '`, Done: `' + statusDone + '`, Total: `' + queue.length + '`, Users: `' + statusUserCount + '`')
+}
 function getCmd(newJob){ return newJob.prompt+' --width ' + newJob.width + ' --height ' + newJob.height + ' --seed ' + newJob.seed + ' --scale ' + newJob.scale + ' --strength ' + newJob.strength + ' --n 1' }
 function getRandomSeed() {return Math.floor(Math.random() * 4294967295)}
 function chat(msg) { if (msg !== null && msg !== '') { bot.createMessage(artspamchannelid, msg) } }
@@ -178,6 +188,7 @@ async function addRenderApi (id) {
       })
       rendering = false
       job.status = 'done'
+      queueStatus()
       processQueue()
     })
     .catch(error => { console.log('error'); console.error(error) })
@@ -236,6 +247,7 @@ function process (file) {
   )}
 }
 
+const unique = (value, index, self) => { return self.indexOf(value) === index }
 function timeDiff (date1,date2) { return date2.diff(date1, 'seconds') }
 function getRandomPrompt () { var prompts = fs.readFileSync('prompts.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
 function getRandomArtist () { var prompts = fs.readFileSync('artist.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
