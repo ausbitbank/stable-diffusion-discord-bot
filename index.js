@@ -1,6 +1,8 @@
 const config = require('dotenv').config().parsed
 const Eris = require("eris")
 const Constants = Eris.Constants
+const Collection = Eris.Collection
+const CommandInteraction = Eris.CommandInteraction
 const fs = require('fs')
 const path = require('path')
 const chokidar = require('chokidar')
@@ -21,12 +23,59 @@ var apiUrl = config.apiUrl
 var rendering = false
 var newJob = {}
 
+var slashCommands = [
+  {
+    name: 'dream',
+    description: 'Create a new image from your prompt',
+    options: [
+      {type: '3', name: 'prompt', description: 'what would you like to see ?', required: true, min_length: 1, max_length:75 },
+      {type: '4', name: 'width', description: 'width of the image in pixels', required: false, min_value: 128, max_value: 1024 },
+      {type: '4', name: 'height', description: 'height of the image in pixels', required: false, min_value: 128, max_value: 1024 },
+      {type: '4', name: 'steps', description: 'how many steps to render for', required: false, min_value: 5, max_value: 250 },
+      {type: '4', name: 'seed', description: 'seed (initial noise pattern)', required: false},
+      {type: '4', name: 'strength', description: 'how much noise to add to your template image (0.1-0.9)', required: false},
+      {type: '4', name: 'scale', description: 'how important is the prompt (1-30)', required: false},
+      {type: '4', name: 'number', description: 'how many would you like', required: false, min_value: 1, max_value: 4},
+      {type: '3', name: 'sampler', description: 'seed (initial noise pattern)', required: false, choices: [{name: 'ddim', value: 'ddim'},{name: 'plms', value: 'plms'},{name: 'k_lms', value: 'k_lms'},{name: 'k_dpm_2', value: 'k_dpm_2'},{name: 'k_dpm_2_a', value: 'k_dpm_2_a'},{name: 'k_euler', value: 'k_euler'},{name: 'k_euler_a', value: 'k_euler_a'},{name: 'k_heun', value: 'k_heun'}]}
+      // {type: '11', name: 'attachment', description: 'use a template image', required: false}
+    ],
+    // TODO, fix attachment option ^^
+    execute: (i) => { request({cmd: getCmd(prepSlashCmd(i.data.options)), userid: i.member.id, username: i.member.user.username, discriminator: i.member.user.discriminator, bot: i.member.user.bot, channelid: i.channel.id, attachments: []}) }
+  },
+  /*{
+    name: 'prompt',
+    description: 'Show me a random prompt from the library',
+    options: [ {type: '3', name: 'prompt', description: 'Add these keywords to a random prompt', required: false} ],
+    execute: (i) => {
+      var prompt = ''
+      if (i.data[0].value) { prompt+= i.data[0].value + ' ' }
+      prompt += getRandomPrompt()
+      request({cmd: prompt, userid: i.member.id, username: i.member.user.username, discriminator: i.member.user.discriminator, bot: i.member.user.bot, channelid: i.channel.id, attachments: []})
+    }
+  }*/
+]
+
 bot.on("ready", async () => {
   console.log("Ready to go")
+  bot.commands = new Collection()
+  for (const c of slashCommands) {
+    bot.commands.set(c.name, c)
+    bot.createCommand({
+      name: c.name,
+      description: c.description,
+      options: c.options ?? [],
+      type: Constants.ApplicationCommandTypes.CHAT_INPUT
+    })
+  }
+  console.log('slash commands loaded')
 })
 
-bot.on("interactionCreate", (interaction) => {
-  console.log(interaction)
+bot.on("interactionCreate", async (interaction) => {
+  if(interaction instanceof Eris.CommandInteraction) {
+    if (!bot.commands.has(interaction.data.name)) return interaction.createMessage({content:'Command does not exist', flags:64})
+    try { await bot.commands.get(interaction.data.name).execute(interaction); await interaction.createMessage({content: 'soon :tm:', flags: 64}) }
+    catch (error) { console.error(error); await interaction.createMessage({content:'There was an error while executing this command!', flags: 64}) }
+  }
   if(interaction instanceof Eris.ComponentInteraction) {
     if (interaction.data.custom_id.startsWith('refresh')) { // || interaction.data.custom_id === 'refreshNoTemplate' || interaction.data.custom_id === 'refreshBatch' || interaction.data.custom_id === 'upscale') {
       console.log('refresh request')
@@ -49,7 +98,6 @@ bot.on("interactionCreate", (interaction) => {
       var newJob = queue[id-1]
       if (newJob) {
         console.log('job details found')
-        // newJob.template = newJob.file // 
         var cmd = getCmd(newJob)
         cmd+= ' --template ' + interaction.data.custom_id.split('-')[2]
         request({cmd: cmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
@@ -57,10 +105,6 @@ bot.on("interactionCreate", (interaction) => {
       } else {
         console.error('template request failed')
         return interaction.editParent({components:[]}).catch((e) => {console.log(e)})
-        /*return interaction.createMessage({
-          content: "Unable to use template",
-          flags: 64
-        })*/
       }
     }
   }
@@ -132,6 +176,21 @@ function queueStatus() {
   var statusFailed = queue.filter(x => x.status === 'failed').length
   var statusUserCount = queue.map(x => x.userid).filter(unique).length
   chat(':information_source: New: `' + statusNew + '`, Rendering: `' + statusRendering + '`, Failed: `' + statusFailed + '`, Done: `' + statusDone + '`, Total: `' + queue.length + '`, Users: `' + statusUserCount + '`')
+}
+function prepSlashCmd(options) { // Turn partial options into full command for slash commands, hate the redundant code here
+  var job = {}
+  for (o of options) {
+    if (o.name === 'prompt') {job.prompt = o.value}
+    if (o.name === 'width') {job.width = o.value} else { job.width = 512 }
+    if (o.name === 'height') {job.height = o.value} else { job.height = 512}
+    if (o.name === 'steps') {job.steps = o.value} else { job.steps = 50 }
+    if (o.name === 'scale') {job.scale = o.value} else { job.scale = 7.5 }
+    if (o.name === 'seed') {job.seed = o.value} else { job.seed = getRandomSeed() }
+    if (o.name === 'strength') {job.strength = o.value} else { job.strength = 0.75 }
+    if (o.name === 'n') {job.n = options.n} else { job.n = 1 }
+  }
+  console.log(job)
+  return job
 }
 function getCmd(newJob){ return newJob.prompt+' --width ' + newJob.width + ' --height ' + newJob.height + ' --seed ' + newJob.seed + ' --scale ' + newJob.scale + ' --strength ' + newJob.strength + ' --n 1' }
 function getRandomSeed() {return Math.floor(Math.random() * 4294967295)}
