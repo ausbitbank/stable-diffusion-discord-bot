@@ -5,6 +5,7 @@ const fs = require('fs')
 const path = require('path')
 const chokidar = require('chokidar')
 const moment = require('moment')
+// const consola = require('consola')
 var parseArgs = require('minimist')
 const axios = require('axios')
 const bot = new Eris(config.discordBotKey, {
@@ -17,13 +18,13 @@ var queue = []
 var finished = []
 var msg = ''
 var artspamchannelid = config.channelID
-var adminid = config.adminID
 var apiUrl = config.apiUrl
 var rendering = false
-var promptError = false
 var newJob = {}
 
-bot.on("ready", async () => { console.log("Ready to go") })
+bot.on("ready", async () => {
+  console.log("Ready to go")
+})
 
 bot.on("interactionCreate", (interaction) => {
   console.log(interaction)
@@ -40,10 +41,7 @@ bot.on("interactionCreate", (interaction) => {
         return interaction.editParent({embed:{footer:{text: interaction.member.user.username + ' chose ' + interaction.data.custom_id.split('-')[0] + ' id ' + interaction.data.custom_id.split('-')[1] }} ,components:[]}).catch((e) => {console.log(e)})
       } else {
         console.error('unable to refresh render')
-        return interaction.createMessage({
-          content: "Error, working on it",
-          flags: 64
-        })
+        return interaction.editParent({components:[]}).catch((e) => {console.log(e)})
       }
     } else if (interaction.data.custom_id.startsWith('template')) {
       console.log('template request')
@@ -59,10 +57,11 @@ bot.on("interactionCreate", (interaction) => {
         return interaction.editParent({embed:{footer:{text: interaction.member.user.username + ' chose ' + interaction.data.custom_id.split('-')[0] + ' id ' + interaction.data.custom_id.split('-')[1] }} ,components:[]}).catch((e) => {console.log(e)})
       } else {
         console.error('template request failed')
-        return interaction.createMessage({
+        return interaction.editParent({components:[]}).catch((e) => {console.log(e)})
+        /*return interaction.createMessage({
           content: "Unable to use template",
           flags: 64
-        })
+        })*/
       }
     }
   }
@@ -70,7 +69,7 @@ bot.on("interactionCreate", (interaction) => {
 
 bot.on("messageCreate", (msg) => {
   if((msg.content.startsWith("!prompt")) && msg.channel.id === artspamchannelid) {
-    request({cmd: msg.content.replace('!prompt','').trim() + ' ' + getRandomPrompt(), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
+    request({cmd: msg.content.replace('!prompt','').trim() + '' + getRandomPrompt(), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
     msg.delete().catch(() => {})
   } else if(msg.content.startsWith("!dothething") && msg.channel.id === artspamchannelid && msg.author.id === config.adminID) {
     rendering = false; queue = []; console.log('admin wiped queue'); msg.delete().catch(() => {})
@@ -94,7 +93,7 @@ function request(request){
   if (!args.steps || !Number.isInteger(args.steps) || args.steps > 250) { args.steps = 50 } // max 250 steps, default 50
   if (!args.seed || !Number.isInteger(args.seed) || args.seed < 1 || args.seed > 4294967295 ) { args.seed = getRandomSeed() }
   if (!args.strength || args.strength > 1 || args.strength < 0 ) { args.strength = 0.75 }
-  if (!args.scale || args.scale > 30 || args.scale > 0 ) { args.scale = 7.5 }
+  if (!args.scale || args.scale > 30 || args.scale < 0 ) { args.scale = 7.5 }
   if (!args.sampler || ['ddim','plms','k_lms','k_dpm_2','k_dpm_2_a','k_euler','k_euler_a','k_heun'].includes(args.sampler)) { args.sampler = 'k_euler_a' }
   if (!args.n || !Number.isInteger(args.n) || args.n > 5 || args.n < 1) { args.n = 1 }
   if (!args.seamless) { args.seamless = 'off'} else { args.seamless = 'on' }
@@ -188,8 +187,8 @@ async function addRenderApi (id) {
       })
       rendering = false
       job.status = 'done'
-      queueStatus()
       processQueue()
+      queueStatus()
     })
     .catch(error => { console.log('error'); console.error(error) })
 }
