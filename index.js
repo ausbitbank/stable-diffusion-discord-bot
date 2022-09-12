@@ -8,7 +8,7 @@ const moment = require('moment')
 var parseArgs = require('minimist')
 const axios = require('axios')
 const bot = new Eris(config.discordBotKey, {
-  intents: ["guildMessages"],
+  intents: ["guildMessages", "messageContent"],
   description: "Just a slave to the art, maaan",
   owner: "ausbitbank",
   prefix: "!"

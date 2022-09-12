@@ -7,13 +7,23 @@ You'll need to have https://github.com/lstein/stable-diffusion installed and wor
 
 To install bot dependancies : `npm install chokidar moment axios eris dotenv minimist`
 
-Get yourself a bot api key from https://discord.com/developers/applications
-
-Rename `.env.example` to `.env` and enter your own details
+Rename `.env.example` to `.env` and enter your own details:
+- Copy the Discord channel ID as `channelID`
+  - User Settings > ᴀᴘᴘ sᴇᴛᴛɪɴɢs > Advanced > enable Developer Mode [per D](https://support.discord.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID-)⁽ˀ⁾
+  - Right click Channel, Copy ID
+- `adminID` is your full Discord username#123 
+- `apiURL` is already the default for https://github.com/lstein/stable-diffusion
+- Copy Bot ᴛᴏᴋᴇɴ as `discordBotKey`
+  - [New Application](https://discord.com/developers/applications)
+  - Settings > Bot > Add Bot
+  - (If necessary: Reset Token), Copy
+  - Enable the ᴍᴇssᴀɢᴇ ᴄᴏɴᴛᴇɴᴛ ɪɴᴛᴇɴᴛ Privileged Gateway Intent [per @zsoltime on SO](https://stackoverflow.com/a/73037243).
+    - ![image](https://user-images.githubusercontent.com/115931/189581611-673c32d7-19ce-4710-8911-1e71481fe257.png)
+    - (Until slash commands are implemented, as per WIP/future features.)
 
 Run with `node index.js`
 
-Invite to your server with `https://discord.com/oauth2/authorize?client_id= BOT ID HERE &scope=bot&permissions=124992`
+Invite to your server with `https://discord.com/oauth2/authorize?client_id= BOT TOKEN HERE &scope=bot&permissions=124992` (these ᴛᴇxᴛ ᴘᴇʀᴍɪssɪᴏɴs are required for the bot to function!)
 
 ## Current features:
 - Most features from the lstein fork are available via bot
