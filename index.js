@@ -5,7 +5,6 @@ const fs = require('fs')
 const path = require('path')
 const chokidar = require('chokidar')
 const moment = require('moment')
-// const consola = require('consola')
 var parseArgs = require('minimist')
 const axios = require('axios')
 const bot = new Eris(config.discordBotKey, {
@@ -85,7 +84,7 @@ bot.connect()
 function request(request){
   // request = { cmd: string, userid: int, username: string, discriminator: int, bot: false, channelid: int, attachments: {}, }
   console.log('request'); console.log(request)//tmp logging
-  if (request.cmd.includes('{')) { request.cmd = replaceRandoms(prompt) } // swap randomizers
+  if (request.cmd.includes('{')) { request.cmd = replaceRandoms(request.cmd) } // swap randomizers
   var args = parseArgs(request.cmd.split(' '),{string: ['template','init_img','sampler']}) // parse arguments
   // messy code below contains defaults values, check numbers are actually numbers and within acceptable ranges etc
   if (!args.width || !Number.isInteger(args.width) || (512*args.width>config.pixelLimit)) { args.width = 512 }
