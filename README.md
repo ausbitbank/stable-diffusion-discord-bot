@@ -26,7 +26,6 @@ Invite to your server with `https://discord.com/oauth2/authorize?client_id= BOT 
 ## WIP/future features:
 - Slash commands
 - Fix realesrgan upscaling
-- Send init images via discord attachment
 - Per-user limits, credit tracking
 - Hive/HBD credit topups
 - Alternative render path via dreamstudio api for paying users
