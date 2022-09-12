@@ -34,7 +34,7 @@ Invite to your server with `https://discord.com/oauth2/authorize?client_id= BOT 
 - Prompt and keyword randomisation from txt files
 
 ## WIP/future features:
-- Slash commands
+- ~~Slash commands~~ (basic functions working already)
 - Fix realesrgan upscaling
 - Per-user limits, credit tracking
 - Hive/HBD credit topups
