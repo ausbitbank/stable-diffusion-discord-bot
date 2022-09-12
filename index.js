@@ -127,7 +127,7 @@ bot.connect()
 
 function request(request){
   // request = { cmd: string, userid: int, username: string, discriminator: int, bot: false, channelid: int, attachments: {}, }
-  console.log('request'); console.log(request)//tmp logging
+  // console.log('request'); console.log(request)//tmp logging
   if (request.cmd.includes('{')) { request.cmd = replaceRandoms(request.cmd) } // swap randomizers
   var args = parseArgs(request.cmd.split(' '),{string: ['template','init_img','sampler']}) // parse arguments
   // messy code below contains defaults values, check numbers are actually numbers and within acceptable ranges etc
@@ -138,7 +138,8 @@ function request(request){
   if (!args.strength || args.strength > 1 || args.strength < 0 ) { args.strength = 0.75 }
   if (!args.scale || args.scale > 30 || args.scale < 0 ) { args.scale = 7.5 }
   if (!args.sampler || ['ddim','plms','k_lms','k_dpm_2','k_dpm_2_a','k_euler','k_euler_a','k_heun'].includes(args.sampler)) { args.sampler = 'k_euler_a' }
-  if (!args.n || !Number.isInteger(args.n) || args.n > 5 || args.n < 1) { args.n = 1 }
+  if (args.n) {args.number = args.n}
+  if (!args.number || !Number.isInteger(args.number) || args.number > 5 || args.number < 1) { args.number = 1 }
   if (!args.seamless) { args.seamless = 'off'} else { args.seamless = 'on' }
   if (!args.renderer || ['localApi'].includes(args.renderer)) { args.renderer = 'localApi'}
   if (args.template) { newJob.template = sanitize(args.template) } else { newJob.template = null }
@@ -155,7 +156,7 @@ function request(request){
     channel: request.channelid,
     attachments: request.attachments,
     seed: args.seed,
-    n: args.n,
+    number: args.number,
     width: args.width,
     height: args.height,
     steps: args.steps,
@@ -179,20 +180,11 @@ function queueStatus() {
 }
 function prepSlashCmd(options) { // Turn partial options into full command for slash commands, hate the redundant code here
   var job = {}
-  for (o of options) {
-    if (o.name === 'prompt') {job.prompt = o.value}
-    if (o.name === 'width') {job.width = o.value} else { job.width = 512 }
-    if (o.name === 'height') {job.height = o.value} else { job.height = 512}
-    if (o.name === 'steps') {job.steps = o.value} else { job.steps = 50 }
-    if (o.name === 'scale') {job.scale = o.value} else { job.scale = 7.5 }
-    if (o.name === 'seed') {job.seed = o.value} else { job.seed = getRandomSeed() }
-    if (o.name === 'strength') {job.strength = o.value} else { job.strength = 0.75 }
-    if (o.name === 'n') {job.n = options.n} else { job.n = 1 }
-  }
-  console.log(job)
+  var defaults = [{ name: 'prompt', value: ''},{name: 'width', value: 512},{name:'height',value:512},{name:'steps',value:50},{name:'scale',value:7.5},{name:'seed', value: getRandomSeed()},{name:'strength',value:0.75},{name:'number',value:1}]
+  defaults.forEach(d=>{ if (options.find(o=>{ if (o.name===d.name) { return true } else { return false } })) { job[d.name] = options.find(o=>{ if (o.name===d.name) { return true } else { return false } }).value } else { job[d.name] = d.value } })
   return job
 }
-function getCmd(newJob){ return newJob.prompt+' --width ' + newJob.width + ' --height ' + newJob.height + ' --seed ' + newJob.seed + ' --scale ' + newJob.scale + ' --strength ' + newJob.strength + ' --n 1' }
+function getCmd(newJob){ return newJob.prompt+' --width ' + newJob.width + ' --height ' + newJob.height + ' --seed ' + newJob.seed + ' --scale ' + newJob.scale + ' --steps ' + newJob.steps + ' --strength ' + newJob.strength + ' --n ' + newJob.number }
 function getRandomSeed() {return Math.floor(Math.random() * 4294967295)}
 function chat(msg) { if (msg !== null && msg !== '') { bot.createMessage(artspamchannelid, msg) } }
 function sanitize (prompt) { return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '') }
@@ -214,7 +206,7 @@ async function addRenderApi (id) {
   var prompt = job.prompt
   var postObject = {
       "prompt": prompt,
-      "iterations": job.n,
+      "iterations": job.number,
       "steps": job.steps,
       "cfg_scale": job.scale,
       "sampler_name": job.sampler,
