@@ -14,7 +14,7 @@ const bot = new Eris(config.discordBotKey, {
   description: "Just a slave to the art, maaan",
   owner: "ausbitbank",
   prefix: "!",
-  reconnect: "auto"
+  reconnect: 'auto'
 })
 const defaultSize = 512
 var queue = []
@@ -38,10 +38,10 @@ var slashCommands = [
       {type: '4', name: 'strength', description: 'how much noise to add to your template image (0.1-0.9)', required: false},
       {type: '4', name: 'scale', description: 'how important is the prompt (1-30)', required: false},
       {type: '4', name: 'number', description: 'how many would you like', required: false, min_value: 1, max_value: 4},
-      {type: '3', name: 'sampler', description: 'seed (initial noise pattern)', required: false, choices: [{name: 'ddim', value: 'ddim'},{name: 'plms', value: 'plms'},{name: 'k_lms', value: 'k_lms'},{name: 'k_dpm_2', value: 'k_dpm_2'},{name: 'k_dpm_2_a', value: 'k_dpm_2_a'},{name: 'k_euler', value: 'k_euler'},{name: 'k_euler_a', value: 'k_euler_a'},{name: 'k_heun', value: 'k_heun'}]}
-      // {type: '11', name: 'attachment', description: 'use a template image', required: false}
+      {type: '3', name: 'sampler', description: 'seed (initial noise pattern)', required: false, choices: [{name: 'ddim', value: 'ddim'},{name: 'plms', value: 'plms'},{name: 'k_lms', value: 'k_lms'},{name: 'k_dpm_2', value: 'k_dpm_2'},{name: 'k_dpm_2_a', value: 'k_dpm_2_a'},{name: 'k_euler', value: 'k_euler'},{name: 'k_euler_a', value: 'k_euler_a'},{name: 'k_heun', value: 'k_heun'}]},
+      {type: '11', name: 'attachment', description: 'use template image (BROKEN USE !dream instead for attachments for now)', required: false}
     ],
-    // TODO, fix attachment option ^^
+    // TODO, fix attachment option ^^ i.data.resolved.attachments?
     execute: (i) => { request({cmd: getCmd(prepSlashCmd(i.data.options)), userid: i.member.id, username: i.member.user.username, discriminator: i.member.user.discriminator, bot: i.member.user.bot, channelid: i.channel.id, attachments: []}) }
   },
   /*{
@@ -72,16 +72,10 @@ bot.on("ready", async () => {
   console.log('slash commands loaded')
 })
 
-bot.on("error", async (err) => {
- console.log(moment().format(), "--- BEGIN: ERROR ---")
- console.error(err)
- console.log(moment().format(), "--- END: ERROR ---")
-})
-
 bot.on("interactionCreate", async (interaction) => {
   if(interaction instanceof Eris.CommandInteraction) {
     if (!bot.commands.has(interaction.data.name)) return interaction.createMessage({content:'Command does not exist', flags:64})
-    try { await bot.commands.get(interaction.data.name).execute(interaction); await interaction.createMessage({content: 'soon :tm:', flags: 64}) }
+    try { await bot.commands.get(interaction.data.name).execute(interaction); await interaction.createMessage({content: 'Your image will be rendered soon :tm:', flags: 64}) }
     catch (error) { console.error(error); await interaction.createMessage({content:'There was an error while executing this command!', flags: 64}) }
   }
   if(interaction instanceof Eris.ComponentInteraction) {
@@ -94,7 +88,7 @@ bot.on("interactionCreate", async (interaction) => {
         var cmd = getCmd(newJob)
         if (!interaction.data.custom_id.startsWith('refreshNoTemplate')) { if (newJob.template){ cmd+= ' --template ' + newJob.template } } else { console.log('refreshNoTemplate') }
         request({cmd: cmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
-        return interaction.editParent({embed:{footer:{text: interaction.member.user.username + ' chose ' + interaction.data.custom_id.split('-')[0] + ' id ' + interaction.data.custom_id.split('-')[1] }} ,components:[]}).catch((e) => {console.log(e)})
+        return interaction.editParent({embed:{footer:{text: queue[id-1].prompt + '\n\n' + interaction.member.user.username + ' chose ' + interaction.data.custom_id.split('-')[0] + ' id ' + interaction.data.custom_id.split('-')[1] }} ,components:[]}).catch((e) => {console.log(e)})
       } else {
         console.error('unable to refresh render')
         return interaction.editParent({components:[]}).catch((e) => {console.log(e)})
@@ -109,7 +103,7 @@ bot.on("interactionCreate", async (interaction) => {
         var cmd = getCmd(newJob)
         cmd+= ' --template ' + interaction.data.custom_id.split('-')[2]
         request({cmd: cmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
-        return interaction.editParent({embed:{footer:{text: interaction.member.user.username + ' chose ' + interaction.data.custom_id.split('-')[0] + ' id ' + interaction.data.custom_id.split('-')[1] }} ,components:[]}).catch((e) => {console.log(e)})
+        return interaction.editParent({embed:{footer:{text: queue[id-1].prompt + '\n\n' + interaction.member.user.username + ' chose ' + interaction.data.custom_id.split('-')[0] + ' id ' + interaction.data.custom_id.split('-')[1] }} ,components:[]}).catch((e) => {console.log(e)})
       } else {
         console.error('template request failed')
         return interaction.editParent({components:[]}).catch((e) => {console.log(e)})
@@ -184,7 +178,8 @@ function queueStatus() {
   var statusRendering = queue.filter(x => x.status === 'rendering').length
   var statusFailed = queue.filter(x => x.status === 'failed').length
   var statusUserCount = queue.map(x => x.userid).filter(unique).length
-  chat(':information_source: New: `' + statusNew + '`, Rendering: `' + statusRendering + '`, Failed: `' + statusFailed + '`, Done: `' + statusDone + '`, Total: `' + queue.length + '`, Users: `' + statusUserCount + '`')
+  chat(':information_source: New: `' + statusNew + '`, Rendering: `' + statusRendering + '`, Done: `' + statusDone + '`, Total: `' + queue.length + '`, Users: `' + statusUserCount + '`')
+
 }
 function prepSlashCmd(options) { // Turn partial options into full command for slash commands, hate the redundant code here
   var job = {}
@@ -247,23 +242,22 @@ async function addRenderApi (id) {
       })
       rendering = false
       processQueue()
-      queueStatus()
     })
     .catch(error => { console.log('error'); console.error(error) })
 }
 
 async function postRender (render) {
-  console.log('postRender')
-  console.log(render)
+  // console.log('postRender')
+  // console.log(render)
   fs.readFile(render.url, null, function(err, data) {
     if (err) { console.error(err) } else {
       filename = render.url.split('\\')[render.url.split('\\').length-1].replace(".png","")
       var job = queue[queue.findIndex(x => x.id === render.config.id)]
       // job.status = 'done'
-      console.log('postrender job')
-      console.log(job)
+      // console.log('postrender job')
+      // console.log(job)
       job.dateRenderFinish = moment()
-      var msg = '`!dream "' + render.config.prompt + '"` for <@' + job.userid + '>\n'
+      var msg = '<@' + job.userid + '>' //var msg = '`!dream "' + render.config.prompt + '"`  + '>\n'
       if (render.config.width !== defaultSize || render.config.height !== defaultSize) { msg+= ':straight_ruler:`' + render.config.width + 'x' + render.config.height + '`' }
       if (job.G) { msg+= ':mag:**`Upscaled x 2`**'}
       if (job.seamless) { msg+= ':knot:**`Seamless Tiling`**'}
@@ -272,7 +266,7 @@ async function postRender (render) {
       // if (last.msg.author.bot !== 'true' && last.msg.attachments.length > 0 && last.msg.attachments[0].content_type === 'image/png') { msg+= ':paperclip:**custom template** :muscle: `' + render.config.strength + '`'}
       msg+= ':seedling: `' + render.seed + '`:scales:`' + render.config.cfg_scale + '`:recycle:`' + render.config.steps + '`'
       msg+= ':stopwatch:`' + timeDiff(job.timestampRequested, moment()) + 's` :file_cabinet: `' + filename + '` :eye: `' + render.config.sampler_name + '`'
-      var newMessage = { content: msg, components: [ { type: Constants.ComponentTypes.ACTION_ROW, components: [ ] } ] }
+      var newMessage = { content: msg, embeds: [{description: render.config.prompt}], components: [ { type: Constants.ComponentTypes.ACTION_ROW, components: [ ] } ] }
       newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "New seed", custom_id: "refresh-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })
       if (job.template) { newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Remove template", custom_id: "refreshNoTemplate-" + job.id, emoji: { name: '🎲', id: null}, disabled: false }) } 
       newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Use as template", custom_id: "template-" + job.id + '-' + filename, emoji: { name: '📷', id: null}, disabled: false })
@@ -288,6 +282,7 @@ function processQueue () {
     console.log('starting prompt: ' + nextJob.prompt)
     // finished.push(queue[0])
     addRenderApi(nextJob.id)
+    queueStatus()
   } else if (rendering === true) { console.error('already rendering') }
 }
 
