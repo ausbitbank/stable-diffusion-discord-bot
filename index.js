@@ -13,7 +13,8 @@ const bot = new Eris(config.discordBotKey, {
   intents: ["guildMessages", "messageContent"],
   description: "Just a slave to the art, maaan",
   owner: "ausbitbank",
-  prefix: "!"
+  prefix: "!",
+  reconnect: "auto"
 })
 var queue = []
 var finished = []
@@ -68,6 +69,12 @@ bot.on("ready", async () => {
     })
   }
   console.log('slash commands loaded')
+})
+
+bot.on("error", async (err) => {
+ console.log(moment().format(), "--- BEGIN: ERROR ---")
+ console.error(err)
+ console.log(moment().format(), "--- END: ERROR ---")
 })
 
 bot.on("interactionCreate", async (interaction) => {
