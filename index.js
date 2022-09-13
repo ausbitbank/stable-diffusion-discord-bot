@@ -271,7 +271,7 @@ async function postRender (render) {
       var msg = '<@' + job.userid + '>' //var msg = '`!dream "' + render.config.prompt + '"`  + '>\n'
       if (render.config.width !== defaultSize || render.config.height !== defaultSize) { msg+= ':straight_ruler:`' + render.config.width + 'x' + render.config.height + '`' }
       if (job.upscale_level !== '') { msg+= ':mag:**`Upscaled x ' + job.upscale_level + '(' + job.upscale_strength + ')`**'}
-      if (job.gfpgan_strength !== 0) { msg+= ':magic_wand:**`gfpgan face fix (' + job.gfpgan_strength + ')**`'}
+      if (job.gfpgan_strength !== 0) { msg+= ':magic_wand:`gfpgan face fix (' + job.gfpgan_strength + ')`'}
       if (job.seamless) { msg+= ':knot:**`Seamless Tiling`**'}
       if (job.template) { msg+= ':frame_photo:`' + job.template + '` :muscle: `' + render.config.strength + '`'}
       if (job.initimg) { msg+= ':paperclip:` attached template` :muscle: `' + render.config.strength + '`'}
