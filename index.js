@@ -15,6 +15,7 @@ const bot = new Eris(config.discordBotKey, {
   owner: "ausbitbank",
   prefix: "!"
 })
+const defaultSize = 512
 var queue = []
 var finished = []
 var msg = ''
@@ -131,8 +132,8 @@ function request(request){
   if (request.cmd.includes('{')) { request.cmd = replaceRandoms(request.cmd) } // swap randomizers
   var args = parseArgs(request.cmd.split(' '),{string: ['template','init_img','sampler']}) // parse arguments
   // messy code below contains defaults values, check numbers are actually numbers and within acceptable ranges etc
-  if (!args.width || !Number.isInteger(args.width) || (512*args.width>config.pixelLimit)) { args.width = 512 }
-  if (!args.height || !Number.isInteger(args.height) || (512*args.height>config.pixelLimit)) { args.height = 512 }
+  if (!args.width || !Number.isInteger(args.width) || (defaultSize*args.width>config.pixelLimit)) { args.width = defaultSize }
+  if (!args.height || !Number.isInteger(args.height) || (defaultSize*args.height>config.pixelLimit)) { args.height = defaultSize }
   if (!args.steps || !Number.isInteger(args.steps) || args.steps > 250) { args.steps = 50 } // max 250 steps, default 50
   if (!args.seed || !Number.isInteger(args.seed) || args.seed < 1 || args.seed > 4294967295 ) { args.seed = getRandomSeed() }
   if (!args.strength || args.strength > 1 || args.strength < 0 ) { args.strength = 0.75 }
@@ -180,7 +181,7 @@ function queueStatus() {
 }
 function prepSlashCmd(options) { // Turn partial options into full command for slash commands, hate the redundant code here
   var job = {}
-  var defaults = [{ name: 'prompt', value: ''},{name: 'width', value: 512},{name:'height',value:512},{name:'steps',value:50},{name:'scale',value:7.5},{name:'seed', value: getRandomSeed()},{name:'strength',value:0.75},{name:'number',value:1}]
+  var defaults = [{ name: 'prompt', value: ''},{name: 'width', value: defaultSize},{name:'height',value:defaultSize},{name:'steps',value:50},{name:'scale',value:7.5},{name:'seed', value: getRandomSeed()},{name:'strength',value:0.75},{name:'number',value:1}]
   defaults.forEach(d=>{ if (options.find(o=>{ if (o.name===d.name) { return true } else { return false } })) { job[d.name] = options.find(o=>{ if (o.name===d.name) { return true } else { return false } }).value } else { job[d.name] = d.value } })
   return job
 }
@@ -255,7 +256,7 @@ async function postRender (render) {
       console.log(job)
       job.dateRenderFinish = moment()
       var msg = '`!dream "' + render.config.prompt + '"` for <@' + job.userid + '>\n'
-      if (render.config.width !== 512 || render.config.height !== 512) { msg+= ':straight_ruler:`' + render.config.width + 'x' + render.config.height + '`' }
+      if (render.config.width !== defaultSize || render.config.height !== defaultSize) { msg+= ':straight_ruler:`' + render.config.width + 'x' + render.config.height + '`' }
       if (job.G) { msg+= ':mag:**`Upscaled x 2`**'}
       if (job.seamless) { msg+= ':knot:**`Seamless Tiling`**'}
       if (job.template) { msg+= ':frame_photo:`' + job.template + '` :muscle: `' + render.config.strength + '`'}
