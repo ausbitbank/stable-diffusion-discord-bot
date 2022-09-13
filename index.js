@@ -263,7 +263,7 @@ async function addRenderApi (id) {
 async function postRender (render) {
   // console.log('postRender')
   // console.log(render)
-  fs.readFile(render.url, null, function(err, data) {
+  try { fs.readFile(render.url, null, function(err, data) {
     if (err) { console.error(err) } else {
       filename = render.url.split('\\')[render.url.split('\\').length-1].replace(".png","")
       var job = queue[queue.findIndex(x => x.id === render.config.id)]
@@ -282,9 +282,18 @@ async function postRender (render) {
       if (job.template) { newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Remove template", custom_id: "refreshNoTemplate-" + job.id, emoji: { name: '🎲', id: null}, disabled: false }) } 
       newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Use as template", custom_id: "template-" + job.id + '-' + filename, emoji: { name: '📷', id: null}, disabled: false })
       // newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Upscale", custom_id: "upscale-" + job.id + '-' + seed, emoji: { name: '🔍', id: null}, disabled: false })
-      bot.createMessage(job.channel, newMessage, {file: data, name: filename + '.png' })
-    }
-  })
+      var filesize = fs.statSync(render.url).size
+      console.log('file is ' + filesize + ' bytes')}
+      if (filesize < 8000000) { // Within discord 8mb filesize limit
+        try { bot.createMessage(job.channel, newMessage, {file: data, name: filename + '.png' }) }
+        catch (err) {console.error(err)}
+      } else {
+        // Need another path to file upload, for now just alert user so admin can manually upload
+        chat('Sorry <@' + job.userid + '> but your file was too big for discord, reach an admin and theyll get you your image `' + filename + '.png`')
+      }
+    })
+  }
+  catch(err) {console.error(err)}
 }
 
 function processQueue () {
