@@ -18,7 +18,6 @@ const bot = new Eris(config.discordBotKey, {
 })
 const defaultSize = 512
 var queue = []
-var finished = []
 var msg = ''
 var artspamchannelid = config.channelID
 var apiUrl = config.apiUrl
@@ -38,23 +37,26 @@ var slashCommands = [
       {type: '4', name: 'strength', description: 'how much noise to add to your template image (0.1-0.9)', required: false},
       {type: '4', name: 'scale', description: 'how important is the prompt (1-30)', required: false},
       {type: '4', name: 'number', description: 'how many would you like', required: false, min_value: 1, max_value: 4},
-      {type: '3', name: 'sampler', description: 'seed (initial noise pattern)', required: false, choices: [{name: 'ddim', value: 'ddim'},{name: 'plms', value: 'plms'},{name: 'k_lms', value: 'k_lms'},{name: 'k_dpm_2', value: 'k_dpm_2'},{name: 'k_dpm_2_a', value: 'k_dpm_2_a'},{name: 'k_euler', value: 'k_euler'},{name: 'k_euler_a', value: 'k_euler_a'},{name: 'k_heun', value: 'k_heun'}]},
-      {type: '11', name: 'attachment', description: 'use template image (BROKEN USE !dream instead for attachments for now)', required: false}
+      {type: '3', name: 'sampler', description: 'which sampler to use (default is k_euler_a)', required: false, choices: [{name: 'ddim', value: 'ddim'},{name: 'plms', value: 'plms'},{name: 'k_lms', value: 'k_lms'},{name: 'k_dpm_2', value: 'k_dpm_2'},{name: 'k_dpm_2_a', value: 'k_dpm_2_a'},{name: 'k_euler', value: 'k_euler'},{name: 'k_euler_a', value: 'k_euler_a'},{name: 'k_heun', value: 'k_heun'}]},
+      {type: '11', name: 'attachment', description: 'use template image (BROKEN USE !dream instead for attachments for now)', required: false},
+      {type: '4', name: 'gfpgan_strength', description: 'GFPGan strength (low= more face correction, high= more accuracy)', required: false, min_value: 0, max_value: 1},
+      {type: '3', name: 'upscale_level', description: 'upscale amount', required: false, choices: [{name: 'none', value: '0'},{name: '2x', value: '2'},{name: '4x', value: '4'}]},
+      {type: '4', name: 'upscale_strength', description: 'upscale strength (smoothing/detail loss)', required: false, min_value: 0, max_value: 1}
     ],
     // TODO, fix attachment option ^^ i.data.resolved.attachments?
     execute: (i) => { request({cmd: getCmd(prepSlashCmd(i.data.options)), userid: i.member.id, username: i.member.user.username, discriminator: i.member.user.discriminator, bot: i.member.user.bot, channelid: i.channel.id, attachments: []}) }
   },
-  /*{
+  {
     name: 'prompt',
     description: 'Show me a random prompt from the library',
     options: [ {type: '3', name: 'prompt', description: 'Add these keywords to a random prompt', required: false} ],
     execute: (i) => {
       var prompt = ''
-      if (i.data[0].value) { prompt+= i.data[0].value + ' ' }
+      if (i.data.options) { prompt+= i.data.options[0].value + ' ' }
       prompt += getRandomPrompt()
       request({cmd: prompt, userid: i.member.id, username: i.member.user.username, discriminator: i.member.user.discriminator, bot: i.member.user.bot, channelid: i.channel.id, attachments: []})
     }
-  }*/
+  }
 ]
 
 bot.on("ready", async () => {
@@ -84,11 +86,12 @@ bot.on("interactionCreate", async (interaction) => {
       var id = interaction.data.custom_id.split('-')[1]
       var newJob = queue[id-1]
       if (newJob) {
+        newJob.number = 1
         newJob.seed = getRandomSeed()
         var cmd = getCmd(newJob)
         if (!interaction.data.custom_id.startsWith('refreshNoTemplate')) { if (newJob.template){ cmd+= ' --template ' + newJob.template } } else { console.log('refreshNoTemplate') }
         request({cmd: cmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
-        return interaction.editParent({embed:{footer:{text: queue[id-1].prompt + '\n\n' + interaction.member.user.username + ' chose ' + interaction.data.custom_id.split('-')[0] + ' id ' + interaction.data.custom_id.split('-')[1] }} ,components:[]}).catch((e) => {console.log(e)})
+        return interaction.editParent({embed:{footer:{text: queue[id-1].prompt + '\n\n' + interaction.member.user.username + ' chose ' + interaction.data.custom_id.split('-')[0] }} ,components:[]}).catch((e) => {console.log(e)})
       } else {
         console.error('unable to refresh render')
         return interaction.editParent({components:[]}).catch((e) => {console.log(e)})
@@ -99,11 +102,12 @@ bot.on("interactionCreate", async (interaction) => {
       id=interaction.data.custom_id.split('-')[1]
       var newJob = queue[id-1]
       if (newJob) {
+        newJob.number = 1
         console.log('job details found')
         var cmd = getCmd(newJob)
         cmd+= ' --template ' + interaction.data.custom_id.split('-')[2]
         request({cmd: cmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
-        return interaction.editParent({embed:{footer:{text: queue[id-1].prompt + '\n\n' + interaction.member.user.username + ' chose ' + interaction.data.custom_id.split('-')[0] + ' id ' + interaction.data.custom_id.split('-')[1] }} ,components:[]}).catch((e) => {console.log(e)})
+        return interaction.editParent({embed:{footer:{text: queue[id-1].prompt + '\n\n' + interaction.member.user.username + ' chose ' + interaction.data.custom_id.split('-')[0] }} ,components:[]}).catch((e) => {console.log(e)})
       } else {
         console.error('template request failed')
         return interaction.editParent({components:[]}).catch((e) => {console.log(e)})
@@ -113,12 +117,14 @@ bot.on("interactionCreate", async (interaction) => {
 })
 
 bot.on("messageCreate", (msg) => {
+  // console.log(msg)
   if((msg.content.startsWith("!prompt")) && msg.channel.id === artspamchannelid) {
     request({cmd: msg.content.replace('!prompt','').trim() + '' + getRandomPrompt(), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
     msg.delete().catch(() => {})
   } else if(msg.content.startsWith("!dothething") && msg.channel.id === artspamchannelid && msg.author.id === config.adminID) {
     rendering = false; queue = []; console.log('admin wiped queue'); msg.delete().catch(() => {})
   } else if(msg.content.startsWith("!dream") && msg.channel.id === artspamchannelid) {
+    console.log('dream request')
     request({cmd: msg.content.substr(7, msg.content.length), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
   } else if(msg.content === '!queue') {
     queueStatus()
@@ -144,7 +150,11 @@ function request(request){
   if (!args.number || !Number.isInteger(args.number) || args.number > 5 || args.number < 1) { args.number = 1 }
   if (!args.seamless) { args.seamless = 'off'} else { args.seamless = 'on' }
   if (!args.renderer || ['localApi'].includes(args.renderer)) { args.renderer = 'localApi'}
-  if (args.template) { newJob.template = sanitize(args.template) } else { newJob.template = null }
+  // Should really check if template exists at this point, dont pass on invalid template
+  if (args.template) { args.template = sanitize(args.template) } else { args.template = undefined }
+  if (!args.gfpgan_strength) { args.gfpgan_strength = 0 }
+  if (!args.upscale_level) { args.upscale_level = '' }
+  if (!args.upscale_strength) { args.upscale_strength = 0.75 }
   args.timestamp = moment()
   args.prompt = sanitize(args._.join(' '))
   queue.push({
@@ -167,7 +177,11 @@ function request(request){
     sampler: args.sampler,
     renderer: args.renderer,
     strength: args.strength,
-    template: args.template
+    template: args.template,
+    gfpgan_strength: args.gfpgan_strength,
+    upscale_level: args.upscale_level,
+    upscale_strength: args.upscale_strength,
+    results: []
   })
   processQueue()
 }
@@ -183,7 +197,7 @@ function queueStatus() {
 }
 function prepSlashCmd(options) { // Turn partial options into full command for slash commands, hate the redundant code here
   var job = {}
-  var defaults = [{ name: 'prompt', value: ''},{name: 'width', value: defaultSize},{name:'height',value:defaultSize},{name:'steps',value:50},{name:'scale',value:7.5},{name:'seed', value: getRandomSeed()},{name:'strength',value:0.75},{name:'number',value:1}]
+  var defaults = [{ name: 'prompt', value: ''},{name: 'width', value: defaultSize},{name:'height',value:defaultSize},{name:'steps',value:50},{name:'scale',value:7.5},{name:'seed', value: getRandomSeed()},{name:'strength',value:0.75},{name:'number',value:1},{name:'gfpgan_strength',value:0},{name:'upscale_strength',value:0.75},{name:'upscale_level',value:''}]
   defaults.forEach(d=>{ if (options.find(o=>{ if (o.name===d.name) { return true } else { return false } })) { job[d.name] = options.find(o=>{ if (o.name===d.name) { return true } else { return false } }).value } else { job[d.name] = d.value } })
   return job
 }
@@ -196,7 +210,7 @@ async function addRenderApi (id) {
   var job = queue[queue.findIndex(x => x.id === id)] 
   var initimg = null
   job.status = 'rendering'
-  console.log(job)
+  //console.log(job)
   if (job.template !== undefined) { initimg = 'data:image/png;base64,' + base64Encode('allrenders\\sdbot\\' + job.template + '.png') }
   if (job.attachments.length > 0 && job.attachments[0].content_type === 'image/png') { // && job.msg.attachments.width === '512' && job.msg.attachments.height === '512'
     console.log('fetching attachment from ' + job.attachments[0].proxy_url)
@@ -204,8 +218,6 @@ async function addRenderApi (id) {
       .then(res => { initimg = 'data:image/ping;base64,' + Buffer.from(res.data).toString('base64'); job.initimg = initimg })
       .catch(err => { console.error('unable to fetch url: ' + job.attachments[0].proxy_url); console.error(err) })
   }
-  if (job.strength === undefined){ console.log('no strength defined, setting to 0.75'); job.strength = 0.75 }
-  if (job.sampler === undefined){ console.log('no sampler defined, setting to k_euler_a');job.sampler = 'k_euler_a' }
   var prompt = job.prompt
   var postObject = {
       "prompt": prompt,
@@ -221,9 +233,9 @@ async function addRenderApi (id) {
       "initimg": initimg,
       "strength": job.strength,
       "fit": "on",
-      "gfpgan_strength": 0,
-      "upscale_level": '', // 2 or 4 or ''
-      "upscale_strength": 0.75,
+      "gfpgan_strength": job.gfpgan_strength,
+      "upscale_level": job.upscale_level, // 2 or 4 or ''
+      "upscale_strength": job.upscale_strength,
       "initimg_name": ''
     }
   if (job.seamless) { postObject.seamless = 'on' }
@@ -235,7 +247,9 @@ async function addRenderApi (id) {
       job.status = 'failed'
       data.forEach(line => {
         line = JSON.parse(line)
-        if (line.event !== 'result'){ return } else { 
+        if (line.event !== 'result'){ return } else {
+          // {"event": "upscaling-started", "processed_file_cnt": "1/1"} {"event": "upscaling-done", "processed_file_cnt": "2/1"}
+          job.results.push({filename: line.url, seed: line.seed}) // keep each generated images filename and seed
           line.config.id = job.id
           job.status = 'done'
           postRender(line) }
@@ -253,29 +267,28 @@ async function postRender (render) {
     if (err) { console.error(err) } else {
       filename = render.url.split('\\')[render.url.split('\\').length-1].replace(".png","")
       var job = queue[queue.findIndex(x => x.id === render.config.id)]
-      // job.status = 'done'
-      // console.log('postrender job')
-      // console.log(job)
       job.dateRenderFinish = moment()
       var msg = '<@' + job.userid + '>' //var msg = '`!dream "' + render.config.prompt + '"`  + '>\n'
       if (render.config.width !== defaultSize || render.config.height !== defaultSize) { msg+= ':straight_ruler:`' + render.config.width + 'x' + render.config.height + '`' }
-      if (job.G) { msg+= ':mag:**`Upscaled x 2`**'}
+      if (job.upscale_level !== '') { msg+= ':mag:**`Upscaled x ' + job.upscale_level + '(' + job.upscale_strength + ')`**'}
+      if (job.gfpgan_strength !== 0) { msg+= ':magic_wand:**`gfpgan face fix (' + job.gfpgan_strength + ')**`'}
       if (job.seamless) { msg+= ':knot:**`Seamless Tiling`**'}
       if (job.template) { msg+= ':frame_photo:`' + job.template + '` :muscle: `' + render.config.strength + '`'}
-      if (job.initimg) { msg+= ':frame_photo:` attached template` :muscle: `' + render.config.strength + '`'}
-      // if (last.msg.author.bot !== 'true' && last.msg.attachments.length > 0 && last.msg.attachments[0].content_type === 'image/png') { msg+= ':paperclip:**custom template** :muscle: `' + render.config.strength + '`'}
+      if (job.initimg) { msg+= ':paperclip:` attached template` :muscle: `' + render.config.strength + '`'}
       msg+= ':seedling: `' + render.seed + '`:scales:`' + render.config.cfg_scale + '`:recycle:`' + render.config.steps + '`'
       msg+= ':stopwatch:`' + timeDiff(job.timestampRequested, moment()) + 's` :file_cabinet: `' + filename + '` :eye: `' + render.config.sampler_name + '`'
       var newMessage = { content: msg, embeds: [{description: render.config.prompt}], components: [ { type: Constants.ComponentTypes.ACTION_ROW, components: [ ] } ] }
       newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "New seed", custom_id: "refresh-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })
       if (job.template) { newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Remove template", custom_id: "refreshNoTemplate-" + job.id, emoji: { name: '🎲', id: null}, disabled: false }) } 
       newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Use as template", custom_id: "template-" + job.id + '-' + filename, emoji: { name: '📷', id: null}, disabled: false })
+      // newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Upscale", custom_id: "upscale-" + job.id + '-' + seed, emoji: { name: '🔍', id: null}, disabled: false })
       bot.createMessage(job.channel, newMessage, {file: data, name: filename + '.png' })
     }
   })
 }
 
 function processQueue () {
+  // console.info(queue)
   var nextJob = queue[queue.findIndex(x => x.status === 'new')] // queue[queue.findIndex(x => x.id === id)
   if (nextJob !== undefined && rendering === false) {
     rendering = true
