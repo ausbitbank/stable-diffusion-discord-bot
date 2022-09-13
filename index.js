@@ -229,14 +229,15 @@ async function addRenderApi (id) {
       // if (queue.length > 0) { console.log('Moving item to pastjobs: ' + queue[0].prompt + ' by ' + queue[0].authorname); finished.push(queue.shift()) }
       var data = res.data.split("\n")
       data.pop() // Remove blank line from the end of api output
+      job.status = 'failed'
       data.forEach(line => {
         line = JSON.parse(line)
         if (line.event !== 'result'){ return } else { 
           line.config.id = job.id
+          job.status = 'done'
           postRender(line) }
       })
       rendering = false
-      job.status = 'done'
       processQueue()
       queueStatus()
     })
