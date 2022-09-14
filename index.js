@@ -34,15 +34,15 @@ var slashCommands = [
       {type: '4', name: 'height', description: 'height of the image in pixels', required: false, min_value: 128, max_value: 1024 },
       {type: '4', name: 'steps', description: 'how many steps to render for', required: false, min_value: 5, max_value: 250 },
       {type: '4', name: 'seed', description: 'seed (initial noise pattern)', required: false},
-      {type: '4', name: 'strength', description: 'how much noise to add to your template image (0.1-0.9)', required: false},
+      {type: '10', name: 'strength', description: 'how much noise to add to your template image (0.1-0.9)', required: false, min_value:0.1, max_value:1},
       {type: '4', name: 'scale', description: 'how important is the prompt (1-30)', required: false},
       {type: '4', name: 'number', description: 'how many would you like', required: false, min_value: 1, max_value: 4},
       {type: '5', name: 'seamless', description: 'Seamlessly tiling textures', required: false},
       {type: '3', name: 'sampler', description: 'which sampler to use (default is k_euler_a)', required: false, choices: [{name: 'ddim', value: 'ddim'},{name: 'plms', value: 'plms'},{name: 'k_lms', value: 'k_lms'},{name: 'k_dpm_2', value: 'k_dpm_2'},{name: 'k_dpm_2_a', value: 'k_dpm_2_a'},{name: 'k_euler', value: 'k_euler'},{name: 'k_euler_a', value: 'k_euler_a'},{name: 'k_heun', value: 'k_heun'}]},
       {type: '11', name: 'attachment', description: 'use template image (BROKEN USE !dream instead for attachments for now)', required: false},
-      {type: '4', name: 'gfpgan_strength', description: 'GFPGan strength (low= more face correction, high= more accuracy)', required: false, min_value: 0, max_value: 1},
+      {type: '10', name: 'gfpgan_strength', description: 'GFPGan strength (low= more face correction, high= more accuracy)', required: false, min_value: 0, max_value: 1},
       {type: '3', name: 'upscale_level', description: 'upscale amount', required: false, choices: [{name: 'none', value: '0'},{name: '2x', value: '2'},{name: '4x', value: '4'}]},
-      {type: '4', name: 'upscale_strength', description: 'upscale strength (smoothing/detail loss)', required: false, min_value: 0, max_value: 1}
+      {type: '10', name: 'upscale_strength', description: 'upscale strength (smoothing/detail loss)', required: false, min_value: 0, max_value: 1}
     ],
     // TODO, fix attachment option ^^ i.data.resolved.attachments?
     execute: (i) => { request({cmd: getCmd(prepSlashCmd(i.data.options)), userid: i.member.id, username: i.member.user.username, discriminator: i.member.user.discriminator, bot: i.member.user.bot, channelid: i.channel.id, attachments: []}) }
