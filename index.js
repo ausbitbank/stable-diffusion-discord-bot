@@ -19,7 +19,6 @@ const bot = new Eris(config.discordBotKey, {
 const defaultSize = 512
 var queue = []
 var msg = ''
-var artspamchannelid = config.channelID
 var apiUrl = config.apiUrl
 var rendering = false
 var newJob = {}
@@ -76,12 +75,12 @@ bot.on("ready", async () => {
 })
 
 bot.on("interactionCreate", async (interaction) => {
-  if(interaction instanceof Eris.CommandInteraction) {
+  if(interaction instanceof Eris.CommandInteraction && interaction.channel.id === config.channelID) {
     if (!bot.commands.has(interaction.data.name)) return interaction.createMessage({content:'Command does not exist', flags:64})
     try { await bot.commands.get(interaction.data.name).execute(interaction); await interaction.createMessage({content: 'Your image will be rendered soon :tm:', flags: 64}) }
     catch (error) { console.error(error); await interaction.createMessage({content:'There was an error while executing this command!', flags: 64}) }
   }
-  if(interaction instanceof Eris.ComponentInteraction) {
+  if(interaction instanceof Eris.ComponentInteraction && interaction.channel.id === config.channelID) {
     if (interaction.data.custom_id.startsWith('refresh')) { // || interaction.data.custom_id === 'refreshNoTemplate' || interaction.data.custom_id === 'refreshBatch' || interaction.data.custom_id === 'upscale') {
       console.log('refresh request')
       var id = interaction.data.custom_id.split('-')[1]
@@ -119,12 +118,12 @@ bot.on("interactionCreate", async (interaction) => {
 
 bot.on("messageCreate", (msg) => {
   // console.log(msg)
-  if((msg.content.startsWith("!prompt")) && msg.channel.id === artspamchannelid) {
+  if((msg.content.startsWith("!prompt")) && msg.channel.id === config.channelID) {
     request({cmd: msg.content.replace('!prompt','').trim() + '' + getRandomPrompt(), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
     msg.delete().catch(() => {})
-  } else if(msg.content.startsWith("!dothething") && msg.channel.id === artspamchannelid && msg.author.id === config.adminID) {
+  } else if(msg.content.startsWith("!dothething") && msg.channel.id === config.channelID && msg.author.id === config.adminID) {
     rendering = false; queue = []; console.log('admin wiped queue'); msg.delete().catch(() => {})
-  } else if(msg.content.startsWith("!dream") && msg.channel.id === artspamchannelid) {
+  } else if(msg.content.startsWith("!dream") && msg.channel.id === config.channelID) {
     console.log('dream request')
     request({cmd: msg.content.substr(7, msg.content.length), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
   } else if(msg.content === '!queue') {
@@ -208,7 +207,7 @@ function prepSlashCmd(options) { // Turn partial options into full command for s
 }
 function getCmd(newJob){ return newJob.prompt+' --width ' + newJob.width + ' --height ' + newJob.height + ' --seed ' + newJob.seed + ' --scale ' + newJob.scale + ' --steps ' + newJob.steps + ' --strength ' + newJob.strength + ' --n ' + newJob.number + ' --gfpgan_strength ' + newJob.gfpgan_strength + ' --upscale_level ' + newJob.upscale_level + ' --upscale_strength ' + newJob.upscale_strength + ' --seamless ' + newJob.seamless}
 function getRandomSeed() {return Math.floor(Math.random() * 4294967295)}
-function chat(msg) { if (msg !== null && msg !== '') { bot.createMessage(artspamchannelid, msg) } }
+function chat(msg) { if (msg !== null && msg !== '') { bot.createMessage(config.channelID, msg) } }
 function sanitize (prompt) { return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '') }
 function base64Encode(file) { var body = fs.readFileSync(file); return body.toString('base64') }
 async function addRenderApi (id) {
@@ -306,12 +305,12 @@ function processQueue () {
   var nextJob = queue[queue.findIndex(x => x.status === 'new')] // queue[queue.findIndex(x => x.id === id)
   if (nextJob !== undefined && rendering === false) {
     rendering = true
-    console.log('starting prompt: ' + nextJob.prompt + ' for ' + nextJob.username)
-    // console.log(nextJob)
+    // console.log('starting prompt: ' + nextJob.prompt + ' for ' + nextJob.username)
+    console.log(nextJob.cmd)
     // finished.push(queue[0])
     addRenderApi(nextJob.id)
     queueStatus()
-  } else if (rendering === true) { console.error('already rendering') }
+  } //else if (rendering === true) { console.error('already rendering') }
 }
 
 function process (file) {
@@ -321,7 +320,7 @@ function process (file) {
         if (err) { console.error(err); } else {
           filename = file.replace("allrenders\\sdbot\\", "").replace(".png","")
           msg = ':file_cabinet:' + filename
-          bot.createMessage(artspamchannelid, msg, {file: data, name: filename })
+          bot.createMessage(config.channelID, msg, {file: data, name: filename })
         }
       }, 300)
     }
