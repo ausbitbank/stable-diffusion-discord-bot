@@ -1,11 +1,11 @@
 # stable-diffusion-discord-bot
 
 A basic discord bot built to interface with the webserver api built into the lstein fork of stable-diffusion.
-Currently only tested on windows 10 with an nvidia 1080ti 11gb. In theory should work with as low as 6gb vram
+Currently only tested on windows 10 with an nvidia 1080ti 11gb.
 
 You'll need to have https://github.com/lstein/stable-diffusion installed and working on your system first, as well as nodejs and npm.
 
-To install bot dependancies : `npm install chokidar moment axios eris dotenv minimist`
+To install bot dependancies : `npm install chokidar moment axios eris dotenv minimist imgur`
 
 Rename `.env.example` to `.env` and enter your own details:
 - Copy the Discord channel ID as `channelID`
@@ -33,6 +33,7 @@ Invite to your server with `https://discord.com/oauth2/authorize?client_id= BOT 
 - Prompt and keyword randomisation from txt files
 - RealESRGAN face fixing and upscaling
 - Slash commands
+- Upload to imgur api if files get too big for your discord server (optional)
 
 ## WIP/future features:
 - Per-user limits, credit tracking
