@@ -9,6 +9,8 @@ const chokidar = require('chokidar')
 const moment = require('moment')
 var parseArgs = require('minimist')
 const axios = require('axios')
+const { ImgurClient } = require('imgur')
+const imgur = new ImgurClient({ clientId: config.imgurClientID})
 const bot = new Eris(config.discordBotKey, {
   intents: ["guildMessages", "messageContent"],
   description: "Just a slave to the art, maaan",
@@ -82,7 +84,7 @@ bot.on("interactionCreate", async (interaction) => {
   }
   if(interaction instanceof Eris.ComponentInteraction && interaction.channel.id === config.channelID) {
     if (interaction.data.custom_id.startsWith('refresh')) { // || interaction.data.custom_id === 'refreshNoTemplate' || interaction.data.custom_id === 'refreshBatch' || interaction.data.custom_id === 'upscale') {
-      console.log('refresh request')
+      console.log('refresh request from ' + interaction.member.user.username)
       var id = interaction.data.custom_id.split('-')[1]
       var newJob = queue[id-1]
       if (newJob) {
@@ -97,13 +99,13 @@ bot.on("interactionCreate", async (interaction) => {
         return interaction.editParent({components:[]}).catch((e) => {console.log(e)})
       }
     } else if (interaction.data.custom_id.startsWith('template')) {
-      console.log('template request')
-      console.log(interaction.data.custom_id)
+      console.log('template request from ' + interaction.member.user.username)
+      // console.log(interaction.data.custom_id)
       id=interaction.data.custom_id.split('-')[1]
       var newJob = queue[id-1]
       if (newJob) {
         newJob.number = 1
-        console.log('job details found')
+        // console.log('job details found')
         var cmd = getCmd(newJob)
         cmd+= ' --template ' + interaction.data.custom_id.split('-')[2]
         request({cmd: cmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
@@ -124,7 +126,7 @@ bot.on("messageCreate", (msg) => {
   } else if(msg.content.startsWith("!dothething") && msg.channel.id === config.channelID && msg.author.id === config.adminID) {
     rendering = false; queue = []; console.log('admin wiped queue'); msg.delete().catch(() => {})
   } else if(msg.content.startsWith("!dream") && msg.channel.id === config.channelID) {
-    console.log('dream request')
+    console.log('!dream request from ' + msg.author.username)
     request({cmd: msg.content.substr(7, msg.content.length), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
   } else if(msg.content === '!queue') {
     queueStatus()
@@ -292,8 +294,13 @@ async function postRender (render) {
         try { bot.createMessage(job.channel, newMessage, {file: data, name: filename + '.png' }) }
         catch (err) {console.error(err)}
       } else {
-        // Need another path to file upload, for now just alert user so admin can manually upload
-        chat('Sorry <@' + job.userid + '> but your file was too big for discord, reach an admin and theyll get you your image `' + filename + '.png`')
+        if (imgurEnabled()) {
+          chat('<@' + job.userid + '> your file was too big for discord, uploading to imgur now..')
+          try { imgurupload(render.url).then(upload => { chat({ content: msg, embeds: [{image: {url: upload.link}, description:render.config.prompt}]}) }) }
+          catch (err) { console.error(err); chat('Sorry <@' + job.userid + '> imgur uploading failed, contact an admin for your image `' + filename + '.png`') }
+        } else {
+          chat('Sorry <@' + job.userid + '> but your file was too big for discord, contact an admin for your image `' + filename + '.png`')
+        }
       }
     }
     })
@@ -345,10 +352,10 @@ function getRandomVerb () { var prompts = fs.readFileSync('verbs.txt', 'utf8'); 
 function getRandomAdverb () { var prompts = fs.readFileSync('adverb.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
 function getRandomAdjective() { var prompts = fs.readFileSync('adjectives.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
 function getRandomStar() { var prompts = fs.readFileSync('stars.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-// function getRandom() { var prompts = fs.readFileSync('adjectives.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
+
 function replaceRandoms (input) {
   console.log('replaceRandoms')
-  var output = input // Disabled randomisers, works fine if you add the required filenames above to script folder ^^
+  var output = input // Randomisers, works fine if you add the required filenames above to script folder ^^
   var output = input.replaceAll('{prompt}',getRandomPrompt())
   output = output.replaceAll('{artist}',getRandomArtist())
   output = output.replaceAll('{city}',getRandomCity())
@@ -367,6 +374,14 @@ function replaceRandoms (input) {
   output = output.replaceAll('{star}',getRandomStar())
   console.log(output)
   return output
+}
+
+function imgurEnabled() { if (config.imgurClientID.length > 0) { return true } else { return false } }
+async function imgurupload(file) {
+  console.log('uploading via imgur api')
+  const response = await imgur.upload({ image: fs.createReadStream(file), type: 'stream'})
+  console.log(response.data)
+  return response.data
 }
 
 const log = console.log.bind(console)
