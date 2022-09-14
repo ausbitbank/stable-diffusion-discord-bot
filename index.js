@@ -37,6 +37,7 @@ var slashCommands = [
       {type: '4', name: 'strength', description: 'how much noise to add to your template image (0.1-0.9)', required: false},
       {type: '4', name: 'scale', description: 'how important is the prompt (1-30)', required: false},
       {type: '4', name: 'number', description: 'how many would you like', required: false, min_value: 1, max_value: 4},
+      {type: '5', name: 'seamless', description: 'Seamlessly tiling textures', required: false},
       {type: '3', name: 'sampler', description: 'which sampler to use (default is k_euler_a)', required: false, choices: [{name: 'ddim', value: 'ddim'},{name: 'plms', value: 'plms'},{name: 'k_lms', value: 'k_lms'},{name: 'k_dpm_2', value: 'k_dpm_2'},{name: 'k_dpm_2_a', value: 'k_dpm_2_a'},{name: 'k_euler', value: 'k_euler'},{name: 'k_euler_a', value: 'k_euler_a'},{name: 'k_heun', value: 'k_heun'}]},
       {type: '11', name: 'attachment', description: 'use template image (BROKEN USE !dream instead for attachments for now)', required: false},
       {type: '4', name: 'gfpgan_strength', description: 'GFPGan strength (low= more face correction, high= more accuracy)', required: false, min_value: 0, max_value: 1},
@@ -148,7 +149,7 @@ function request(request){
   if (!args.sampler || ['ddim','plms','k_lms','k_dpm_2','k_dpm_2_a','k_euler','k_euler_a','k_heun'].includes(args.sampler)) { args.sampler = 'k_euler_a' }
   if (args.n) {args.number = args.n}
   if (!args.number || !Number.isInteger(args.number) || args.number > 5 || args.number < 1) { args.number = 1 }
-  if (!args.seamless) { args.seamless = 'off'} else { args.seamless = 'on' }
+  if (!args.seamless || args.seamless === 'false') { args.seamless = 'off'} else { args.seamless = 'on' }
   if (!args.renderer || ['localApi'].includes(args.renderer)) { args.renderer = 'localApi'}
   // Should really check if template exists at this point, dont pass on invalid template
   if (args.template) { args.template = sanitize(args.template) } else { args.template = undefined }
@@ -181,6 +182,7 @@ function request(request){
     gfpgan_strength: args.gfpgan_strength,
     upscale_level: args.upscale_level,
     upscale_strength: args.upscale_strength,
+    seamless: args.seamless,
     results: []
   })
   processQueue()
@@ -197,11 +199,11 @@ function queueStatus() {
 }
 function prepSlashCmd(options) { // Turn partial options into full command for slash commands, hate the redundant code here
   var job = {}
-  var defaults = [{ name: 'prompt', value: ''},{name: 'width', value: defaultSize},{name:'height',value:defaultSize},{name:'steps',value:50},{name:'scale',value:7.5},{name:'seed', value: getRandomSeed()},{name:'strength',value:0.75},{name:'number',value:1},{name:'gfpgan_strength',value:0},{name:'upscale_strength',value:0.75},{name:'upscale_level',value:''}]
+  var defaults = [{ name: 'prompt', value: ''},{name: 'width', value: defaultSize},{name:'height',value:defaultSize},{name:'steps',value:50},{name:'scale',value:7.5},{name:'seed', value: getRandomSeed()},{name:'strength',value:0.75},{name:'number',value:1},{name:'gfpgan_strength',value:0},{name:'upscale_strength',value:0.75},{name:'upscale_level',value:''},{name:'seamless',value:'off'}]
   defaults.forEach(d=>{ if (options.find(o=>{ if (o.name===d.name) { return true } else { return false } })) { job[d.name] = options.find(o=>{ if (o.name===d.name) { return true } else { return false } }).value } else { job[d.name] = d.value } })
   return job
 }
-function getCmd(newJob){ return newJob.prompt+' --width ' + newJob.width + ' --height ' + newJob.height + ' --seed ' + newJob.seed + ' --scale ' + newJob.scale + ' --steps ' + newJob.steps + ' --strength ' + newJob.strength + ' --n ' + newJob.number + ' --gfpgan_strength ' + newJob.gfpgan_strength + ' --upscale_level ' + newJob.upscale_level + ' --upscale_strength ' + newJob.upscale_strength}
+function getCmd(newJob){ return newJob.prompt+' --width ' + newJob.width + ' --height ' + newJob.height + ' --seed ' + newJob.seed + ' --scale ' + newJob.scale + ' --steps ' + newJob.steps + ' --strength ' + newJob.strength + ' --n ' + newJob.number + ' --gfpgan_strength ' + newJob.gfpgan_strength + ' --upscale_level ' + newJob.upscale_level + ' --upscale_strength ' + newJob.upscale_strength + ' --seamless ' + newJob.seamless}
 function getRandomSeed() {return Math.floor(Math.random() * 4294967295)}
 function chat(msg) { if (msg !== null && msg !== '') { bot.createMessage(artspamchannelid, msg) } }
 function sanitize (prompt) { return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '') }
@@ -236,9 +238,10 @@ async function addRenderApi (id) {
       "gfpgan_strength": job.gfpgan_strength,
       "upscale_level": job.upscale_level, // 2 or 4 or ''
       "upscale_strength": job.upscale_strength,
-      "initimg_name": ''
+      "initimg_name": '',
     }
-  if (job.seamless) { postObject.seamless = 'on' }
+  if (job.seamless==='on') { postObject.seamless = 'on' }
+
   axios.post(apiUrl, postObject)
     .then(res => {
       // if (queue.length > 0) { console.log('Moving item to pastjobs: ' + queue[0].prompt + ' by ' + queue[0].authorname); finished.push(queue.shift()) }
@@ -272,7 +275,7 @@ async function postRender (render) {
       if (render.config.width !== defaultSize || render.config.height !== defaultSize) { msg+= ':straight_ruler:`' + render.config.width + 'x' + render.config.height + '`' }
       if (job.upscale_level !== '') { msg+= ':mag:**`Upscaled x ' + job.upscale_level + '(' + job.upscale_strength + ')`**'}
       if (job.gfpgan_strength !== 0) { msg+= ':magic_wand:`gfpgan face fix (' + job.gfpgan_strength + ')`'}
-      if (job.seamless) { msg+= ':knot:**`Seamless Tiling`**'}
+      if (job.seamless === 'on') { msg+= ':knot:**`Seamless Tiling`**'}
       if (job.template) { msg+= ':frame_photo:`' + job.template + '` :muscle: `' + render.config.strength + '`'}
       if (job.initimg) { msg+= ':paperclip:` attached template` :muscle: `' + render.config.strength + '`'}
       msg+= ':seedling: `' + render.seed + '`:scales:`' + render.config.cfg_scale + '`:recycle:`' + render.config.steps + '`'
@@ -283,7 +286,6 @@ async function postRender (render) {
       newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Use as template", custom_id: "template-" + job.id + '-' + filename, emoji: { name: '📷', id: null}, disabled: false })
       // newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Upscale", custom_id: "upscale-" + job.id + '-' + seed, emoji: { name: '🔍', id: null}, disabled: false })
       var filesize = fs.statSync(render.url).size
-      console.log('file is ' + filesize + ' bytes')}
       if (filesize < 8000000) { // Within discord 8mb filesize limit
         try { bot.createMessage(job.channel, newMessage, {file: data, name: filename + '.png' }) }
         catch (err) {console.error(err)}
@@ -291,17 +293,18 @@ async function postRender (render) {
         // Need another path to file upload, for now just alert user so admin can manually upload
         chat('Sorry <@' + job.userid + '> but your file was too big for discord, reach an admin and theyll get you your image `' + filename + '.png`')
       }
+    }
     })
   }
   catch(err) {console.error(err)}
 }
 
 function processQueue () {
-  // console.info(queue)
   var nextJob = queue[queue.findIndex(x => x.status === 'new')] // queue[queue.findIndex(x => x.id === id)
   if (nextJob !== undefined && rendering === false) {
     rendering = true
-    console.log('starting prompt: ' + nextJob.prompt)
+    console.log('starting prompt: ' + nextJob.prompt + ' for ' + newJob.username)
+    // console.log(nextJob)
     // finished.push(queue[0])
     addRenderApi(nextJob.id)
     queueStatus()
