@@ -149,7 +149,10 @@ function request(request){
   if (!args.sampler || ['ddim','plms','k_lms','k_dpm_2','k_dpm_2_a','k_euler','k_euler_a','k_heun'].includes(args.sampler)) { args.sampler = 'k_euler_a' }
   if (args.n) {args.number = args.n}
   if (!args.number || !Number.isInteger(args.number) || args.number > 5 || args.number < 1) { args.number = 1 }
-  if (!args.seamless || args.seamless === 'false') { args.seamless = 'off'} else { args.seamless = 'on' }
+  if (!args.seamless) {args.seamless = 'off'} else {
+    if (args.seamless === 'true') { args.seamless = 'on'}
+    if (args.seamless === 'false') { args.seamless = 'off'}
+  }
   if (!args.renderer || ['localApi'].includes(args.renderer)) { args.renderer = 'localApi'}
   // Should really check if template exists at this point, dont pass on invalid template
   if (args.template) { args.template = sanitize(args.template) } else { args.template = undefined }
@@ -303,7 +306,7 @@ function processQueue () {
   var nextJob = queue[queue.findIndex(x => x.status === 'new')] // queue[queue.findIndex(x => x.id === id)
   if (nextJob !== undefined && rendering === false) {
     rendering = true
-    console.log('starting prompt: ' + nextJob.prompt + ' for ' + newJob.username)
+    console.log('starting prompt: ' + nextJob.prompt + ' for ' + nextJob.username)
     // console.log(nextJob)
     // finished.push(queue[0])
     addRenderApi(nextJob.id)
