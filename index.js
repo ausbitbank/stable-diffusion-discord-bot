@@ -93,7 +93,8 @@ bot.on("interactionCreate", async (interaction) => {
         var cmd = getCmd(newJob)
         if (!interaction.data.custom_id.startsWith('refreshNoTemplate')) { if (newJob.template){ cmd+= ' --template ' + newJob.template } } else { console.log('refreshNoTemplate') }
         request({cmd: cmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
-        return interaction.editParent({embed:{footer:{text: queue[id-1].prompt + '\n\n' + interaction.member.user.username + ' chose ' + interaction.data.custom_id.split('-')[0] }} ,components:[]}).catch((e) => {console.log(e)})
+        // return interaction.editParent({embeds:{footer:{text: queue[id-1].prompt}},components:[interaction.message.components]}).catch((e) => {console.log(e)})
+        return interaction.createMessage({content:'Refreshing', flags:64})
       } else {
         console.error('unable to refresh render')
         return interaction.editParent({components:[]}).catch((e) => {console.log(e)})
@@ -109,7 +110,8 @@ bot.on("interactionCreate", async (interaction) => {
         var cmd = getCmd(newJob)
         cmd+= ' --template ' + interaction.data.custom_id.split('-')[2]
         request({cmd: cmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
-        return interaction.editParent({embed:{footer:{text: queue[id-1].prompt + '\n\n' + interaction.member.user.username + ' chose ' + interaction.data.custom_id.split('-')[0] }} ,components:[]}).catch((e) => {console.log(e)})
+        // return interaction.editParent({embed:{footer:{text: queue[id-1].prompt}} ,components:[interaction.message.components]}).catch((e) => {console.log(e)})
+        return interaction.createMessage({content:'Using template', flags:64})
       } else {
         console.error('template request failed')
         return interaction.editParent({components:[]}).catch((e) => {console.log(e)})
@@ -147,7 +149,7 @@ function request(request){
   if (!args.seed || !Number.isInteger(args.seed) || args.seed < 1 || args.seed > 4294967295 ) { args.seed = getRandomSeed() }
   if (!args.strength || args.strength > 1 || args.strength < 0 ) { args.strength = 0.75 }
   if (!args.scale || args.scale > 30 || args.scale < 0 ) { args.scale = 7.5 }
-  if (!args.sampler || ['ddim','plms','k_lms','k_dpm_2','k_dpm_2_a','k_euler','k_euler_a','k_heun'].includes(args.sampler)) { args.sampler = 'k_euler_a' }
+  if (!args.sampler) { args.sampler = 'k_euler_a' }
   if (args.n) {args.number = args.n}
   if (!args.number || !Number.isInteger(args.number) || args.number > 5 || args.number < 1) { args.number = 1 }
   if (!args.seamless) {args.seamless = 'off'} else {
@@ -160,6 +162,8 @@ function request(request){
   if (!args.gfpgan_strength) { args.gfpgan_strength = 0 }
   if (!args.upscale_level) { args.upscale_level = '' }
   if (!args.upscale_strength) { args.upscale_strength = 0.75 }
+  if (!args.variation_amount) { args.variation_amount = 0 }
+  if (!args.with_variations) { args.with_variations = '' }
   args.timestamp = moment()
   args.prompt = sanitize(args._.join(' '))
   queue.push({
@@ -187,6 +191,8 @@ function request(request){
     upscale_level: args.upscale_level,
     upscale_strength: args.upscale_strength,
     seamless: args.seamless,
+    variation_amount: args.variation_amount,
+    with_variations: args.with_variations,
     results: []
   })
   processQueue()
@@ -237,8 +243,8 @@ async function addRenderApi (id) {
       "width": job.width,
       "height": job.height,
       "seed": job.seed,
-      "variation_amount": 0,
-      "with_variations": '',
+      "variation_amount": job.variation_amount,
+      "with_variations": job.with_variations,
       "initimg": initimg,
       "strength": job.strength,
       "fit": "on",
@@ -317,7 +323,6 @@ function processQueue () {
     rendering = true
     // console.log('starting prompt: ' + nextJob.prompt + ' for ' + nextJob.username)
     console.log(nextJob.cmd)
-    // finished.push(queue[0])
     addRenderApi(nextJob.id)
     queueStatus()
   } //else if (rendering === true) { console.error('already rendering') }
@@ -340,7 +345,7 @@ function process (file) {
 const unique = (value, index, self) => { return self.indexOf(value) === index }
 function timeDiff (date1,date2) { return date2.diff(date1, 'seconds') }
 function getRandomPrompt () { var prompts = fs.readFileSync('prompts.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomArtist () { var prompts = fs.readFileSync('artist.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
+function getRandomArtist () { var prompts = fs.readFileSync('artists.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
 function getRandomCity () { var prompts = fs.readFileSync('city.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
 function getRandomGenre () { var prompts = fs.readFileSync('genre.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
 function getRandomMedium () { var prompts = fs.readFileSync('medium.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
@@ -352,7 +357,7 @@ function getRandomAnimal () { var prompts = fs.readFileSync('animal.txt', 'utf8'
 function getRandomBodyPart () { var prompts = fs.readFileSync('bodypart.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
 function getRandomGerund () { var prompts = fs.readFileSync('gerunds.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
 function getRandomVerb () { var prompts = fs.readFileSync('verbs.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomAdverb () { var prompts = fs.readFileSync('adverb.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
+function getRandomAdverb () { var prompts = fs.readFileSync('adverbs.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
 function getRandomAdjective() { var prompts = fs.readFileSync('adjectives.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
 function getRandomStar() { var prompts = fs.readFileSync('stars.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
 
@@ -364,15 +369,15 @@ function replaceRandoms (input) {
   output = output.replaceAll('{city}',getRandomCity())
   output = output.replaceAll('{genre}',getRandomGenre())
   output = output.replaceAll('{medium}',getRandomMedium())
-  output = output.replaceAll('{emoji}',getRandomEmoji())
+  // output = output.replaceAll('{emoji}',getRandomEmoji())
   output = output.replaceAll('{subject}',getRandomSubject())
   output = output.replaceAll('{madeof}',getRandomMadeOf())
   output = output.replaceAll('{style}',getRandomStyle())
   output = output.replaceAll('{animal}',getRandomAnimal())
   output = output.replaceAll('{bodypart}',getRandomBodyPart())
-  // output = output.replaceAll('{gerund}',getRandomGerund())
+  output = output.replaceAll('{gerund}',getRandomGerund())
   output = output.replaceAll('{verb}',getRandomVerb())
-  // output = output.replaceAll('{adverb}',getRandomAdverb())
+  output = output.replaceAll('{adverb}',getRandomAdverb())
   output = output.replaceAll('{adjective}',getRandomAdjective())
   output = output.replaceAll('{star}',getRandomStar())
   console.log(output)
