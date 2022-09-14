@@ -217,7 +217,10 @@ async function addRenderApi (id) {
   var initimg = null
   job.status = 'rendering'
   //console.log(job)
-  if (job.template !== undefined) { initimg = 'data:image/png;base64,' + base64Encode('allrenders\\sdbot\\' + job.template + '.png') }
+  if (job.template !== undefined) {
+    try { initimg = 'data:image/png;base64,' + base64Encode('allrenders\\sdbot\\' + job.template + '.png') }
+    catch (err) { console.error(err); initimg = null; job.template = '' }
+  }
   if (job.attachments.length > 0 && job.attachments[0].content_type === 'image/png') { // && job.msg.attachments.width === '512' && job.msg.attachments.height === '512'
     console.log('fetching attachment from ' + job.attachments[0].proxy_url)
     await axios.get(job.attachments[0].proxy_url, {responseType: 'arraybuffer'})
