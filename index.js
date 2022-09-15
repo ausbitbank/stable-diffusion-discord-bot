@@ -61,7 +61,7 @@ var slashCommands = [
     execute: (i) => {
       var prompt = ''
       if (i.data.options) { prompt+= i.data.options[0].value + ' ' }
-      prompt += getRandom('prompts')
+      prompt += getRandom('prompt')
       request({cmd: prompt, userid: i.member.id, username: i.member.user.username, discriminator: i.member.user.discriminator, bot: i.member.user.bot, channelid: i.channel.id, attachments: []})
     }
   }
@@ -129,7 +129,7 @@ bot.on("interactionCreate", async (interaction) => {
 bot.on("messageCreate", (msg) => {
   // console.log(msg)
   if((msg.content.startsWith("!prompt")) && msg.channel.id === config.channelID) {
-    request({cmd: msg.content.replace('!prompt','').trim() + '' + getRandom('prompts'), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
+    request({cmd: msg.content.replace('!prompt','').trim() + '' + getRandom('prompt'), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
     msg.delete().catch(() => {})
   } else if(msg.content.startsWith("!dothething") && msg.channel.id === config.channelID && msg.author.id === config.adminID) {
     rendering = false; queue = []; console.log('admin wiped queue'); msg.delete().catch(() => {})
