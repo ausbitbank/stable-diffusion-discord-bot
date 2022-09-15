@@ -61,7 +61,7 @@ var slashCommands = [
     execute: (i) => {
       var prompt = ''
       if (i.data.options) { prompt+= i.data.options[0].value + ' ' }
-      prompt += getRandomPrompt()
+      prompt += getRandom('prompt')
       request({cmd: prompt, userid: i.member.id, username: i.member.user.username, discriminator: i.member.user.discriminator, bot: i.member.user.bot, channelid: i.channel.id, attachments: []})
     }
   }
@@ -129,7 +129,7 @@ bot.on("interactionCreate", async (interaction) => {
 bot.on("messageCreate", (msg) => {
   // console.log(msg)
   if((msg.content.startsWith("!prompt")) && msg.channel.id === config.channelID) {
-    request({cmd: msg.content.replace('!prompt','').trim() + '' + getRandomPrompt(), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
+    request({cmd: msg.content.replace('!prompt','').trim() + '' + getRandom('prompt'), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
     msg.delete().catch(() => {})
   } else if(msg.content.startsWith("!dothething") && msg.channel.id === config.channelID && msg.author.id === config.adminID) {
     rendering = false; queue = []; console.log('admin wiped queue'); msg.delete().catch(() => {})
@@ -360,43 +360,24 @@ function process (file) {
 
 const unique = (value, index, self) => { return self.indexOf(value) === index }
 function timeDiff (date1,date2) { return date2.diff(date1, 'seconds') }
-function getRandomPrompt () { var prompts = fs.readFileSync('txt\\prompts.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomArtist () { var prompts = fs.readFileSync('txt\\artists.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomCity () { var prompts = fs.readFileSync('txt\\city.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomGenre () { var prompts = fs.readFileSync('txt\\genre.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomMedium () { var prompts = fs.readFileSync('txt\\medium.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomEmoji () { var prompts = fs.readFileSync('txt\\emoji.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomSubject () { var prompts = fs.readFileSync('txt\\subject.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomMadeOf () { var prompts = fs.readFileSync('txt\\madeof.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomStyle () { var prompts = fs.readFileSync('txt\\style.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomAnimal () { var prompts = fs.readFileSync('txt\\animal.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomBodyPart () { var prompts = fs.readFileSync('txt\\bodypart.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomGerund () { var prompts = fs.readFileSync('txt\\gerunds.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomVerb () { var prompts = fs.readFileSync('txt\\verbs.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomAdverb () { var prompts = fs.readFileSync('txt\\adverbs.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomAdjective() { var prompts = fs.readFileSync('txt\\adjectives.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomStar() { var prompts = fs.readFileSync('txt\\stars.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-
+function getRandom(what) { if (['prompts','artists','city','genre','medium','emoji','subject','madeof','style','animal','bodypart','gerunds','verbs','adverbs','adjectives','stars'].includes(what)) { try { var lines = fs.readFileSync('txt\\' + what + '.txt', 'utf-8').split(/r?\n/); return lines[Math.floor(Math.random()*lines.length)] } catch (err) { console.error(err)} } else { return what } }
 function replaceRandoms (input) {
-  console.log('replaceRandoms')
-  var output = input // Randomisers, works fine if you add the required filenames above to script folder ^^
-  var output = input.replaceAll('{prompt}',getRandomPrompt())
-  output = output.replaceAll('{artist}',getRandomArtist())
-  output = output.replaceAll('{city}',getRandomCity())
-  output = output.replaceAll('{genre}',getRandomGenre())
-  output = output.replaceAll('{medium}',getRandomMedium())
-  // output = output.replaceAll('{emoji}',getRandomEmoji())
-  output = output.replaceAll('{subject}',getRandomSubject())
-  output = output.replaceAll('{madeof}',getRandomMadeOf())
-  output = output.replaceAll('{style}',getRandomStyle())
-  output = output.replaceAll('{animal}',getRandomAnimal())
-  output = output.replaceAll('{bodypart}',getRandomBodyPart())
-  output = output.replaceAll('{gerund}',getRandomGerund())
-  output = output.replaceAll('{verb}',getRandomVerb())
-  output = output.replaceAll('{adverb}',getRandomAdverb())
-  output = output.replaceAll('{adjective}',getRandomAdjective())
-  output = output.replaceAll('{star}',getRandomStar())
-  console.log(output)
+  var output = input.replaceAll('{prompt}',getRandom('prompts'))
+  output = output.replaceAll('{artist}',getRandom('artists'))
+  output = output.replaceAll('{city}',getRandom('city'))
+  output = output.replaceAll('{genre}',getRandom('genre'))
+  output = output.replaceAll('{medium}',getRandom('medium'))
+  // output = output.replaceAll('{emoji}',getRandom('emoji))
+  output = output.replaceAll('{subject}',getRandom('subject'))
+  output = output.replaceAll('{madeof}',getRandom('madeof'))
+  output = output.replaceAll('{style}',getRandom('style'))
+  output = output.replaceAll('{animal}',getRandom('animal'))
+  output = output.replaceAll('{bodypart}',getRandom('bodypart'))
+  output = output.replaceAll('{gerund}',getRandom('gerund'))
+  output = output.replaceAll('{verb}',getRandom('verb'))
+  output = output.replaceAll('{adverb}',getRandom('adverb'))
+  output = output.replaceAll('{adjective}',getRandom('adjective'))
+  output = output.replaceAll('{star}',getRandom('star'))
   return output
 }
 
