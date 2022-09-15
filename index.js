@@ -19,6 +19,7 @@ const bot = new Eris(config.discordBotKey, {
   reconnect: 'auto'
 })
 const defaultSize = 512
+const basePath = 'allrenders\\sdbot\\'
 var queue = []
 var msg = ''
 var apiUrl = config.apiUrl
@@ -226,7 +227,7 @@ async function addRenderApi (id) {
   job.status = 'rendering'
   //console.log(job)
   if (job.template !== undefined) {
-    try { initimg = 'data:image/png;base64,' + base64Encode('allrenders\\sdbot\\' + job.template + '.png') }
+    try { initimg = 'data:image/png;base64,' + base64Encode(basePath + job.template + '.png') }
     catch (err) { console.error(err); initimg = null; job.template = '' }
   }
   if (job.attachments.length > 0 && job.attachments[0].content_type === 'image/png') { // && job.msg.attachments.width === '512' && job.msg.attachments.height === '512'
@@ -298,10 +299,12 @@ async function postRender (render) {
       msg+= ':seedling: `' + render.seed + '`:scales:`' + render.config.cfg_scale + '`:recycle:`' + render.config.steps + '`'
       msg+= ':stopwatch:`' + timeDiff(job.timestampRequested, moment()) + 's` :file_cabinet: `' + filename + '` :eye: `' + render.config.sampler_name + '`'
       var newMessage = { content: msg, embeds: [{description: render.config.prompt}], components: [ { type: Constants.ComponentTypes.ACTION_ROW, components: [ ] } ] }
-      newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "New seed", custom_id: "refresh-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })
-      if (job.template) { newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Remove template", custom_id: "refreshNoTemplate-" + job.id, emoji: { name: '🎲', id: null}, disabled: false }) } 
-      newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Use as template", custom_id: "template-" + job.id + '-' + filename, emoji: { name: '📷', id: null}, disabled: false })
-      // newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Upscale", custom_id: "upscale-" + job.id + '-' + seed, emoji: { name: '🔍', id: null}, disabled: false })
+      if (job.upscale_level==='') {
+        newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "New seed", custom_id: "refresh-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })
+        newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Use as template", custom_id: "template-" + job.id + '-' + filename, emoji: { name: '📷', id: null}, disabled: false })
+        // newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Upscale", custom_id: "upscale-" + job.id + '-' + seed, emoji: { name: '🔍', id: null}, disabled: false })
+      } else if (job.template) { newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Remove template", custom_id: "refreshNoTemplate-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })
+      } else { delete newMessage.components } // If no components are used, the empty frame causes a crash so remove it
       var filesize = fs.statSync(render.url).size
       if (filesize < 8000000) { // Within discord 8mb filesize limit
         try { bot.createMessage(job.channel, newMessage, {file: data, name: filename + '.png' }) }
@@ -322,13 +325,13 @@ async function postRender (render) {
 }
 
 function processQueue () {
+  queueStatus()
   var nextJob = queue[queue.findIndex(x => x.status === 'new')] // queue[queue.findIndex(x => x.id === id)
   if (nextJob !== undefined && rendering === false) {
     rendering = true
     // console.log('starting prompt: ' + nextJob.prompt + ' for ' + nextJob.username)
     console.log(nextJob.cmd)
     addRenderApi(nextJob.id)
-    queueStatus()
   } //else if (rendering === true) { console.error('already rendering') }
 }
 
@@ -337,7 +340,7 @@ function process (file) {
     setTimeout(function() {
       fs.readFile(file, null, function(err, data) { 
         if (err) { console.error(err); } else {
-          filename = file.replace("allrenders\\sdbot\\", "").replace(".png","")
+          filename = file.replace(basePath, "").replace(".png","")
           msg = ':file_cabinet:' + filename
           bot.createMessage(config.channelID, msg, {file: data, name: filename })
         }
