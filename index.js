@@ -360,10 +360,10 @@ function process (file) {
 
 const unique = (value, index, self) => { return self.indexOf(value) === index }
 function timeDiff (date1,date2) { return date2.diff(date1, 'seconds') }
-function getRandom(what) { if (['prompts','artists','city','genre','medium','emoji','subject','madeof','style','animal','bodypart','gerunds','verbs','adverbs','adjectives','stars'].includes(what)) { try { var lines = fs.readFileSync('txt\\' + what + '.txt', 'utf-8').split(/r?\n/); return lines[Math.floor(Math.random()*lines.length)] } catch (err) { console.error(err)} } else { return what } }
+function getRandom(what) { if (['prompt','artist','city','genre','medium','emoji','subject','madeof','style','animal','bodypart','gerund','verb','adverb','adjective','star'].includes(what)) { try { var lines = fs.readFileSync('txt\\' + what + '.txt', 'utf-8').split(/r?\n/); return lines[Math.floor(Math.random()*lines.length)] } catch (err) { console.error(err)} } else { return what } }
 function replaceRandoms (input) {
-  var output = input.replaceAll('{prompt}',getRandom('prompts'))
-  output = output.replaceAll('{artist}',getRandom('artists'))
+  var output = input.replaceAll('{prompt}',getRandom('prompt'))
+  output = output.replaceAll('{artist}',getRandom('artist'))
   output = output.replaceAll('{city}',getRandom('city'))
   output = output.replaceAll('{genre}',getRandom('genre'))
   output = output.replaceAll('{medium}',getRandom('medium'))
