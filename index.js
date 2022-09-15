@@ -61,7 +61,7 @@ var slashCommands = [
     execute: (i) => {
       var prompt = ''
       if (i.data.options) { prompt+= i.data.options[0].value + ' ' }
-      prompt += getRandom('prompt')
+      prompt += getRandom('prompts')
       request({cmd: prompt, userid: i.member.id, username: i.member.user.username, discriminator: i.member.user.discriminator, bot: i.member.user.bot, channelid: i.channel.id, attachments: []})
     }
   }
@@ -129,7 +129,7 @@ bot.on("interactionCreate", async (interaction) => {
 bot.on("messageCreate", (msg) => {
   // console.log(msg)
   if((msg.content.startsWith("!prompt")) && msg.channel.id === config.channelID) {
-    request({cmd: msg.content.replace('!prompt','').trim() + '' + getRandom('prompt'), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
+    request({cmd: msg.content.replace('!prompt','').trim() + '' + getRandom('prompts'), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
     msg.delete().catch(() => {})
   } else if(msg.content.startsWith("!dothething") && msg.channel.id === config.channelID && msg.author.id === config.adminID) {
     rendering = false; queue = []; console.log('admin wiped queue'); msg.delete().catch(() => {})
@@ -360,10 +360,10 @@ function process (file) {
 
 const unique = (value, index, self) => { return self.indexOf(value) === index }
 function timeDiff (date1,date2) { return date2.diff(date1, 'seconds') }
-function getRandom(what) { if (['prompts','artists','city','genre','medium','emoji','subject','madeof','style','animal','bodypart','gerunds','verbs','adverbs','adjectives','stars'].includes(what)) { try { var lines = fs.readFileSync('txt\\' + what + '.txt', 'utf-8').split(/r?\n/); return lines[Math.floor(Math.random()*lines.length)] } catch (err) { console.error(err)} } else { return what } }
+function getRandom(what) { if (['prompt','artist','city','genre','medium','emoji','subject','madeof','style','animal','bodypart','gerund','verb','adverb','adjective','star'].includes(what)) { try { var lines = fs.readFileSync('txt\\' + what + '.txt', 'utf-8').split(/r?\n/); return lines[Math.floor(Math.random()*lines.length)] } catch (err) { console.error(err)} } else { return what } }
 function replaceRandoms (input) {
-  var output = input.replaceAll('{prompt}',getRandom('prompts'))
-  output = output.replaceAll('{artist}',getRandom('artists'))
+  var output = input.replaceAll('{prompt}',getRandom('prompt'))
+  output = output.replaceAll('{artist}',getRandom('artist'))
   output = output.replaceAll('{city}',getRandom('city'))
   output = output.replaceAll('{genre}',getRandom('genre'))
   output = output.replaceAll('{medium}',getRandom('medium'))
