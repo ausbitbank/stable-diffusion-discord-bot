@@ -81,9 +81,9 @@ bot.on("ready", async () => {
 
 bot.on("interactionCreate", async (interaction) => {
   if(interaction instanceof Eris.CommandInteraction && interaction.channel.id === config.channelID) {
-    if (!bot.commands.has(interaction.data.name)) return interaction.createMessage({content:'Command does not exist', flags:64})
-    try { await bot.commands.get(interaction.data.name).execute(interaction); await interaction.createMessage({content: 'Your image will be rendered soon :tm:', flags: 64}) }
-    catch (error) { console.error(error); await interaction.createMessage({content:'There was an error while executing this command!', flags: 64}) }
+    if (!bot.commands.has(interaction.data.name)) return interaction.createMessage({content:'Command does not exist', flags:64}).catch((e) => {console.log(e)})
+    try { bot.commands.get(interaction.data.name).execute(interaction); interaction.createMessage({content: 'Your image will be rendered soon :tm:', flags: 64}).catch((e) => {console.log(e)}) }
+    catch (error) { console.error(error); await interaction.createMessage({content:'There was an error while executing this command!', flags: 64}).catch((e) => {console.log(e)}) }
   }
   if(interaction instanceof Eris.ComponentInteraction && interaction.channel.id === config.channelID) {
     if (interaction.data.custom_id.startsWith('refresh')) { // || interaction.data.custom_id === 'refreshNoTemplate' || interaction.data.custom_id === 'refreshBatch' || interaction.data.custom_id === 'upscale') {
@@ -97,7 +97,7 @@ bot.on("interactionCreate", async (interaction) => {
         if (!interaction.data.custom_id.startsWith('refreshNoTemplate')) { if (newJob.template){ cmd+= ' --template ' + newJob.template } } else { console.log('refreshNoTemplate') }
         request({cmd: cmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
         // return interaction.editParent({embeds:{footer:{text: queue[id-1].prompt}},components:[interaction.message.components]}).catch((e) => {console.log(e)})
-        return interaction.createMessage({content:'Refreshing', flags:64})
+        return interaction.createMessage({content:'Refreshing', flags:64}).catch((e) => {console.log(e)})
       } else {
         console.error('unable to refresh render')
         return interaction.editParent({components:[]}).catch((e) => {console.log(e)})
@@ -114,7 +114,7 @@ bot.on("interactionCreate", async (interaction) => {
         cmd+= ' --template ' + interaction.data.custom_id.split('-')[2]
         request({cmd: cmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
         // return interaction.editParent({embed:{footer:{text: queue[id-1].prompt}} ,components:[interaction.message.components]}).catch((e) => {console.log(e)})
-        return interaction.createMessage({content:'Using template', flags:64})
+        return interaction.createMessage({content:'Using template', flags:64}).catch((e) => {console.log(e)})
       } else {
         console.error('template request failed')
         return interaction.editParent({components:[]}).catch((e) => {console.log(e)})
