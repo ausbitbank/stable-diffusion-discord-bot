@@ -25,6 +25,9 @@ var msg = ''
 var apiUrl = config.apiUrl
 var rendering = false
 var newJob = {}
+var dialogs = { // Track our own messages to reduce spam with timed deletion
+  queue: null
+}
 
 var slashCommands = [
   {
@@ -46,7 +49,7 @@ var slashCommands = [
       {type: '3', name: 'upscale_level', description: 'upscale amount', required: false, choices: [{name: 'none', value: '0'},{name: '2x', value: '2'},{name: '4x', value: '4'}]},
       {type: '10', name: 'upscale_strength', description: 'upscale strength (smoothing/detail loss)', required: false, min_value: 0, max_value: 1},
       {type: '10', name: 'variation_amount', description: 'how much variation from the original image (need seed+not k_euler_a sampler)', required: false, min_value:0.01, max_value:1},
-      {type: '3', name: 'with_variations', description: 'advanced variant control, provide seed(s)+weight eg "123141515:0.1,613423657:0.2"', required: false, min_length:4,max_length:100},
+      {type: '3', name: 'with_variations', description: 'advanced variant control, provide seed(s)+weight eg "seed:weight,seed:weight"', required: false, min_length:4,max_length:100},
     ],
     // TODO, fix attachment option ^^ i.data.resolved.attachments?
     execute: (i) => { request({cmd: getCmd(prepSlashCmd(i.data.options)), userid: i.member.id, username: i.member.user.username, discriminator: i.member.user.discriminator, bot: i.member.user.bot, channelid: i.channel.id, attachments: []}) }
@@ -207,7 +210,13 @@ function queueStatus() {
   var statusRendering = queue.filter(x => x.status === 'rendering').length
   var statusFailed = queue.filter(x => x.status === 'failed').length
   var statusUserCount = queue.map(x => x.userid).filter(unique).length
-  chat(':information_source: New: `' + statusNew + '`, Rendering: `' + statusRendering + '`, Done: `' + statusDone + '`, Total: `' + queue.length + '`, Users: `' + statusUserCount + '`')
+  var statusMsg = ':information_source: New: `' + statusNew + '`, Rendering: `' + statusRendering + '`, Done: `' + statusDone + '`, Total: `' + queue.length + '`, Users: `' + statusUserCount + '`'
+  if (dialogs.queue === null) {
+    bot.createMessage(config.channelID, statusMsg).then(x => { dialogs.queue = x })
+  } else {
+    dialogs.queue.delete().catch((err) => {console.error(err)})
+    bot.createMessage(config.channelID, statusMsg).then(x => { dialogs.queue = x })
+  }
 
 }
 function prepSlashCmd(options) { // Turn partial options into full command for slash commands, hate the redundant code here
@@ -351,22 +360,22 @@ function process (file) {
 
 const unique = (value, index, self) => { return self.indexOf(value) === index }
 function timeDiff (date1,date2) { return date2.diff(date1, 'seconds') }
-function getRandomPrompt () { var prompts = fs.readFileSync('prompts.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomArtist () { var prompts = fs.readFileSync('artists.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomCity () { var prompts = fs.readFileSync('city.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomGenre () { var prompts = fs.readFileSync('genre.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomMedium () { var prompts = fs.readFileSync('medium.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomEmoji () { var prompts = fs.readFileSync('emoji.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomSubject () { var prompts = fs.readFileSync('subject.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomMadeOf () { var prompts = fs.readFileSync('madeof.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomStyle () { var prompts = fs.readFileSync('style.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomAnimal () { var prompts = fs.readFileSync('animal.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomBodyPart () { var prompts = fs.readFileSync('bodypart.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomGerund () { var prompts = fs.readFileSync('gerunds.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomVerb () { var prompts = fs.readFileSync('verbs.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomAdverb () { var prompts = fs.readFileSync('adverbs.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomAdjective() { var prompts = fs.readFileSync('adjectives.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
-function getRandomStar() { var prompts = fs.readFileSync('stars.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
+function getRandomPrompt () { var prompts = fs.readFileSync('txt\\prompts.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
+function getRandomArtist () { var prompts = fs.readFileSync('txt\\artists.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
+function getRandomCity () { var prompts = fs.readFileSync('txt\\city.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
+function getRandomGenre () { var prompts = fs.readFileSync('txt\\genre.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
+function getRandomMedium () { var prompts = fs.readFileSync('txt\\medium.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
+function getRandomEmoji () { var prompts = fs.readFileSync('txt\\emoji.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
+function getRandomSubject () { var prompts = fs.readFileSync('txt\\subject.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
+function getRandomMadeOf () { var prompts = fs.readFileSync('txt\\madeof.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
+function getRandomStyle () { var prompts = fs.readFileSync('txt\\style.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
+function getRandomAnimal () { var prompts = fs.readFileSync('txt\\animal.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
+function getRandomBodyPart () { var prompts = fs.readFileSync('txt\\bodypart.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
+function getRandomGerund () { var prompts = fs.readFileSync('txt\\gerunds.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
+function getRandomVerb () { var prompts = fs.readFileSync('txt\\verbs.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
+function getRandomAdverb () { var prompts = fs.readFileSync('txt\\adverbs.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
+function getRandomAdjective() { var prompts = fs.readFileSync('txt\\adjectives.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
+function getRandomStar() { var prompts = fs.readFileSync('txt\\stars.txt', 'utf8'); prompts = prompts.split(/\r?\n/); return(prompts[Math.floor(Math.random() * prompts.length)]); }
 
 function replaceRandoms (input) {
   console.log('replaceRandoms')
@@ -398,7 +407,6 @@ async function imgurupload(file) {
   console.log(response.data)
   return response.data
 }
-
 const log = console.log.bind(console)
 
 if (config.filewatcher==="true") { // Easy disable folder monitoring and posting with config key
