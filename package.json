@@ -1,0 +1,26 @@
+{
+    "name": "stable-diffusion-discord-bot",
+    "version": "1.0.0",
+    "description": "A discord bot to request renders with Stable Diffusion, and upload the images",
+    "main": "index.js",
+    "scripts": {
+        "start": "node index.js"
+    },
+    "homepage": "https://github.com/ausbitbank/stable-diffusion-discord-bot",
+    "repository": "githube:ausbitbank/stable-diffusion-discord-bot",
+    "bugs": "https://github.com/ausbitbank/stable-diffusion-discord-bot/issues",
+    "keywords": ["discord","stablediffusion","art"],
+    "license": "Unlicense",
+    "author": "ausbitbank <ausbitbank@gmail.com> (https://ausbit.dev)",
+    "dependencies": {
+        "axios": "^0.27.2",
+        "chokidar": "^3.5.3",
+        "consola": "^2.15.3",
+        "dotenv": "^16.0.2",
+        "eris": "^0.17.1",
+        "imgur": "^2.2.0",
+        "minimist": "^1.2.6",
+        "moment": "^2.29.4",
+        "tslib": "^2.4.0"
+    }
+}
