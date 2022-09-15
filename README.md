@@ -5,7 +5,7 @@ Currently only tested on windows 10 with an nvidia 1080ti 11gb.
 
 You'll need to have https://github.com/lstein/stable-diffusion installed and working on your system first, as well as nodejs and npm.
 
-To install bot dependancies : `npm install chokidar moment axios eris dotenv minimist imgur`
+To install bot dependancies : `npm install chokidar moment axios eris dotenv minimist imgur tslib`
 
 Rename `.env.example` to `.env` and enter your own details:
 - Copy the Discord channel ID as `channelID`
