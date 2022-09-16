@@ -19,7 +19,8 @@ const bot = new Eris(config.discordBotKey, {
   reconnect: 'auto'
 })
 const defaultSize = 512
-const basePath = 'allrenders\\sdbot\\'
+const basePath = config.basePath
+if (!config||!config.apiUrl||!config.basePath||!config.channelID||!config.adminID||!config.discordBotKey||!config.pixelLimit||!config.fileWatcher) { throw('Please re-read the setup instructions at https://github.com/ausbitbank/stable-diffusion-discord-bot , you are missing the required .env configuration file') }
 var queue = []
 var msg = ''
 var apiUrl = config.apiUrl
@@ -339,7 +340,6 @@ function processQueue () {
   if (nextJob !== undefined && rendering === false) {
     rendering = true
     // console.log('starting prompt: ' + nextJob.prompt + ' for ' + nextJob.username)
-    console.log(nextJob.cmd)
     addRenderApi(nextJob.id)
   } //else if (rendering === true) { console.error('already rendering') }
 }
