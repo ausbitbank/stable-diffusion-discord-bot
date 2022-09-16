@@ -22,7 +22,7 @@ Rename `.env.example` to `.env` and enter your own details:
 
 Run with `npm start` or `yarn start`
 
-Invite to your server with `https://discord.com/oauth2/authorize?client_id= BOT TOKEN HERE &scope=bot&permissions=124992` (these ᴛᴇxᴛ ᴘᴇʀᴍɪssɪᴏɴs are required for the bot to function!)
+Invite to your server with `https://discord.com/oauth2/authorize?client_id= APPLICATION ID HERE &scope=bot&permissions=124992` (these ᴛᴇxᴛ ᴘᴇʀᴍɪssɪᴏɴs are required for the bot to function!)
 
 ## Current features:
 - Most features from the lstein fork are available via bot
