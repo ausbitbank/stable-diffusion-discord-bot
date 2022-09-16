@@ -69,19 +69,30 @@ var slashCommands = [
 ]
 
 bot.on("ready", async () => {
-  console.log("Ready to go")
-  bot.commands = new Collection()
-  for (const c of slashCommands) {
-    bot.commands.set(c.name, c)
-    bot.createCommand({
-      name: c.name,
-      description: c.description,
-      options: c.options ?? [],
-      type: Constants.ApplicationCommandTypes.CHAT_INPUT
+    console.log("Ready to go")
+    bot.getCommands().then((commands) => {
+      // check if commands have been added
+      for (var i = 0; i < commands.length; i++) {
+        var command = commands[i]
+  
+        if (command.name == 'prompt') {
+          console.log('this command is already loaded in')
+        } else {
+          bot.commandss = new Collection()
+          for (const c of slashCommands) {
+            bot.commandss.set(c.name, c)
+            bot.createCommand({
+              name: c.name,
+              description: c.description,
+              options: c.options ?? [],
+              type: Constants.ApplicationCommandTypes.CHAT_INPUT
+            })
+          }
+        }
+      }
     })
-  }
-  console.log('slash commands loaded')
-})
+    console.log('slash commands loaded')
+  })
 
 bot.on("interactionCreate", async (interaction) => {
   if(interaction instanceof Eris.CommandInteraction && interaction.channel.id === config.channelID) {
