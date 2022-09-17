@@ -22,12 +22,13 @@ const defaultSize = 512
 const basePath = config.basePath
 if (!config||!config.apiUrl||!config.basePath||!config.channelID||!config.adminID||!config.discordBotKey||!config.pixelLimit||!config.fileWatcher) { throw('Please re-read the setup instructions at https://github.com/ausbitbank/stable-diffusion-discord-bot , you are missing the required .env configuration file') }
 var queue = []
-var msg = ''
+// var msg = ''
+// var newJob = {}
 var apiUrl = config.apiUrl
 var rendering = false
-var newJob = {}
 var dialogs = { // Track our own messages to reduce spam with timed deletion
-  queue: null
+  queue: null,
+  userMsg: null
 }
 
 
@@ -94,11 +95,11 @@ bot.on("ready", async () => {
 bot.on("interactionCreate", async (interaction) => {
   if(interaction instanceof Eris.CommandInteraction && interaction.channel.id === config.channelID) {
     if (!bot.commands.has(interaction.data.name)) return interaction.createMessage({content:'Command does not exist', flags:64}).catch((e) => {console.log(e)})
-    try { bot.commands.get(interaction.data.name).execute(interaction); interaction.createMessage({content: 'Your image will be rendered soon :tm:', flags: 64}).catch((e) => {console.log(e)}) }
+    try { bot.commands.get(interaction.data.name).execute(interaction); interaction.acknowledge().then(x=>interaction.deleteMessage('@original').catch((e) => {console.log(e)})) }
     catch (error) { console.error(error); await interaction.createMessage({content:'There was an error while executing this command!', flags: 64}).catch((e) => {console.log(e)}) }
   }
   if(interaction instanceof Eris.ComponentInteraction && interaction.channel.id === config.channelID) {
-    if (interaction.data.custom_id.startsWith('refresh')) { // || interaction.data.custom_id === 'refreshNoTemplate' || interaction.data.custom_id === 'refreshBatch' || interaction.data.custom_id === 'upscale') {
+    if (interaction.data.custom_id.startsWith('refresh')) {
       console.log('refresh request from ' + interaction.member.user.username)
       var id = interaction.data.custom_id.split('-')[1]
       var newJob = queue[id-1]
@@ -108,8 +109,7 @@ bot.on("interactionCreate", async (interaction) => {
         var cmd = getCmd(newJob)
         if (!interaction.data.custom_id.startsWith('refreshNoTemplate')) { if (newJob.template){ cmd+= ' --template ' + newJob.template } } else { console.log('refreshNoTemplate') }
         request({cmd: cmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
-        // return interaction.editParent({embeds:{footer:{text: queue[id-1].prompt}},components:[interaction.message.components]}).catch((e) => {console.log(e)})
-        return interaction.createMessage({content:'Refreshing', flags:64}).catch((e) => {console.log(e)})
+        return interaction.editParent({}).catch((e)=>{console.log(e)})
       } else {
         console.error('unable to refresh render')
         return interaction.editParent({components:[]}).catch((e) => {console.log(e)})
@@ -125,8 +125,7 @@ bot.on("interactionCreate", async (interaction) => {
         var cmd = getCmd(newJob)
         cmd+= ' --template ' + interaction.data.custom_id.split('-')[2]
         request({cmd: cmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
-        // return interaction.editParent({embed:{footer:{text: queue[id-1].prompt}} ,components:[interaction.message.components]}).catch((e) => {console.log(e)})
-        return interaction.createMessage({content:'Using template', flags:64}).catch((e) => {console.log(e)})
+        return interaction.editParent({}).catch((e)=>{console.log(e)})
       } else {
         console.error('template request failed')
         return interaction.editParent({components:[]}).catch((e) => {console.log(e)})
@@ -143,7 +142,6 @@ bot.on("messageCreate", (msg) => {
   } else if(msg.content.startsWith("!dothething") && msg.channel.id === config.channelID && msg.author.id === config.adminID) {
     rendering = false; queue = []; console.log('admin wiped queue'); msg.delete().catch(() => {})
   } else if(msg.content.startsWith("!dream") && msg.channel.id === config.channelID) {
-    console.log('!dream request from ' + msg.author.username)
     request({cmd: msg.content.substr(7, msg.content.length), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
   } else if(msg.content === '!queue') {
     queueStatus()
@@ -215,7 +213,9 @@ function request(request){
 
 function queueStatus() {
   if(dialogs.queue!==null){dialogs.queue.delete().catch((err)=>{console.error(err)})}
-  bot.createMessage(config.channelID,':information_source: New: `'+queue.filter(x=>x.status==='new').length+'`, Rendering: `'+queue.filter(x=>x.status==='rendering').length+'`, Done: `'+queue.filter(x=>x.status==='done').length + '`, Total: `'+queue.length+'`, Users: `'+queue.map(x=>x.userid).filter(unique).length+'`').then(x=>{dialogs.queue=x})
+  var statusMsg=':information_source: New: `'+queue.filter(x=>x.status==='new').length+'`, Rendering: `'+queue.filter(x=>x.status==='rendering').length+'`, Done: `'+queue.filter(x=>x.status==='done').length + '`, Total: `'+queue.length+'`, Users: `'+queue.map(x=>x.userid).filter(unique).length+'`'
+  if (queue.filter(x=>x.status==='rendering').length>0) {statusMsg+='\n:track_next:`'+queue.filter(x=>x.status==='rendering')[0].prompt + '` for ' + queue.filter(x=>x.status==='rendering')[0].username}
+  bot.createMessage(config.channelID,statusMsg).then(x=>{dialogs.queue=x})
 }
 function prepSlashCmd(options) { // Turn partial options into full command for slash commands, hate the redundant code here
   var job = {}
@@ -232,6 +232,7 @@ async function addRenderApi (id) {
   var job = queue[queue.findIndex(x => x.id === id)] 
   var initimg = null
   job.status = 'rendering'
+  queueStatus()
   //console.log(job)
   if (job.template !== undefined) {
     try { initimg = 'data:image/png;base64,' + base64Encode(basePath + job.template + '.png') }
@@ -330,10 +331,9 @@ async function postRender (render) {
 }
 
 function processQueue () {
-  queueStatus()
   var nextJob = queue[queue.findIndex(x => x.status === 'new')]
-  if (nextJob !== undefined && rendering === false) {
-    rendering = true
+  if (nextJob!==undefined&&rendering===false) {
+    rendering=true
     console.info({user: nextJob.username, cmd: nextJob.cmd, prompt: nextJob.prompt})
     addRenderApi(nextJob.id)
   }
