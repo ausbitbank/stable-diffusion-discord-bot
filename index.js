@@ -70,18 +70,24 @@ var slashCommands = [
 ]
 
 bot.on("ready", async () => {
-  console.log("Ready to go")
-  bot.commands = new Collection()
-  for (const c of slashCommands) {
-    bot.commands.set(c.name, c)
-    bot.createCommand({
-      name: c.name,
-      description: c.description,
-      options: c.options ?? [],
-      type: Constants.ApplicationCommandTypes.CHAT_INPUT
-    })
-  }
-  console.log('slash commands loaded')
+  console.log("Connected to discord")
+  bot.getCommands().then(cmds=>{
+    bot.commands = new Collection()
+    for (const c of slashCommands) {
+      if(cmds.filter(cmd=>cmd.name===c.name).length>0) {
+        console.log('command '+c.name+' already loaded')
+      } else {
+        console.log('command '+c.name+' not found, loading')
+        bot.commands.set(c.name, c)
+        bot.createCommand({
+          name: c.name,
+          description: c.description,
+          options: c.options ?? [],
+          type: Constants.ApplicationCommandTypes.CHAT_INPUT
+        })
+      }
+    }
+  })
 })
 
 bot.on("interactionCreate", async (interaction) => {
