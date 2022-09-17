@@ -30,6 +30,7 @@ var dialogs = { // Track our own messages to reduce spam with timed deletion
   queue: null
 }
 
+
 var slashCommands = [
   {
     name: 'dream',
@@ -206,19 +207,8 @@ function request(request){
 }
 
 function queueStatus() {
-  var statusNew = queue.filter(x => x.status === 'new').length
-  var statusDone = queue.filter(x => x.status === 'done').length
-  var statusRendering = queue.filter(x => x.status === 'rendering').length
-  var statusFailed = queue.filter(x => x.status === 'failed').length
-  var statusUserCount = queue.map(x => x.userid).filter(unique).length
-  var statusMsg = ':information_source: New: `' + statusNew + '`, Rendering: `' + statusRendering + '`, Done: `' + statusDone + '`, Total: `' + queue.length + '`, Users: `' + statusUserCount + '`'
-  if (dialogs.queue === null) {
-    bot.createMessage(config.channelID, statusMsg).then(x => { dialogs.queue = x })
-  } else {
-    dialogs.queue.delete().catch((err) => {console.error(err)})
-    bot.createMessage(config.channelID, statusMsg).then(x => { dialogs.queue = x })
-  }
-
+  if(dialogs.queue!==null){dialogs.queue.delete().catch((err)=>{console.error(err)})}
+  bot.createMessage(config.channelID,':information_source: New: `'+queue.filter(x=>x.status==='new').length+'`, Rendering: `'+queue.filter(x=>x.status==='rendering').length+'`, Done: `'+queue.filter(x=>x.status==='done').length + '`, Total: `'+queue.length+'`, Users: `'+queue.map(x=>x.userid).filter(unique).length+'`').then(x=>{dialogs.queue=x})
 }
 function prepSlashCmd(options) { // Turn partial options into full command for slash commands, hate the redundant code here
   var job = {}
@@ -270,14 +260,12 @@ async function addRenderApi (id) {
 
   axios.post(apiUrl, postObject)
     .then(res => {
-      // if (queue.length > 0) { console.log('Moving item to pastjobs: ' + queue[0].prompt + ' by ' + queue[0].authorname); finished.push(queue.shift()) }
       var data = res.data.split("\n")
       data.pop() // Remove blank line from the end of api output
       job.status = 'failed'
       data.forEach(line => {
         line = JSON.parse(line)
         if (line.event !== 'result'){ return } else {
-          // {"event": "upscaling-started", "processed_file_cnt": "1/1"} {"event": "upscaling-done", "processed_file_cnt": "2/1"}
           job.results.push({filename: line.url, seed: line.seed}) // keep each generated images filename and seed
           line.config.id = job.id
           job.status = 'done'
@@ -297,7 +285,7 @@ async function postRender (render) {
       filename = render.url.split('\\')[render.url.split('\\').length-1].replace(".png","")
       var job = queue[queue.findIndex(x => x.id === render.config.id)]
       job.dateRenderFinish = moment()
-      var msg = '<@' + job.userid + '>' //var msg = '`!dream "' + render.config.prompt + '"`  + '>\n'
+      var msg = '<@' + job.userid + '>'
       if (render.config.width !== defaultSize || render.config.height !== defaultSize) { msg+= ':straight_ruler:`' + render.config.width + 'x' + render.config.height + '`' }
       if (job.upscale_level !== '') { msg+= ':mag:**`Upscaled x ' + job.upscale_level + '(' + job.upscale_strength + ')`**'}
       if (job.gfpgan_strength !== 0) { msg+= ':magic_wand:`gfpgan face fix (' + job.gfpgan_strength + ')`'}
@@ -336,26 +324,12 @@ async function postRender (render) {
 
 function processQueue () {
   queueStatus()
-  var nextJob = queue[queue.findIndex(x => x.status === 'new')] // queue[queue.findIndex(x => x.id === id)
+  var nextJob = queue[queue.findIndex(x => x.status === 'new')]
   if (nextJob !== undefined && rendering === false) {
     rendering = true
-    // console.log('starting prompt: ' + nextJob.prompt + ' for ' + nextJob.username)
+    console.info({user: nextJob.username, cmd: nextJob.cmd, prompt: nextJob.prompt})
     addRenderApi(nextJob.id)
-  } //else if (rendering === true) { console.error('already rendering') }
-}
-
-function process (file) {
-  if (file.endsWith('.png') || file.endsWith('.jpg')) {
-    setTimeout(function() {
-      fs.readFile(file, null, function(err, data) { 
-        if (err) { console.error(err); } else {
-          filename = file.replace(basePath, "").replace(".png","")
-          msg = ':file_cabinet:' + filename
-          bot.createMessage(config.channelID, msg, {file: data, name: filename })
-        }
-      }, 300)
-    }
-  )}
+  }
 }
 
 const unique = (value, index, self) => { return self.indexOf(value) === index }
@@ -390,24 +364,21 @@ async function imgurupload(file) {
 }
 const log = console.log.bind(console)
 
-if (config.filewatcher==="true") { // Easy disable folder monitoring and posting with config key
-  const renders = chokidar.watch(config.watchFolder, {
-    persistent: true,
-    ignoreInitial: true,
-    usePolling: false,
-    awaitWriteFinish: {
-      stabilityThreshold: 500,
-      pollInterval: 500
+// Monitor new files entering watchFolder, post image with filename.
+function process (file) {
+  try {
+    if (file.endsWith('.png')||file.endsWith('jpg')){
+      fs.readFile(file, null, function(err, data) {
+        if(err){console.error(err)}else{
+          filename=file.replace(basePath, "").replace(".png","").replace(".jpg","")
+          msg=':file_cabinet:'+filename
+          bot.createMessage(config.channelID, msg, {file: data, name: filename })
+        }
+      })
     }
-  })
-  renders
-    .on('all', (event, file) => {
-      // log(`File ${file} has been ${event}`)
-    })
-    .on('change', file => {
-      // process(file)
-    })
-    .on('add', file => {
-      process(file)
-    })
+  }catch(err){console.error(err)}
+}
+if(config.filewatcher==="true") {
+  const renders=chokidar.watch(config.watchFolder, {persistent: true,ignoreInitial: true,usePolling: false,awaitWriteFinish:{stabilityThreshold: 500,pollInterval: 500}})
+  renders.on('add',file=>{process(file)})
 }
