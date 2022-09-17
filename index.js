@@ -76,6 +76,7 @@ bot.on("ready", async () => {
     for (const c of slashCommands) {
       if(cmds.filter(cmd=>cmd.name===c.name).length>0) {
         console.log('command '+c.name+' already loaded')
+        bot.commands.set(c.name, c)
       } else {
         console.log('command '+c.name+' not found, loading')
         bot.commands.set(c.name, c)
