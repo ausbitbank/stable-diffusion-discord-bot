@@ -35,6 +35,7 @@ Bird
 Big-horned sheep 
 Bird of paradise 
 Bison 
+Bilby
 Billy goat 
 Black Bear 
 Black Fly 
@@ -69,7 +70,8 @@ Common seal
 Caiman lizard 
 Camel 
 Canary 
-Carp 
+Carp
+Cassowary
 Cat 
 Caterpillar 
 Cattle 
@@ -129,6 +131,7 @@ Dragonfly
 Drake 
 Duck 
 Duckbill Platypus 
+Dugong
 Dung beetle 
 Eurasian Lynx 
 Eagle 
@@ -153,6 +156,7 @@ Fly
 Ferret 
 Fox 
 Fresh Water Crocodile
+Frill-neck lizard
 Frog 
 Galapagos Land Iguana 
 Galapagos Tortoise 
@@ -246,8 +250,9 @@ Osprey
 Ostrich 
 Otter 
 Owl 
-Ox 
-Panda 
+Ox
+Pademelon
+Panda
 Panther
 Peacock
 Pelican 
@@ -262,6 +267,7 @@ Prawn
 Puma
 Quail 
 Quetzal
+Quoll
 Quokka
 Rabbit
 Raccoon
