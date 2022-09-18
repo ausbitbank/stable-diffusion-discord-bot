@@ -22,15 +22,9 @@ const defaultSize = 512
 const basePath = config.basePath
 if (!config||!config.apiUrl||!config.basePath||!config.channelID||!config.adminID||!config.discordBotKey||!config.pixelLimit||!config.fileWatcher) { throw('Please re-read the setup instructions at https://github.com/ausbitbank/stable-diffusion-discord-bot , you are missing the required .env configuration file') }
 var queue = []
-// var msg = ''
-// var newJob = {}
 var apiUrl = config.apiUrl
 var rendering = false
-var dialogs = { // Track our own messages to reduce spam with timed deletion
-  queue: null,
-  userMsg: null
-}
-
+var dialogs = {queue: null} // Track and replace our own messages to reduce spam
 
 var slashCommands = [
   {
@@ -72,6 +66,7 @@ var slashCommands = [
 
 bot.on("ready", async () => {
   console.log("Connected to discord")
+  chat(':warning: reconnected')
   bot.getCommands().then(cmds=>{
     bot.commands = new Collection()
     for (const c of slashCommands) {
@@ -95,7 +90,10 @@ bot.on("ready", async () => {
 bot.on("interactionCreate", async (interaction) => {
   if(interaction instanceof Eris.CommandInteraction && interaction.channel.id === config.channelID) {
     if (!bot.commands.has(interaction.data.name)) return interaction.createMessage({content:'Command does not exist', flags:64}).catch((e) => {console.log(e)})
-    try { bot.commands.get(interaction.data.name).execute(interaction); interaction.acknowledge().then(x=>interaction.deleteMessage('@original').catch((e) => {console.log(e)})) }
+    try {
+      bot.commands.get(interaction.data.name).execute(interaction)
+      interaction.acknowledge().then(x=> { console.log(x);interaction.deleteMessage('@original').catch((e) => {console.log(e)}) }).catch((e)=>{console.error(e)})
+    }
     catch (error) { console.error(error); await interaction.createMessage({content:'There was an error while executing this command!', flags: 64}).catch((e) => {console.log(e)}) }
   }
   if(interaction instanceof Eris.ComponentInteraction && interaction.channel.id === config.channelID) {
@@ -116,12 +114,10 @@ bot.on("interactionCreate", async (interaction) => {
       }
     } else if (interaction.data.custom_id.startsWith('template')) {
       console.log('template request from ' + interaction.member.user.username)
-      // console.log(interaction.data.custom_id)
       id=interaction.data.custom_id.split('-')[1]
       var newJob = queue[id-1]
       if (newJob) {
         newJob.number = 1
-        // console.log('job details found')
         var cmd = getCmd(newJob)
         cmd+= ' --template ' + interaction.data.custom_id.split('-')[2]
         request({cmd: cmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
@@ -214,7 +210,11 @@ function request(request){
 function queueStatus() {
   if(dialogs.queue!==null){dialogs.queue.delete().catch((err)=>{console.error(err)})}
   var statusMsg=':information_source: New: `'+queue.filter(x=>x.status==='new').length+'`, Rendering: `'+queue.filter(x=>x.status==='rendering').length+'`, Done: `'+queue.filter(x=>x.status==='done').length + '`, Total: `'+queue.length+'`, Users: `'+queue.map(x=>x.userid).filter(unique).length+'`'
-  if (queue.filter(x=>x.status==='rendering').length>0) {statusMsg+='\n:track_next:`'+queue.filter(x=>x.status==='rendering')[0].prompt + '` for ' + queue.filter(x=>x.status==='rendering')[0].username}
+  if (queue.filter(x=>x.status==='rendering').length>0) {
+    statusMsg+=':track_next:`'+queue.filter(x=>x.status==='rendering')[0].prompt + '`'
+    if (queue.filter(x=>x.status==='rendering')[0].number !== 1) {statusMsg+='x'+queue.filter(x=>x.status==='rendering')[0].number}
+    statusMsg+=' for ' + queue.filter(x=>x.status==='rendering')[0].username
+  }
   bot.createMessage(config.channelID,statusMsg).then(x=>{dialogs.queue=x})
 }
 function prepSlashCmd(options) { // Turn partial options into full command for slash commands, hate the redundant code here
@@ -226,7 +226,7 @@ function prepSlashCmd(options) { // Turn partial options into full command for s
 function getCmd(newJob){ return newJob.prompt+' --width ' + newJob.width + ' --height ' + newJob.height + ' --seed ' + newJob.seed + ' --scale ' + newJob.scale + ' --sampler ' + newJob.sampler + ' --steps ' + newJob.steps + ' --strength ' + newJob.strength + ' --n ' + newJob.number + ' --gfpgan_strength ' + newJob.gfpgan_strength + ' --upscale_level ' + newJob.upscale_level + ' --upscale_strength ' + newJob.upscale_strength + ' --seamless ' + newJob.seamless + ' --variation_amount ' + newJob.variation_amount + ' --with_variations ' + newJob.with_variations}
 function getRandomSeed() {return Math.floor(Math.random() * 4294967295)}
 function chat(msg) { if (msg !== null && msg !== '') { bot.createMessage(config.channelID, msg) } }
-function sanitize (prompt) { return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '') }
+function sanitize (prompt) { return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '') } // (/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '')
 function base64Encode(file) { var body = fs.readFileSync(file); return body.toString('base64') }
 async function addRenderApi (id) {
   var job = queue[queue.findIndex(x => x.id === id)] 
@@ -241,7 +241,7 @@ async function addRenderApi (id) {
   if (job.attachments.length > 0 && job.attachments[0].content_type === 'image/png') { // && job.msg.attachments.width === '512' && job.msg.attachments.height === '512'
     console.log('fetching attachment from ' + job.attachments[0].proxy_url)
     await axios.get(job.attachments[0].proxy_url, {responseType: 'arraybuffer'})
-      .then(res => { initimg = 'data:image/png;base64,' + Buffer.from(res.data).toString('base64'); job.initimg = initimg })
+      .then(res => { initimg = 'data:image/png;base64,' + Buffer.from(res.data).toString('base64'); job.initimg = initimg; console.log('got attachment') })
       .catch(err => { console.error('unable to fetch url: ' + job.attachments[0].proxy_url); console.error(err) })
   }
   var prompt = job.prompt
@@ -334,7 +334,7 @@ function processQueue () {
   var nextJob = queue[queue.findIndex(x => x.status === 'new')]
   if (nextJob!==undefined&&rendering===false) {
     rendering=true
-    console.info({user: nextJob.username, cmd: nextJob.cmd, prompt: nextJob.prompt})
+    console.info({user: nextJob.username, prompt: nextJob.prompt, cmd: nextJob.cmd})
     addRenderApi(nextJob.id)
   }
 }
@@ -348,7 +348,7 @@ function replaceRandoms (input) {
   output = output.replaceAll('{city}',getRandom('city'))
   output = output.replaceAll('{genre}',getRandom('genre'))
   output = output.replaceAll('{medium}',getRandom('medium'))
-  // output = output.replaceAll('{emoji}',getRandom('emoji))
+  output = output.replaceAll('{emoji}',getRandom('emoji'))
   output = output.replaceAll('{subject}',getRandom('subject'))
   output = output.replaceAll('{madeof}',getRandom('madeof'))
   output = output.replaceAll('{style}',getRandom('style'))
