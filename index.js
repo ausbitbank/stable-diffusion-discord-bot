@@ -11,12 +11,14 @@ var parseArgs = require('minimist')
 const axios = require('axios')
 const { ImgurClient } = require('imgur')
 const imgur = new ImgurClient({ clientId: config.imgurClientID})
-const bot = new Eris(config.discordBotKey, {
-  intents: ["guildMessages", "messageContent"],
+const bot = new Eris.CommandClient(config.discordBotKey, {
+  intents: ["guildMessages", "messageContent", "guildMembers"],
   description: "Just a slave to the art, maaan",
   owner: "ausbitbank",
   prefix: "!",
-  reconnect: 'auto'
+  reconnect: 'auto',
+  compress: true,
+  getAllUsers: true,
 })
 const defaultSize = 512
 const basePath = config.basePath
@@ -40,20 +42,23 @@ var slashCommands = [
       {type: '4', name: 'number', description: 'how many would you like', required: false, min_value: 1, max_value: 4},
       {type: '5', name: 'seamless', description: 'Seamlessly tiling textures', required: false},
       {type: '3', name: 'sampler', description: 'which sampler to use (default is k_lms)', required: false, choices: [{name: 'ddim', value: 'ddim'},{name: 'plms', value: 'plms'},{name: 'k_lms', value: 'k_lms'},{name: 'k_dpm_2', value: 'k_dpm_2'},{name: 'k_dpm_2_a', value: 'k_dpm_2_a'},{name: 'k_euler', value: 'k_euler'},{name: 'k_euler_a', value: 'k_euler_a'},{name: 'k_heun', value: 'k_heun'}]},
-      {type: '11', name: 'attachment', description: 'use template image (BROKEN USE !dream instead for attachments for now)', required: false},
+      {type: '11', name: 'attachment', description: 'use template image', required: false},
       {type: '10', name: 'gfpgan_strength', description: 'GFPGan strength (low= more face correction, high= more accuracy)', required: false, min_value: 0, max_value: 1},
       {type: '3', name: 'upscale_level', description: 'upscale amount', required: false, choices: [{name: 'none', value: '0'},{name: '2x', value: '2'},{name: '4x', value: '4'}]},
       {type: '10', name: 'upscale_strength', description: 'upscale strength (smoothing/detail loss)', required: false, min_value: 0, max_value: 1},
       {type: '10', name: 'variation_amount', description: 'how much variation from the original image (need seed+not k_euler_a sampler)', required: false, min_value:0.01, max_value:1},
       {type: '3', name: 'with_variations', description: 'advanced variant control, provide seed(s)+weight eg "seed:weight,seed:weight"', required: false, min_length:4,max_length:100},
     ],
-    // TODO, fix attachment option ^^ i.data.resolved.attachments?
-    execute: (i) => { request({cmd: getCmd(prepSlashCmd(i.data.options)), userid: i.member.id, username: i.member.user.username, discriminator: i.member.user.discriminator, bot: i.member.user.bot, channelid: i.channel.id, attachments: []}) }
+    cooldown: 500,
+    execute: (i) => {
+      if (i.data.options.find(x=>x.name==='attachment')){ var attachment=[i.data.resolved.attachments[i.data.options.find(x=>x.name==='attachment').value]] } else { var attachment=[]}
+      request({cmd: getCmd(prepSlashCmd(i.data.options)), userid: i.member.id, username: i.member.user.username, discriminator: i.member.user.discriminator, bot: i.member.user.bot, channelid: i.channel.id, attachments: attachment}) }
   },
   {
     name: 'prompt',
     description: 'Show me a random prompt from the library',
     options: [ {type: '3', name: 'prompt', description: 'Add these keywords to a random prompt', required: false} ],
+    cooldown: 500,
     execute: (i) => {
       var prompt = ''
       if (i.data.options) { prompt+= i.data.options[0].value + ' ' }
@@ -65,7 +70,7 @@ var slashCommands = [
 
 bot.on("ready", async () => {
   console.log("Connected to discord")
-  chat(':warning: reconnected')
+  // chat(':warning: reconnected')
   bot.getCommands().then(cmds=>{
     bot.commands = new Collection()
     for (const c of slashCommands) {
@@ -93,10 +98,9 @@ bot.on("interactionCreate", async (interaction) => {
       bot.commands.get(interaction.data.name).execute(interaction)
       interaction.acknowledge()
         .then(x=> {
-          console.log(x)
           interaction.deleteMessage('@original')
           .then((t) => {console.log(t)})
-          .catch((e) => {console.log(e)}) })
+          .catch((e) => {console.error(e)}) })
         .catch((e)=>{console.error(e)})
     }
     catch (error) { console.error(error); await interaction.createMessage({content:'There was an error while executing this command!', flags: 64}).catch((e) => {console.log(e)}) }
@@ -146,12 +150,15 @@ bot.on("interactionCreate", async (interaction) => {
 })
 
 bot.on("messageCreate", (msg) => {
-  // console.log(msg)
+  //console.log(msg)
   if((msg.content.startsWith("!prompt")) && msg.channel.id === config.channelID) {
     request({cmd: msg.content.replace('!prompt','').trim() + '' + getRandom('prompt'), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
     msg.delete().catch(() => {})
   } else if(msg.content.startsWith("!dothething") && msg.channel.id === config.channelID && msg.author.id === config.adminID) {
-    rendering = false; queue = []; console.log('admin wiped queue'); msg.delete().catch(() => {})
+    rendering = false
+    queue = []
+    console.log('admin wiped queue');
+    msg.delete().catch(() => {})
   } else if(msg.content.startsWith("!dream") && msg.channel.id === config.channelID) {
     request({cmd: msg.content.substr(7, msg.content.length), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
   } else if(msg.content === '!queue') {
@@ -159,6 +166,23 @@ bot.on("messageCreate", (msg) => {
     msg.delete().catch(() => {})
   }
 })
+
+bot.on("guildCreate", (guild) => { // When the client joins a new guild
+    console.log(`New guild: ${guild.name}`)
+})
+
+bot.on("guildMemberAdd", (guild, member)=>{
+  console.log("guildMemberAdd")
+  console.log(guild)
+  console.log(member)
+})
+
+bot.on("guildMemberRemove", (guild, member)=>{
+  console.log("guildMemberRemove")
+  console.log(guild)
+  console.log(member)
+})
+
 bot.connect()
 
 function request(request){
@@ -332,7 +356,7 @@ async function postRender (render) {
       var newMessage = { content: msg, embeds: [{description: render.config.prompt}], components: [ { type: Constants.ComponentTypes.ACTION_ROW, components: [ ] } ] }
       if (job.upscale_level==='') {
         newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Refresh", custom_id: "refresh-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })
-        if (job.initimg===null){ newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "10% Variant", custom_id: "refreshVariants-" + job.id + '-' + render.seed, emoji: { name: '🧬', id: null}, disabled: false }) }
+        if (!job.initimg){ newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "10% Variant", custom_id: "refreshVariants-" + job.id + '-' + render.seed, emoji: { name: '🧬', id: null}, disabled: false }) }
         newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Template", custom_id: "template-" + job.id + '-' + filename, emoji: { name: '📷', id: null}, disabled: false })
         // newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Upscale", custom_id: "upscale-" + job.id + '-' + seed, emoji: { name: '🔍', id: null}, disabled: false })
         if (job.template){ newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Remove template", custom_id: "refreshNoTemplate-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })}
