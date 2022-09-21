@@ -367,7 +367,6 @@ function dbRead() {
   fs.readFile(dbFile,function(err,data){
     if(err){console.error(err)}
     var j = JSON.parse(data)
-    //console.log(j)
     queue = j.queue
     users = j.users
     payments = j.payments
@@ -557,24 +556,18 @@ function processQueue () {
 
 const unique = (value, index, self) => { return self.indexOf(value) === index }
 function timeDiff (date1,date2) { return date2.diff(date1, 'seconds') }
-function getRandom(what) { if (['prompt','artist','city','genre','medium','emoji','subject','madeof','style','animal','bodypart','gerund','verb','adverb','adjective','star'].includes(what)) { try { var lines = fs.readFileSync('txt\\' + what + '.txt', 'utf-8').split(/r?\n/); return lines[Math.floor(Math.random()*lines.length)] } catch (err) { console.error(err)} } else { return what } }
+var randoms = ['prompt','artist','city','genre','medium','emoji','subject','madeof','style','animal','bodypart','gerund','verb','adverb','adjective','star']
+function getRandom(what) { if (randoms.includes(what)) { try { var lines = fs.readFileSync('txt\\' + what + '.txt', 'utf-8').split(/r?\n/); return lines[Math.floor(Math.random()*lines.length)] } catch (err) { console.error(err)} } else { return what } }
 function replaceRandoms (input) {
-  var output = input.replaceAll('{prompt}',getRandom('prompt'))
-  output = output.replaceAll('{artist}',getRandom('artist'))
-  output = output.replaceAll('{city}',getRandom('city'))
-  output = output.replaceAll('{genre}',getRandom('genre'))
-  output = output.replaceAll('{medium}',getRandom('medium'))
-  output = output.replaceAll('{emoji}',getRandom('emoji'))
-  output = output.replaceAll('{subject}',getRandom('subject'))
-  output = output.replaceAll('{madeof}',getRandom('madeof'))
-  output = output.replaceAll('{style}',getRandom('style'))
-  output = output.replaceAll('{animal}',getRandom('animal'))
-  output = output.replaceAll('{bodypart}',getRandom('bodypart'))
-  output = output.replaceAll('{gerund}',getRandom('gerund'))
-  output = output.replaceAll('{verb}',getRandom('verb'))
-  output = output.replaceAll('{adverb}',getRandom('adverb'))
-  output = output.replaceAll('{adjective}',getRandom('adjective'))
-  output = output.replaceAll('{star}',getRandom('star'))
+  var output=input
+  randoms.forEach(x=>{
+    var wordToReplace = '{'+x+'}'
+    var wordToReplaceLength = wordToReplace.length
+    for (let i=0;i<input.split(wordToReplace).length-1;i++){
+      var wordToReplacePosition = output.indexOf(wordToReplace)
+      output = output.substr(0,wordToReplacePosition)+getRandom(x)+output.substr(wordToReplacePosition+wordToReplaceLength)
+    }
+  })
   return output
 }
 
