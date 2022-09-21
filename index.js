@@ -192,6 +192,12 @@ bot.on("messageCreate", (msg) => {
   } else if(msg.content === '!queue') {
     queueStatus()
     msg.delete().catch(() => {})
+  } else if(msg.content.startsWith('!credit') && msg.channel.id === config.channelID && msg.author.id === config.adminID){
+    var who = msg.content.split(' ')[1]
+    var howmuch = msg.content.split(' ')[2]
+    console.log('!credit called')
+    console.log(who,howmuch)
+    creditRecharge(howmuch,'manual',who)
   }
 })
 
@@ -345,14 +351,12 @@ function chargeCredits(userID,amount){
   console.log('charged id '+userID+' for '+amount+' credits, '+user.credits+' remaining')
 }
 function creditRecharge(credits,txid,userid){
-  console.log('creditRecharge')
-  console.log(credits,txid,userid)
   var user=users.find(x=>x.id===userid)
   if(!user){createNewUser(userid)}
-  user.credits=parseFloat(user.credits)+parseFloat(credits)
-  payments.push({credits:credits.toFixed(2),txid:txid,userid:userid})
+  user.credits=(parseFloat(user.credits)+parseFloat(credits)).toFixed(2)
+  payments.push({credits:credits,txid:txid,userid:userid})
   dbWrite()
-  chat(':tada: <@'+userid+'> added :coin:`'+credits+'`, balance is now :coin:`'+user.credits.toFixed(2)+'`')
+  chat(':tada: <@'+userid+'> added :coin:`'+credits+'`, balance is now :coin:`'+user.credits+'`')
 }
 function dbWrite() {
   // console.log('write db')
@@ -541,7 +545,11 @@ function processQueue () {
       console.log('credits remaining: '+creditsRemaining(nextJob.userid))
       nextJob.status='failed'
       chat('sorry <@'+nextJob.userid+'> you don\'t have enough credits for that render (cost'+ costCalculator(nextJob) +').')
-      rechargePrompt(nextJob.userid)
+      if(config.hivePaymentAddress.length>0){
+        rechargePrompt(nextJob.userid)
+      } else {
+        chat('An admin can manually top up your credit with\n`!credit '+ nextJob.userid +' 1`')
+      }
       processQueue()
     }
   }
