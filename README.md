@@ -7,6 +7,8 @@ You'll need to have https://github.com/invoke-ai/InvokeAI installed and working 
 
 To install bot dependancies : `npm install` or `yarn install`
 
+Copy `db.json.example` to `db.json`
+
 Rename `.env.example` to `.env` and enter your own details:
 - Copy the Discord channel ID as `channelID`
   - User Settings > ᴀᴘᴘ sᴇᴛᴛɪɴɢs > Advanced > enable Developer Mode [per D](https://support.discord.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID-)⁽ˀ⁾
@@ -34,10 +36,13 @@ Invite to your server with `https://discord.com/oauth2/authorize?client_id= APPL
 - RealESRGAN face fixing and upscaling
 - Slash commands
 - Upload to imgur api if files get too big for your discord server (optional)
+- Upload to imgbb api (optional)
+- Per user credit tracking system
+- Hive/HBD credit topups
+- Filter blacklisted words from prompts (optional)
+
 
 ## WIP/future features:
-- Per-user limits, credit tracking
-- Hive/HBD credit topups
 - Alternative render path via dreamstudio api for paying users
 
 ## Screenshots:
