@@ -9,15 +9,15 @@ var users = []
 var payments = []
 var dbFile='./db.json' // flat file db
 dbRead()
+var cron = require('node-cron')
 // hive payment checks. On startup, every 30 minutes and on a !recharge call
 var hiveUsd = null
 getPrices()
 const hive = require('@hiveio/hive-js')
 hive.config.set('alternative_api_endpoints',['https://api.hive.blog','https://rpc.ausbit.dev','https://api.openhive.network'])
-if (config.hivePaymentAddress.length>0){
-  var cron = require('node-cron')
-  cron.schedule('*/10 * * * *', () => {
-    console.log('checking account history every 10 minutes')
+if (config.hivePaymentAddress.length>0){  
+  cron.schedule('*/15 * * * *', () => {
+    console.log('Checking account history every 15 minutes')
     checkNewPayments()
   })
   cron.schedule('*/55 * * * *', () => {
@@ -25,6 +25,11 @@ if (config.hivePaymentAddress.length>0){
     getPrices()
   })
 }
+// Comment this out if you don't want free regular topups of low balance users
+cron.schedule('* */12 * * *', () => {
+  console.log('Recharging users with no credit every 12 hrs')
+  freeRecharge()
+})
 var parseArgs = require('minimist')
 const chokidar = require('chokidar')
 const moment = require('moment')
@@ -96,10 +101,10 @@ bot.on("ready", async () => {
     bot.commands = new Collection()
     for (const c of slashCommands) {
       if(cmds.filter(cmd=>cmd.name===c.name).length>0) {
-        console.log('command '+c.name+' already loaded')
+        //console.log('command '+c.name+' already loaded')
         bot.commands.set(c.name, c)
       } else {
-        console.log('command '+c.name+' not found, loading')
+        //console.log('command '+c.name+' not found, loading')
         bot.commands.set(c.name, c)
         bot.createCommand({
           name: c.name,
@@ -129,7 +134,12 @@ bot.on("interactionCreate", async (interaction) => {
   }
   if(interaction instanceof Eris.ComponentInteraction && interaction.channel.id === config.channelID&&authorised(interaction.member)) {
     console.log(interaction.data.custom_id+' request from ' + interaction.member.user.username)
-    if (interaction.data.custom_id.startsWith('refresh')) {
+    if (interaction.data.custom_id.startsWith('random')) {
+      var prompt = getRandom('prompt')
+      // var cmd = getCmd({prompt: prompt})
+      request({cmd: prompt, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
+      return interaction.editParent({}).catch((e)=>{console.log(e)})
+    } else if (interaction.data.custom_id.startsWith('refresh')) {
       var id = interaction.data.custom_id.split('-')[1]
       var newJob = queue[id-1]
       if (newJob) {
@@ -186,7 +196,7 @@ bot.on("messageCreate", (msg) => {
   } else if(msg.content.startsWith("!dream") && msg.channel.id === config.channelID) {
     chat('`!dream` is no longer supported, use `/dream` instead')
     //request({cmd: msg.content.substr(7, msg.content.length), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
-  } else if(msg.content.startsWith("!recharge") && msg.channel.id === config.channelID) {
+  } else if(msg.content.startsWith("!recharge") && msg.channel.id === config.channelID && config.hivePaymentAddress.length>0) {
     console.log('recharge')
     rechargePrompt(msg.author.id)
   } else if(msg.content === '!queue') {
@@ -233,7 +243,7 @@ function request(request){
   if (!args.scale || args.scale > 30 || args.scale < 0 ) { args.scale = 7.5 }
   if (!args.sampler) { args.sampler = 'k_lms' }
   if (args.n) {args.number = args.n}
-  if (!args.number || !Number.isInteger(args.number) || args.number > 5 || args.number < 1) { args.number = 1 }
+  if (!args.number || !Number.isInteger(args.number) || args.number > 10 || args.number < 1) { args.number = 1 }
   if (!args.seamless) {args.seamless = 'off'} else {
     if (args.seamless === 'true') { args.seamless = 'on'}
     if (args.seamless === 'false') { args.seamless = 'off'}
@@ -285,7 +295,7 @@ function request(request){
 
 function queueStatus() {
   if(dialogs.queue!==null){dialogs.queue.delete().catch((err)=>{console.error(err)})}
-  var statusMsg=':information_source: New: `'+queue.filter(x=>x.status==='new').length+'`, Rendering: `'+queue.filter(x=>x.status==='rendering').length+'`, Done: `'+queue.filter(x=>x.status==='done').length + '`, Total: `'+queue.length+'`, Users: `'+queue.map(x=>x.userid).filter(unique).length+'`'
+  var statusMsg=':information_source: Waiting: `'+queue.filter(x=>x.status==='new').length+'`, Rendering: `'+queue.filter(x=>x.status==='rendering').length+'`, Recent Users: `'+queue.map(x=>x.userid).filter(unique).length+'`'
   if (queue.filter(x=>x.status==='rendering').length>0) {
     statusMsg+='\n:track_next:`'+queue.filter(x=>x.status==='rendering')[0].prompt + '`'
     if (queue.filter(x=>x.status==='rendering')[0].number !== 1) {statusMsg+='x'+queue.filter(x=>x.status==='rendering')[0].number}
@@ -301,7 +311,11 @@ function prepSlashCmd(options) { // Turn partial options into full command for s
 }
 function getCmd(newJob){ return newJob.prompt+' --width ' + newJob.width + ' --height ' + newJob.height + ' --seed ' + newJob.seed + ' --scale ' + newJob.scale + ' --sampler ' + newJob.sampler + ' --steps ' + newJob.steps + ' --strength ' + newJob.strength + ' --n ' + newJob.number + ' --gfpgan_strength ' + newJob.gfpgan_strength + ' --upscale_level ' + newJob.upscale_level + ' --upscale_strength ' + newJob.upscale_strength + ' --seamless ' + newJob.seamless + ' --variation_amount ' + newJob.variation_amount + ' --with_variations ' + newJob.with_variations}
 function getRandomSeed() {return Math.floor(Math.random() * 4294967295)}
-function chat(msg) { if (msg !== null && msg !== '') { bot.createMessage(config.channelID, msg) } }
+function chat(msg) {
+  if (msg !== null && msg !== ''){
+    bot.createMessage(config.channelID, msg)
+  }
+}
 // function chatPrivate(msg) { if (msg !== null && msg !== '') { bot.createMessage(config.channelID, { content: msg, flags:64 }) } }
 function sanitize (prompt) {
   if (config.bannedWords.length>0) { config.bannedWords.split(',').forEach((bannedWord, index) => { prompt = prompt.replace(bannedWord,'') }) }
@@ -350,20 +364,43 @@ function chargeCredits(userID,amount){
   dbWrite()
   console.log('charged id '+userID+' for '+amount+' credits, '+user.credits+' remaining')
 }
-function creditRecharge(credits,txid,userid){
+function creditRecharge(credits,txid,userid,amount,from){
   var user=users.find(x=>x.id===userid)
   if(!user){createNewUser(userid)}
   user.credits=(parseFloat(user.credits)+parseFloat(credits)).toFixed(2)
-  payments.push({credits:credits,txid:txid,userid:userid})
+  if (txid!=='manual'){
+    payments.push({credits:credits,txid:txid,userid:userid,amount:amount})
+    chat(':tada: <@'+userid+'> added :coin:`'+credits+'`, balance is now :coin:`'+user.credits+'`\n:heart_on_fire: Thanks `'+from+'` for the `'+amount+'` donation to the GPU fund.\n Type !refresh to get your own topup info')
+  }
   dbWrite()
-  chat(':tada: <@'+userid+'> added :coin:`'+credits+'`, balance is now :coin:`'+user.credits+'`')
+}
+function freeRecharge() {
+  // allow for regular topups of empty accounts
+  // new users get 100 credits on first appearance, then freeRechargeAmount more every 12 hours IF their balance is less then freeRechargeMinBalance
+  // first lets find accounts with credit<z
+  var freeRechargeMinBalance = 10
+  var freeRechargeAmount = 10
+  var freeRechargeUsers = users.filter(u=>u.credits<freeRechargeMinBalance)
+  var freeRechargeMsg = ':fireworks: Congratulations '
+  if (freeRechargeUsers.length>0){
+    console.log(freeRechargeUsers.length+' users with balances below '+freeRechargeMinBalance+' getting a free '+freeRechargeAmount+' credit topup')
+    freeRechargeUsers.forEach(u=>{
+      u.credits = parseFloat(u.credits)+freeRechargeAmount
+      freeRechargeMsg+='<@'+u.id+'>,'
+    })
+    freeRechargeMsg+=' you received a free '+freeRechargeAmount+' :coin: topup!\n:information_source:Everyone with a balance below '+freeRechargeMinBalance+' will get this once every 12 hours'
+    chat(freeRechargeMsg)
+    dbWrite()
+  } else {
+    console.log('No users eligible for free credit recharge')
+  }
 }
 function dbWrite() {
   // console.log('write db')
   try { fs.writeFileSync(dbFile, JSON.stringify({ queue: queue, users: users, payments: payments })) } catch(err) {console.error(err)}
 }
 function dbRead() {
-  console.log('read db')
+  // console.log('read db')
   fs.readFile(dbFile,function(err,data){
     if(err){console.error(err)}
     var j = JSON.parse(data)
@@ -383,14 +420,17 @@ function rechargePrompt(userid){
   checkNewPayments()
   var paymentAddress = 'ausbit.dev'
   var paymentMemo = config.hivePaymentPrefix+userid
-  var paymentLink = ('https://hivesigner.com/sign/transfer?to='+ paymentAddress +'&amount=1.000%20HBD&memo='+paymentMemo)
-  var paymentMsg = '<@'+ userid +'> has :coin:`'+ creditsRemaining(userid) +'`\n*Recharging costs HBD`1.000` per :coin:`100` *\nSend HBD to `'+ paymentAddress +'` with the memo `'+ paymentMemo +'`\n*Buy :coin:`100` via HiveSigner*:\n'+paymentLink
-  chat(paymentMsg)
+  var paymentLink = 'https://hivesigner.com/sign/transfer?to='+paymentAddress+'&amount=1.000%20HBD&memo='+paymentMemo
+  var paymentMsg = '<@'+ userid +'> has :coin:`'+ creditsRemaining(userid) +'`\n*Recharging costs $1usd per :coin:`100` *\nSend HBD or HIVE to `'+ paymentAddress +'` with the memo `'+ paymentMemo +'`\n'+paymentLink
+  //var paymentMsgObject = { content: paymentMsg, embeds: [{ description: "Purchase 100 credits with HiveSigner", type: 'link', url: paymentLink, image:{url:'https://media.discordapp.net/attachments/968822563662860338/1022537991698264155/Hotpot.png'} }]}
+  var paymentMsgObject = {content: paymentMsg}
+  console.log(paymentMsgObject)
+  chat(paymentMsgObject)
   console.log('ID '+userid+' asked for recharge link')
 }
 function checkNewPayments(){
   var bitmask = ['4',null] // transfers only
-  console.log('get account history')
+  console.log('Get account history for '+config.hivePaymentAddress)
   hive.api.getAccountHistory(config.hivePaymentAddress, -1, 1000, ...bitmask, function(err, result) {
     if(err){console.error(err)}
     if(Array.isArray(result)) {
@@ -414,7 +454,7 @@ function checkNewPayments(){
             }
             console.log('processing new payment')
             console.log('amount credit:'+amountCredit+' , amount:'+op.amount)
-            creditRecharge(amountCredit,tx.trx_id,accountId)
+            creditRecharge(amountCredit,tx.trx_id,accountId,op.amount,op.from)
           }
         }
       })
@@ -428,12 +468,11 @@ async function addRenderApi (id) {
   var initimg = null
   job.status = 'rendering'
   queueStatus()
-  //console.log(job)
   if (job.template !== undefined) {
     try { initimg = 'data:image/png;base64,' + base64Encode(basePath + job.template + '.png') }
     catch (err) { console.error(err); initimg = null; job.template = '' }
   }
-  if (job.attachments.length > 0 && job.attachments[0].content_type === 'image/png') { // && job.msg.attachments.width === '512' && job.msg.attachments.height === '512'
+  if (job.attachments.length > 0 && job.attachments[0].content_type === 'image/png') {
     console.log('fetching attachment from ' + job.attachments[0].proxy_url)
     await axios.get(job.attachments[0].proxy_url, {responseType: 'arraybuffer'})
       .then(res => { initimg = 'data:image/png;base64,' + Buffer.from(res.data).toString('base64'); job.initimg = initimg; console.log('got attachment') })
@@ -460,12 +499,12 @@ async function addRenderApi (id) {
       "initimg_name": '',
     }
   if (job.seamless==='on') { postObject.seamless = 'on' }
-
+  // Need to replace with a proper websocket solution to get instant feedback on multi-image batches
   axios.post(apiUrl, postObject)
     .then(res => {
       var data = res.data.split("\n")
       data.pop() // Remove blank line from the end of api output
-      job.status = 'failed'
+      //job.status = 'failed'
       data.forEach(line => {
         line = JSON.parse(line)
         if (line.event !== 'result'){ return } else {
@@ -478,6 +517,7 @@ async function addRenderApi (id) {
       processQueue()
     })
     .catch(error => { console.log('error'); console.error(error) })
+    // End old axios code
 }
 
 async function postRender (render) {
@@ -487,7 +527,7 @@ async function postRender (render) {
       var job = queue[queue.findIndex(x => x.id === render.config.id)]
       var msg = ':brain:<@' + job.userid + '>'
       if (render.config.width !== defaultSize || render.config.height !== defaultSize) { msg+= ':straight_ruler:`' + render.config.width + 'x' + render.config.height + '`' }
-      if (job.upscale_level !== '') { msg+= ':mag:**`Upscaled x ' + job.upscale_level + '(' + job.upscale_strength + ')`**'}
+      if (job.upscale_level !== '') { msg+= ':mag:**`Upscaled x ' + job.upscale_level + ' to '+(parseFloat(job.width)*parseFloat(job.upscale_level))+'x'+(parseFloat(job.height)*parseFloat(job.upscale_level))+' (' + job.upscale_strength + ')`**'}
       if (job.gfpgan_strength !== 0) { msg+= ':magic_wand:`gfpgan face fix (' + job.gfpgan_strength + ')`'}
       if (job.seamless === 'on') { msg+= ':knot:**`Seamless Tiling`**'}
       if (job.template) { msg+= ':frame_photo:`' + job.template + '` :muscle: `' + render.config.strength + '`'}
@@ -498,15 +538,16 @@ async function postRender (render) {
       msg+= ':stopwatch:`' + timeDiff(job.timestampRequested, moment()) + 's`'
       msg+= ':file_cabinet: `' + filename + '` :eye: `' + render.config.sampler_name + '`'
       chargeCredits(job.userid,(costCalculator(job))/job.number) // only charge successful renders
-      if (job.cost){msg+=':coin:`'+(job.cost/job.number).toFixed(2)+'/'+ creditsRemaining(job.userid) +'`'}
+      if (job.cost){msg+=':coin:`'+(job.cost/job.number).toFixed(2).replace(/[.,]00$/, "")+'/'+ creditsRemaining(job.userid) +'`'}
       var newMessage = { content: msg, embeds: [{description: render.config.prompt}], components: [ { type: Constants.ComponentTypes.ACTION_ROW, components: [ ] } ] }
+      newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Refresh", custom_id: "refresh-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })
       if (job.upscale_level==='') {
-        newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Refresh", custom_id: "refresh-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })
         if (!job.initimg){ newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "10% Variant", custom_id: "refreshVariants-" + job.id + '-' + render.seed, emoji: { name: '🧬', id: null}, disabled: false }) }
         newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Template", custom_id: "template-" + job.id + '-' + filename, emoji: { name: '📷', id: null}, disabled: false })
         // newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Upscale", custom_id: "upscale-" + job.id + '-' + seed, emoji: { name: '🔍', id: null}, disabled: false })
         if (job.template){ newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Remove template", custom_id: "refreshNoTemplate-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })}
       }
+      newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Random", custom_id: "random", emoji: { name: '🔀', id: null}, disabled: false })
       if (newMessage.components[0].components.length===0){delete newMessage.components} // If no components are used there will be a discord api error so remove it
       var filesize = fs.statSync(render.url).size
       if (filesize < 8000000) { // Within discord 8mb filesize limit
@@ -543,7 +584,7 @@ function processQueue () {
       console.log('cost: '+costCalculator(nextJob))
       console.log('credits remaining: '+creditsRemaining(nextJob.userid))
       nextJob.status='failed'
-      chat('sorry <@'+nextJob.userid+'> you don\'t have enough credits for that render (cost'+ costCalculator(nextJob) +').')
+      chat('sorry <@'+nextJob.userid+'> you don\'t have enough credits for that render (cost '+ costCalculator(nextJob) +').')
       if(config.hivePaymentAddress.length>0){
         rechargePrompt(nextJob.userid)
       } else {
