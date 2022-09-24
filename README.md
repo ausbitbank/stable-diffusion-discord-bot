@@ -35,12 +35,12 @@ Invite to your server with `https://discord.com/oauth2/authorize?client_id= APPL
 - Prompt and keyword randomisation from txt files
 - RealESRGAN face fixing and upscaling
 - Slash commands
-- Upload to imgur api if files get too big for your discord server (optional)
-- Upload to imgbb api (optional)
 - Per user credit tracking system
 - Hive/HBD credit topups
+- Free small credit topups for low balance users once every x hours (optional)
 - Filter blacklisted words from prompts (optional)
-
+- Upload to imgur api if files get too big for your discord server (optional)
+- Upload to imgbb api (optional)
 
 ## WIP/future features:
 - Alternative render path via dreamstudio api for paying users
