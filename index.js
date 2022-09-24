@@ -448,7 +448,6 @@ function scheduleInit(){
 }
 function getRichList () {
   var u = users.filter(u=>u.credits>11).sort((a,b)=>b.credits-a.credits)
-  console.log(u)
   var richlistMsg = 'Rich List\n'
   u.forEach(u=>{ richlistMsg+=u.id+':coin:`'+u.credits+'`\n' })
   chat(richlistMsg)
@@ -656,8 +655,6 @@ function processQueue () {
   }
 }
 function lexicaSearch(query){
-  console.log(query)
-  console.log('https://lexica.art/api/v1/search?q='+query)
   // Quick and dirty lexica search api, needs docs to make it more efficient (query limit etc)
   var reply = {content:'Top 10 results from lexica.art api:', embeds:[], components:[]}
   axios.get('https://lexica.art/api/v1/search?q='+query)
@@ -673,9 +670,7 @@ function lexicaSearch(query){
         })
         //reply+='`'+i.prompt+'`\n'+i.src+'\n'
       })
-      reply.embeds.forEach(r=>{
-        reply.components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Template", custom_id: "template-" + job.id + '-' + filename, emoji: { name: '📷', id: null}, disabled: false })
-      })
+      //reply.embeds.forEach(r=>{reply.components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Template", custom_id: "template-" + job.id + '-' + filename, emoji: { name: '📷', id: null}, disabled: false })})
       chat(reply)
     })
     .catch((error) => console.error(error))
