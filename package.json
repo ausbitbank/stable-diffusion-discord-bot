@@ -21,13 +21,14 @@
         "axios": "^0.27.2",
         "chokidar": "^3.5.3",
         "dotenv": "^16.0.2",
-        "eris": "^0.17.1",
+        "eris": "DonovanDMC/eris#ed41313d9df5ff7c31bc955e0888f9c6f732c963",
         "forever": "^4.0.3",
         "imgbb-uploader": "^1.5.0",
         "imgur": "^2.2.0",
         "minimist": "^1.2.6",
         "moment": "^2.29.4",
         "node-cron": "^3.0.2",
-        "tslib": "^2.4.0"
+        "tslib": "^2.4.0",
+        "ws": "^8.8.1"
     }
 }

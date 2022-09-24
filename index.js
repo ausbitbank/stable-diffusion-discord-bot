@@ -4,40 +4,35 @@ const Constants = Eris.Constants
 const Collection = Eris.Collection
 const fs = require('fs')
 const axios = require('axios')
-var queue = []
-var users = []
-var payments = []
-var dbFile='./db.json' // flat file db
-dbRead()
-var cron = require('node-cron')
-// hive payment checks. On startup, every 30 minutes and on a !recharge call
-var hiveUsd = null
-getPrices()
-const hive = require('@hiveio/hive-js')
-hive.config.set('alternative_api_endpoints',['https://api.hive.blog','https://rpc.ausbit.dev','https://api.openhive.network'])
-if (config.hivePaymentAddress.length>0){  
-  cron.schedule('*/15 * * * *', () => {
-    console.log('Checking account history every 15 minutes')
-    checkNewPayments()
-  })
-  cron.schedule('*/55 * * * *', () => {
-    console.log('Updating hive price every 55 minutes')
-    getPrices()
-  })
-}
-// Comment this out if you don't want free regular topups of low balance users
-cron.schedule('* */12 * * *', () => {
-  console.log('Recharging users with no credit every 12 hrs')
-  freeRecharge()
-})
 var parseArgs = require('minimist')
 const chokidar = require('chokidar')
 const moment = require('moment')
 const { ImgurClient } = require('imgur')
 const imgur = new ImgurClient({ clientId: config.imgurClientID})
 const imgbb = require("imgbb-uploader")
+var queue = []
+var users = []
+var payments = []
+var dbFile='./db.json' // flat file db for queue, users, payments
+dbRead()
+var schedule = []
+var dbScheduleFile='./dbSchedule.json' // flat file db for schedule
+dbScheduleRead()
+var cron = require('node-cron')
+// hive payment checks. On startup, every 30 minutes and on a !recharge call
+const hive = require('@hiveio/hive-js')
+const { exit } = require('process')
+if (config.hivePaymentAddress.length>0){
+  hive.config.set('alternative_api_endpoints',['https://api.hive.blog','https://rpc.ausbit.dev','https://api.openhive.network'])
+  var hiveUsd = null
+  getPrices()
+  cron.schedule('0,30 * * * *', () => { console.log(moment()+': Checking account history every 30 minutes'); checkNewPayments() })
+  cron.schedule('55 * * * *', () => { console.log(moment()+': Updating hive price every 55 minutes'); getPrices() })
+}
+cron.schedule('0 */12 * * *', () => { console.log(moment()+': Recharging users with no credit every 12 hrs'); freeRecharge() }) // Comment this out if you don't want free regular topups of low balance users
+// guilds intent is required to see member roles from standard messages, allowing !dream to be locked to an allowed role
 const bot = new Eris.CommandClient(config.discordBotKey, {
-  intents: ["guildMessages", "messageContent", "guildMembers"],
+  intents: ["guilds", "guildMessages", "messageContent", "guildMembers"],
   description: "Just a slave to the art, maaan",
   owner: "ausbitbank",
   prefix: "!",
@@ -96,26 +91,18 @@ var slashCommands = [
 bot.on("ready", async () => {
   console.log("Connected to discord")
   processQueue()
-  // chat(':warning: reconnected')
   bot.getCommands().then(cmds=>{
     bot.commands = new Collection()
     for (const c of slashCommands) {
       if(cmds.filter(cmd=>cmd.name===c.name).length>0) {
-        //console.log('command '+c.name+' already loaded')
         bot.commands.set(c.name, c)
       } else {
-        //console.log('command '+c.name+' not found, loading')
         bot.commands.set(c.name, c)
-        bot.createCommand({
-          name: c.name,
-          description: c.description,
-          options: c.options ?? [],
-          type: Constants.ApplicationCommandTypes.CHAT_INPUT
-        })
+        bot.createCommand({name: c.name,description: c.description,options: c.options ?? [],type: Constants.ApplicationCommandTypes.CHAT_INPUT})
       }
     }
   })
-  checkNewPayments()
+  if (config.hivePaymentAddress.length>0){checkNewPayments()}
 })
 
 bot.on("interactionCreate", async (interaction) => {
@@ -132,18 +119,19 @@ bot.on("interactionCreate", async (interaction) => {
     }
     catch (error) { console.error(error); await interaction.createMessage({content:'There was an error while executing this command!', flags: 64}).catch((e) => {console.log(e)}) }
   }
-  if(interaction instanceof Eris.ComponentInteraction && interaction.channel.id === config.channelID&&authorised(interaction.member)) {
+  if((interaction instanceof Eris.ComponentInteraction||interaction instanceof Eris.ModalSubmitInteraction) && interaction.channel.id === config.channelID&&authorised(interaction.member)) {
     console.log(interaction.data.custom_id+' request from ' + interaction.member.user.username)
     if (interaction.data.custom_id.startsWith('random')) {
       var prompt = getRandom('prompt')
-      // var cmd = getCmd({prompt: prompt})
       request({cmd: prompt, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
       return interaction.editParent({}).catch((e)=>{console.log(e)})
     } else if (interaction.data.custom_id.startsWith('refresh')) {
       var id = interaction.data.custom_id.split('-')[1]
-      var newJob = queue[id-1]
+      var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
       if (newJob) {
         newJob.number = 1
+        if (interaction.data.custom_id.startsWith('refreshEdit-')){ newJob.prompt = interaction.data.components[0].components[0].value }
+        if (newJob.webhook){delete newJob.webhook}
         if (interaction.data.custom_id.startsWith('refreshVariants')&&newJob.sampler!=='k_euler_a') { // variants do not work with k_euler_a sampler
           newJob.variation_amount=0.1
           newJob.seed = interaction.data.custom_id.split('-')[2]
@@ -161,15 +149,48 @@ bot.on("interactionCreate", async (interaction) => {
       }
     } else if (interaction.data.custom_id.startsWith('template')) {
       id=interaction.data.custom_id.split('-')[1]
-      var newJob = queue[id-1]
+      var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
       if (newJob) {
         newJob.number = 1
+        if (newJob.webhook){delete newJob.webhook}
         var cmd = getCmd(newJob)
         cmd+= ' --template ' + interaction.data.custom_id.split('-')[2]
         request({cmd: cmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
         return interaction.editParent({}).catch((e)=>{console.log(e)})
       } else {
         console.error('template request failed')
+        return interaction.editParent({components:[]}).catch((e) => {console.log(e)})
+      }
+    } else if (interaction.data.custom_id.startsWith('edit-')) {
+      id=interaction.data.custom_id.split('-')[1]
+      var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
+      if (newJob) {
+        newJob.number = 1
+        if (newJob.webhook){delete newJob.webhook}
+        //var cmd = getCmd(newJob)
+        //cmd+= ' --template ' + interaction.data.custom_id.split('-')[2]
+        //request({cmd: cmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
+        return interaction.createModal({
+          custom_id:'refreshEdit-'+newJob.id,
+          title:'Edit the prompt',
+          components:[
+            {
+              type:1,
+              components:[
+              {
+                type:4,
+                custom_id:'prompt',
+                label:'Prompt',
+                style:2,
+                value:newJob.prompt,
+                required:true
+              }
+            ]
+            }
+          ]
+        }).then((r)=>{console.log(r)}).catch((e)=>{console.error(e)})
+      } else {
+        console.error('edit request failed')
         return interaction.editParent({components:[]}).catch((e) => {console.log(e)})
       }
     }
@@ -183,25 +204,41 @@ bot.on("interactionCreate", async (interaction) => {
 
 bot.on("messageCreate", (msg) => {
   //console.log(msg)
-  if((msg.content.startsWith("!prompt")) && msg.channel.id === config.channelID) {
-    chat('`!prompt` is no longer supported, use `/prompt` instead')
-    //request({cmd: msg.content.replace('!prompt','').trim() + '' + getRandom('prompt'), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
+  if((msg.content.startsWith("!prompt")||msg.content.startsWith("!random")) && msg.channel.id === config.channelID&&authorised(msg.member)) {
+    request({cmd: getRandom('prompt'), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
     msg.delete().catch(() => {})
   } else if(msg.content.startsWith("!dothething") && msg.channel.id === config.channelID && msg.author.id === config.adminID) {
+    console.log(bot.guilds)
+    msg.delete().catch(() => {})
+  } else if(msg.content.startsWith("!wipequeue") && msg.channel.id === config.channelID && msg.author.id === config.adminID) {
     rendering = false
     queue = []; //users= []; payments=[];
     dbWrite()
     console.log('admin wiped queue');
     msg.delete().catch(() => {})
-  } else if(msg.content.startsWith("!dream") && msg.channel.id === config.channelID) {
-    chat('`!dream` is no longer supported, use `/dream` instead')
-    //request({cmd: msg.content.substr(7, msg.content.length), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
+  } else if(msg.content.startsWith("!dream") && msg.channel.id === config.channelID&&authorised(msg.member)) {
+    request({cmd: msg.content.substr(7, msg.content.length), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
   } else if(msg.content.startsWith("!recharge") && msg.channel.id === config.channelID && config.hivePaymentAddress.length>0) {
-    console.log('recharge')
     rechargePrompt(msg.author.id)
   } else if(msg.content === '!queue') {
     queueStatus()
     msg.delete().catch(() => {})
+  } else if(msg.content === '!pause' && msg.channel.id === config.channelID && msg.author.id === config.adminID) {
+    chat(':pause_button: Bot is paused, requests will still be accepted and queued for when I return')
+    rendering = true
+    msg.delete().catch(() => {})
+  } else if(msg.content === '!resume' && msg.channel.id === config.channelID && msg.author.id === config.adminID) {
+    rendering = false
+    chat(':play_pause: Bot is back online')
+    processQueue()
+    msg.delete().catch(() => {})
+  } else if(msg.content === '!richlist' && msg.channel.id === config.channelID) {
+    getRichList()
+  } else if(msg.content.startsWith('!restart') && msg.channel.id === config.channelID && msg.author.id === config.adminID) {
+    msg.delete().then(()=>{exit(0)}).catch(() => {})
+  } else if(msg.content.startsWith('!lexica')) {
+    lexicaSearch(msg.content.substr(8, msg.content.length))
+    //msg.delete().catch(() => {})
   } else if(msg.content.startsWith('!credit') && msg.channel.id === config.channelID && msg.author.id === config.adminID){
     var who = msg.content.split(' ')[1]
     var howmuch = msg.content.split(' ')[2]
@@ -209,22 +246,6 @@ bot.on("messageCreate", (msg) => {
     console.log(who,howmuch)
     creditRecharge(howmuch,'manual',who)
   }
-})
-
-bot.on("guildCreate", (guild) => { // When the client joins a new guild
-    console.log(`New guild: ${guild.name}`)
-})
-
-bot.on("guildMemberAdd", (guild, member)=>{
-  console.log("guildMemberAdd")
-  console.log(guild)
-  console.log(member)
-})
-
-bot.on("guildMemberRemove", (guild, member)=>{
-  console.log("guildMemberRemove")
-  console.log(guild)
-  console.log(member)
 })
 
 bot.connect()
@@ -249,8 +270,11 @@ function request(request){
     if (args.seamless === 'false') { args.seamless = 'off'}
   }
   if (!args.renderer || ['localApi'].includes(args.renderer)) { args.renderer = 'localApi'}
-  // Should really check if template exists at this point, dont pass on invalid template
-  if (args.template) { args.template = sanitize(args.template) } else { args.template = undefined }
+  if (args.template) {  // Check if template exists at this point, dont pass on invalid template
+    args.template = sanitize(args.template)
+    try { if (!fs.existsSync(config.basePath+args.template+'.png')){args.template=undefined} }
+    catch (err) {console.error(err);args.template=undefined}
+  } else { args.template = undefined }
   if (!args.gfpgan_strength) { args.gfpgan_strength = 0 }
   if (!args.upscale_level) { args.upscale_level = '' }
   if (!args.upscale_strength) { args.upscale_strength = 0.75 }
@@ -287,12 +311,12 @@ function request(request){
     with_variations: args.with_variations,
     results: []
   }
+  if(newJob.channel==='webhook'&&request.webhook){newJob.webhook=request.webhook}
   newJob.cost = costCalculator(newJob)
   queue.push(newJob)
   dbWrite() // Push db write after each new addition
   processQueue()
 }
-
 function queueStatus() {
   if(dialogs.queue!==null){dialogs.queue.delete().catch((err)=>{console.error(err)})}
   var statusMsg=':information_source: Waiting: `'+queue.filter(x=>x.status==='new').length+'`, Rendering: `'+queue.filter(x=>x.status==='rendering').length+'`, Recent Users: `'+queue.map(x=>x.userid).filter(unique).length+'`'
@@ -311,11 +335,7 @@ function prepSlashCmd(options) { // Turn partial options into full command for s
 }
 function getCmd(newJob){ return newJob.prompt+' --width ' + newJob.width + ' --height ' + newJob.height + ' --seed ' + newJob.seed + ' --scale ' + newJob.scale + ' --sampler ' + newJob.sampler + ' --steps ' + newJob.steps + ' --strength ' + newJob.strength + ' --n ' + newJob.number + ' --gfpgan_strength ' + newJob.gfpgan_strength + ' --upscale_level ' + newJob.upscale_level + ' --upscale_strength ' + newJob.upscale_strength + ' --seamless ' + newJob.seamless + ' --variation_amount ' + newJob.variation_amount + ' --with_variations ' + newJob.with_variations}
 function getRandomSeed() {return Math.floor(Math.random() * 4294967295)}
-function chat(msg) {
-  if (msg !== null && msg !== ''){
-    bot.createMessage(config.channelID, msg)
-  }
-}
+function chat(msg) {if (msg !== null && msg !== ''){bot.createMessage(config.channelID, msg)}}
 // function chatPrivate(msg) { if (msg !== null && msg !== '') { bot.createMessage(config.channelID, { content: msg, flags:64 }) } }
 function sanitize (prompt) {
   if (config.bannedWords.length>0) { config.bannedWords.split(',').forEach((bannedWord, index) => { prompt = prompt.replace(bannedWord,'') }) }
@@ -323,14 +343,10 @@ function sanitize (prompt) {
 }
 function base64Encode(file) { var body = fs.readFileSync(file); return body.toString('base64') }
 function authorised(member) { // Basic request auth-just role based for now
-  if (member.roles.includes(config.roleID)) {
-    return true
-  } else {
-    return false
-  }
+  if (member.roles.includes(config.roleID)) {return true} else {return false}
 }
 function createNewUser(id){
-  users.push({id:id,credits:100}) // 100 creds for new users
+  users.push({id:id, credits:100}) // 100 creds for new users
   dbWrite() // Sync after new user
   console.log('created new user with id ' + id)
 }
@@ -350,14 +366,13 @@ function costCalculator(job) { // Pass in a render, get a cost in credits
   cost=(pixels/pixelBase)*cost
   cost=(job.steps/50)*cost
   if (job.gfpgan_strength!==0){cost=cost*1.05} // 5% charge for gfpgan
-  if (job.upscale_level===2){cost=cost*2}   // 2x charge for upscale 2x
-  if (job.upscale_level===4){cost=cost*4}   // 4x charge for upscale 4x 
+  if (job.upscale_level===2){cost=cost*2}      // 2x charge for upscale 2x
+  if (job.upscale_level===4){cost=cost*4}      // 4x charge for upscale 4x 
+  if (job.webhook){cost=cost*1.1}              // 10% charge for scheduled webhooks
   cost=cost*job.number // Multiply by image count
   return cost.toFixed(2)
 }
-function creditsRemaining(userID){
-  return users.find(x=>x.id===userID).credits
-}
+function creditsRemaining(userID){return users.find(x=>x.id===userID).credits}
 function chargeCredits(userID,amount){
   var user=users.find(x=>x.id===userID)
   user.credits=(user.credits-amount).toFixed(2)
@@ -385,7 +400,8 @@ function freeRecharge() {
   if (freeRechargeUsers.length>0){
     console.log(freeRechargeUsers.length+' users with balances below '+freeRechargeMinBalance+' getting a free '+freeRechargeAmount+' credit topup')
     freeRechargeUsers.forEach(u=>{
-      u.credits = parseFloat(u.credits)+freeRechargeAmount
+      u.credits = parseFloat(u.credits)+freeRechargeAmount // Incentivizes drain down to 9 for max free charge leaving balance at 19 
+      // u.credits = 10 // Incentivizes completely emptying balance for max free charge leaving balance at 10
       freeRechargeMsg+='<@'+u.id+'>,'
     })
     freeRechargeMsg+=' you received a free '+freeRechargeAmount+' :coin: topup!\n:information_source:Everyone with a balance below '+freeRechargeMinBalance+' will get this once every 12 hours'
@@ -395,12 +411,8 @@ function freeRecharge() {
     console.log('No users eligible for free credit recharge')
   }
 }
-function dbWrite() {
-  // console.log('write db')
-  try { fs.writeFileSync(dbFile, JSON.stringify({ queue: queue, users: users, payments: payments })) } catch(err) {console.error(err)}
-}
+function dbWrite() {try { fs.writeFileSync(dbFile, JSON.stringify({ queue: queue, users: users, payments: payments })) } catch(err) {console.error(err)}}
 function dbRead() {
-  // console.log('read db')
   fs.readFile(dbFile,function(err,data){
     if(err){console.error(err)}
     var j = JSON.parse(data)
@@ -408,6 +420,37 @@ function dbRead() {
     users = j.users
     payments = j.payments
   })
+}
+function dbScheduleRead(){
+  console.log('read schedule db')
+  try{
+    fs.readFile(dbScheduleFile,function(err,data){
+      if(err){console.error(err)}
+      var j = JSON.parse(data)
+      schedule = j.schedule
+      scheduleInit()
+    })
+  }
+  catch(err){console.error('failed to read schedule db'); console.error(err)}
+}
+function scheduleInit(){
+  // cycle through the active schedule jobs, set up render jobs with cron
+  console.log('init schedule')
+  schedule.filter(s=>s.enabled==='True').forEach(s=>{
+    console.log('Scheduling job: '+s.name)
+    cron.schedule(s.cron, () => {
+      console.log('Running scheduled job: '+s.name)
+      var randomPrompt = s.prompts[Math.floor(Math.random()*s.prompts.length)].prompt
+      var newRequest = {cmd: randomPrompt, userid: s.admins[0].id, username: s.admins[0].username, discriminator: s.admins[0].discriminator, bot: 'False', channelid: 'webhook', attachments: [], webhook: {url: s.webhook, alias: s.alias, destination: s.name}}
+      request(newRequest)
+    })
+  })
+}
+function getRichList () {
+  var u = users.filter(u=>u.credits>11).sort((a,b)=>b.credits-a.credits)
+  var richlistMsg = 'Rich List\n'
+  u.forEach(u=>{ richlistMsg+=u.id+':coin:`'+u.credits+'`\n' })
+  chat(richlistMsg)
 }
 function getPrices () {
   axios.get('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=hive&order=market_cap_asc&per_page=1&page=1&sparkline=false')
@@ -463,8 +506,15 @@ function checkNewPayments(){
     }
   })
 }
+function sendWebhook(job){
+  // consider swapping color for getRandomColorDec
+  let embeds = [ { color: getRandomColorDec(), footer: { text: job.prompt }, image: { url: job.webhook.imgurl } } ]
+  axios({method: "POST",url: job.webhook.url,headers: { "Content-Type": "application/json" },data: JSON.stringify({embeds})})
+    .then((response) => {console.log("Webhook delivered successfully");console.log(response)})
+    .catch((error) => {console.error(error)})
+}
 async function addRenderApi (id) {
-  var job = queue[queue.findIndex(x => x.id === id)] 
+  var job = queue[queue.findIndex(x=>x.id===id)] 
   var initimg = null
   job.status = 'rendering'
   queueStatus()
@@ -516,7 +566,7 @@ async function addRenderApi (id) {
       rendering = false
       processQueue()
     })
-    .catch(error => { console.log('error'); console.error(error) })
+    .catch(error => { console.error('error connecting to api server'); console.error(error) })
     // End old axios code
 }
 
@@ -537,6 +587,7 @@ async function postRender (render) {
       msg+= ':seedling: `' + render.seed + '`:scales:`' + render.config.cfg_scale + '`:recycle:`' + render.config.steps + '`'
       msg+= ':stopwatch:`' + timeDiff(job.timestampRequested, moment()) + 's`'
       msg+= ':file_cabinet: `' + filename + '` :eye: `' + render.config.sampler_name + '`'
+      if (job.webhook){msg+='\n:calendar:Scheduled render sent to `'+job.webhook.destination+'` discord'}
       chargeCredits(job.userid,(costCalculator(job))/job.number) // only charge successful renders
       if (job.cost){msg+=':coin:`'+(job.cost/job.number).toFixed(2).replace(/[.,]00$/, "")+'/'+ creditsRemaining(job.userid) +'`'}
       var newMessage = { content: msg, embeds: [{description: render.config.prompt}], components: [ { type: Constants.ComponentTypes.ACTION_ROW, components: [ ] } ] }
@@ -547,11 +598,19 @@ async function postRender (render) {
         // newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Upscale", custom_id: "upscale-" + job.id + '-' + seed, emoji: { name: '🔍', id: null}, disabled: false })
         if (job.template){ newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Remove template", custom_id: "refreshNoTemplate-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })}
       }
+      newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Edit", custom_id: "edit-"+job.id, emoji: { name: '✏️', id: null}, disabled: false })
       newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Random", custom_id: "random", emoji: { name: '🔀', id: null}, disabled: false })
       if (newMessage.components[0].components.length===0){delete newMessage.components} // If no components are used there will be a discord api error so remove it
       var filesize = fs.statSync(render.url).size
       if (filesize < 8000000) { // Within discord 8mb filesize limit
-        try { bot.createMessage(job.channel, newMessage, {file: data, name: filename + '.png' }) }
+        try {
+          bot.createMessage(config.channelID, newMessage, {file: data, name: filename + '.png'}).then(m=>{
+            if (job.channel==='webhook'&&job.webhook) {
+              job.webhook.imgurl=m.attachments[0].url
+              sendWebhook(job)
+            }
+          })
+        }
         catch (err) {console.error(err)}
       } else {
         if (imgurEnabled() && filesize < 10000000) {
@@ -574,6 +633,7 @@ async function postRender (render) {
 
 function processQueue () {
   var nextJob = queue[queue.findIndex(x => x.status === 'new')]
+  // TODO make a queueing system that prioritizes the users that have recharged the most
   if (nextJob!==undefined&&rendering===false) {
     if (userCreditCheck(nextJob.userid,costCalculator(nextJob))) {
       rendering=true
@@ -594,8 +654,29 @@ function processQueue () {
     }
   }
 }
-
+function lexicaSearch(query){
+  // Quick and dirty lexica search api, needs docs to make it more efficient (query limit etc)
+  var reply = {content:'Top 10 results from lexica.art api:', embeds:[], components:[]}
+  axios.get('https://lexica.art/api/v1/search?q='+query)
+    .then((r)=>{
+      console.log('Results: '+r.length+' total, only returning the top 5')
+      //console.log(r.data.images)
+      var top10 = r.data.images.slice(0,10)
+      top10.forEach(i=>{
+        reply.embeds.push({
+          color: getRandomColorDec(),
+          image:{url:i.src},
+          footer:{text:i.prompt}
+        })
+        //reply+='`'+i.prompt+'`\n'+i.src+'\n'
+      })
+      //reply.embeds.forEach(r=>{reply.components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Template", custom_id: "template-" + job.id + '-' + filename, emoji: { name: '📷', id: null}, disabled: false })})
+      chat(reply)
+    })
+    .catch((error) => console.error(error))
+}
 const unique = (value, index, self) => { return self.indexOf(value) === index }
+function getRandomColorDec(){return Math.floor(Math.random()*16777215)}
 function timeDiff (date1,date2) { return date2.diff(date1, 'seconds') }
 var randoms = ['prompt','artist','city','genre','medium','emoji','subject','madeof','style','animal','bodypart','gerund','verb','adverb','adjective','star']
 function getRandom(what) { if (randoms.includes(what)) { try { var lines = fs.readFileSync('txt\\' + what + '.txt', 'utf-8').split(/r?\n/); return lines[Math.floor(Math.random()*lines.length)] } catch (err) { console.error(err)} } else { return what } }
@@ -611,7 +692,6 @@ function replaceRandoms (input) {
   })
   return output
 }
-
 function imgurEnabled() { if (config.imgurClientID.length > 0) { return true } else { return false } }
 async function imgurupload(file) {
   console.log('uploading via imgur api')
@@ -627,9 +707,7 @@ async function imgbbupload(file) {
     .then((response) => {console.log(response); return response})
     .catch((error) => console.error(error))
 }
-
 const log = console.log.bind(console)
-
 // Monitor new files entering watchFolder, post image with filename.
 function process (file) {
   try {
