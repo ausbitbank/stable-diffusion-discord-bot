@@ -10,6 +10,7 @@ const moment = require('moment')
 const { ImgurClient } = require('imgur')
 const imgur = new ImgurClient({ clientId: config.imgurClientID})
 const imgbb = require("imgbb-uploader")
+const DIG = require("discord-image-generation")
 var queue = []
 var users = []
 var payments = []
@@ -205,10 +206,11 @@ bot.on("interactionCreate", async (interaction) => {
 bot.on("messageCreate", (msg) => {
   //console.log(msg)
   if((msg.content.startsWith("!prompt")||msg.content.startsWith("!random")) && msg.channel.id === config.channelID&&authorised(msg.member)) {
-    request({cmd: getRandom('prompt'), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
+    var p = msg.content.substr(8,msg.content.length)+getRandom('prompt')
+    request({cmd: p, userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
     msg.delete().catch(() => {})
   } else if(msg.content.startsWith("!dothething") && msg.channel.id === config.channelID && msg.author.id === config.adminID) {
-    console.log(bot.guilds)
+    //console.log(bot.guilds)
     msg.delete().catch(() => {})
   } else if(msg.content.startsWith("!wipequeue") && msg.channel.id === config.channelID && msg.author.id === config.adminID) {
     rendering = false
@@ -234,11 +236,22 @@ bot.on("messageCreate", (msg) => {
     msg.delete().catch(() => {})
   } else if(msg.content === '!richlist' && msg.channel.id === config.channelID) {
     getRichList()
+    msg.delete().then(()=>{exit(0)}).catch(() => {})
   } else if(msg.content.startsWith('!restart') && msg.channel.id === config.channelID && msg.author.id === config.adminID) {
     msg.delete().then(()=>{exit(0)}).catch(() => {})
   } else if(msg.content.startsWith('!lexica')) {
     lexicaSearch(msg.content.substr(8, msg.content.length))
     //msg.delete().catch(() => {})
+  } else if(msg.content.startsWith('!meme')) {
+    console.log(msg.content)
+    //console.log(msg)
+    if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){
+      var urls = msg.attachments.map((u)=>{return u.proxy_url})
+      meme(msg.content.substr(6, msg.content.length),urls,msg.author.id)
+    } else if (msg.content.startsWith('!meme lisapresentation')){
+      meme(msg.content.substr(6, msg.content.length),urls,msg.author.id)
+    }
+    msg.delete().catch(() => {})
   } else if(msg.content.startsWith('!credit') && msg.channel.id === config.channelID && msg.author.id === config.adminID){
     var who = msg.content.split(' ')[1]
     var howmuch = msg.content.split(' ')[2]
@@ -278,7 +291,7 @@ function request(request){
   if (!args.gfpgan_strength) { args.gfpgan_strength = 0 }
   if (!args.upscale_level) { args.upscale_level = '' }
   if (!args.upscale_strength) { args.upscale_strength = 0.75 }
-  if (!args.variation_amount) { args.variation_amount = 0 }
+  if (!args.variation_amount||args.variation_amount>1||args.variation_amount<0) { args.variation_amount = 0 }
   if (!args.with_variations) { args.with_variations = '' }
   args.timestamp = moment()
   args.prompt = sanitize(args._.join(' '))
@@ -359,18 +372,18 @@ function userCreditCheck(userID,amount) { // Check if a user can afford a specif
   console.log('id '+user.id+' has '+user.credits+' credits, cost is '+amount)
   if (parseFloat(user.credits)>=parseFloat(amount)){ return true } else { return false }
 }
-function costCalculator(job) { // Pass in a render, get a cost in credits
-  var cost=1 // a normal render base cost, 512x512 50 steps
-  var pixelBase=262144 // 512x512 reference
-  var pixels=job.width*job.height
-  cost=(pixels/pixelBase)*cost
-  cost=(job.steps/50)*cost
-  if (job.gfpgan_strength!==0){cost=cost*1.05} // 5% charge for gfpgan
+function costCalculator(job) {                 // Pass in a render, get a cost in credits
+  var cost=1                                   // a normal render base cost, 512x512 50 steps
+  var pixelBase=262144                         // 512x512 reference pixel size
+  var pixels=job.width*job.height              // How many pixels does this render use?
+  cost=(pixels/pixelBase)*cost                 // premium or discount for resolution relative to default
+  cost=(job.steps/50)*cost                     // premium or discount for step count relative to default
+  if (job.gfpgan_strength!==0){cost=cost*1.05} // 5% charge for gfpgan face fixing
   if (job.upscale_level===2){cost=cost*2}      // 2x charge for upscale 2x
   if (job.upscale_level===4){cost=cost*4}      // 4x charge for upscale 4x 
   if (job.webhook){cost=cost*1.1}              // 10% charge for scheduled webhooks
-  cost=cost*job.number // Multiply by image count
-  return cost.toFixed(2)
+  cost=cost*job.number                         // Multiply by image count
+  return cost.toFixed(2)                       // Return cost to 2 decimal places
 }
 function creditsRemaining(userID){return users.find(x=>x.id===userID).credits}
 function chargeCredits(userID,amount){
@@ -450,24 +463,32 @@ function getRichList () {
   var u = users.filter(u=>u.credits>11).sort((a,b)=>b.credits-a.credits)
   var richlistMsg = 'Rich List\n'
   u.forEach(u=>{ richlistMsg+=u.id+':coin:`'+u.credits+'`\n' })
-  chat(richlistMsg)
+  //chat(richlistMsg)
+  console.log(richlistMsg)
+  console.log(bot.guild.members())
 }
 function getPrices () {
   axios.get('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=hive&order=market_cap_asc&per_page=1&page=1&sparkline=false')
     .then((response) => { hiveUsd = response.data[0].current_price; console.log('HIVE is worth $' + hiveUsd) })
     .catch(() => { console.log('Failed to load data from coingecko api') })
 }
+function getLightningInvoiceQr(memo){
+  var appname = config.hivePaymentAddress+'_discord' // TODO this should be an .env variable
+  return 'https://api.v4v.app/v1/new_invoice_hive?hive_accname='+config.hivePaymentAddress+'&amount=1&currency=HBD&usd_hbd=false&app_name='+appname+'&expiry=300&message='+memo+'&qr_code=png'
+}
 function rechargePrompt(userid){
   //if(!users.find(x=>x.id===userID)){console.log('user not found');createNewUser(userid)}
   userCreditCheck(userid,1) // make sure the account exists first
   checkNewPayments()
-  var paymentAddress = 'ausbit.dev'
   var paymentMemo = config.hivePaymentPrefix+userid
-  var paymentLink = 'https://hivesigner.com/sign/transfer?to='+paymentAddress+'&amount=1.000%20HBD&memo='+paymentMemo
-  var paymentMsg = '<@'+ userid +'> has :coin:`'+ creditsRemaining(userid) +'`\n*Recharging costs $1usd per :coin:`100` *\nSend HBD or HIVE to `'+ paymentAddress +'` with the memo `'+ paymentMemo +'`\n'+paymentLink
-  //var paymentMsgObject = { content: paymentMsg, embeds: [{ description: "Purchase 100 credits with HiveSigner", type: 'link', url: paymentLink, image:{url:'https://media.discordapp.net/attachments/968822563662860338/1022537991698264155/Hotpot.png'} }]}
-  var paymentMsgObject = {content: paymentMsg}
-  console.log(paymentMsgObject)
+  var paymentLink = 'https://hivesigner.com/sign/transfer?to='+config.hivePaymentAddress+'&amount=1.000%20HBD&memo='+paymentMemo
+  var lightningInvoiceQr = getLightningInvoiceQr(paymentMemo)
+  var paymentMsg = '<@'+ userid +'> has :coin:`'+ creditsRemaining(userid) +'`\n*Recharging costs $1usd per :coin:`100` *\nSend HBD or HIVE to `'+ config.hivePaymentAddress +'` with the memo `'+ paymentMemo +'`\n'+paymentLink+'\nOr pay 1 usd via lightning network with the QR code below'
+  var paymentMsgObject = {
+    content: paymentMsg,
+    embeds:[
+    {image:{url:lightningInvoiceQr}}
+    ]}
   chat(paymentMsgObject)
   console.log('ID '+userid+' asked for recharge link')
 }
@@ -490,10 +511,11 @@ function checkNewPayments(){
             coin=op.amount.split(' ')[1]
             amount=parseFloat(op.amount.split(' ')[0])
             if (coin==='HBD'){
+              console.log('hive payment')
               amountCredit = amount*100 // 1000 = 1 HBD, /10 = credit amount
             } else if (coin==='HIVE'){
               console.log('hive payment')
-              amountCredit = (amount*hiveUsd)*100 // need hive/hbd price to calculate credits per hive, hardcode $0.50 hive for now
+              amountCredit = (amount*hiveUsd)*100
             }
             console.log('processing new payment')
             console.log('amount credit:'+amountCredit+' , amount:'+op.amount)
@@ -590,16 +612,18 @@ async function postRender (render) {
       if (job.webhook){msg+='\n:calendar:Scheduled render sent to `'+job.webhook.destination+'` discord'}
       chargeCredits(job.userid,(costCalculator(job))/job.number) // only charge successful renders
       if (job.cost){msg+=':coin:`'+(job.cost/job.number).toFixed(2).replace(/[.,]00$/, "")+'/'+ creditsRemaining(job.userid) +'`'}
-      var newMessage = { content: msg, embeds: [{description: render.config.prompt}], components: [ { type: Constants.ComponentTypes.ACTION_ROW, components: [ ] } ] }
+      var newMessage = { content: msg, embeds: [{description: render.config.prompt, color: getRandomColorDec()}], components: [ { type: Constants.ComponentTypes.ACTION_ROW, components: [ ] } ] }
       newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Refresh", custom_id: "refresh-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })
       if (job.upscale_level==='') {
         if (!job.initimg){ newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "10% Variant", custom_id: "refreshVariants-" + job.id + '-' + render.seed, emoji: { name: '🧬', id: null}, disabled: false }) }
-        newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Template", custom_id: "template-" + job.id + '-' + filename, emoji: { name: '📷', id: null}, disabled: false })
+        // newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Template", custom_id: "template-" + job.id + '-' + filename, emoji: { name: '📷', id: null}, disabled: false })
         // newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Upscale", custom_id: "upscale-" + job.id + '-' + seed, emoji: { name: '🔍', id: null}, disabled: false })
         if (job.template){ newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Remove template", custom_id: "refreshNoTemplate-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })}
       }
       newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Edit", custom_id: "edit-"+job.id, emoji: { name: '✏️', id: null}, disabled: false })
-      newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Random", custom_id: "random", emoji: { name: '🔀', id: null}, disabled: false })
+      if (newMessage.components[0].components.length<5){
+        newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Random", custom_id: "random", emoji: { name: '🔀', id: null}, disabled: false })
+      }
       if (newMessage.components[0].components.length===0){delete newMessage.components} // If no components are used there will be a discord api error so remove it
       var filesize = fs.statSync(render.url).size
       if (filesize < 8000000) { // Within discord 8mb filesize limit
@@ -659,7 +683,7 @@ function lexicaSearch(query){
   var reply = {content:'Top 10 results from lexica.art api:', embeds:[], components:[]}
   axios.get('https://lexica.art/api/v1/search?q='+query)
     .then((r)=>{
-      console.log('Results: '+r.length+' total, only returning the top 5')
+      console.log('Results: '+r.length+' total, only returning the top 10')
       //console.log(r.data.images)
       var top10 = r.data.images.slice(0,10)
       top10.forEach(i=>{
@@ -674,6 +698,59 @@ function lexicaSearch(query){
       chat(reply)
     })
     .catch((error) => console.error(error))
+}
+async function meme(prompt,urls,userid){
+  params = prompt.split(' ')
+  cmd = prompt.split(' ')[0]
+  //console.log(cmd)
+  param = undefined
+  //if (params[1] && !params[1].startsWith('http')){param=!prompt.split(' ')[1]}
+  switch(cmd){
+    case 'blur': var img = await new DIG.Blur(params[1]).getImage(urls[0]);break
+    case 'gay': var img = await new DIG.Gay().getImage(urls[0]);break
+    case 'greyscale': var img = await new DIG.Greyscale().getImage(urls[0]);break
+    case 'invert': var img = await new DIG.Invert().getImage(urls[0]);break
+    case 'sepia': var img = await new DIG.Sepia().getImage(urls[0]);break
+    case 'blink': var img = await new DIG.Blink().getImage(...urls);break // Can take up to 10 images (discord limit) and make animations
+    case 'animate': var img = await new DIG.Blink().getImage(...urls);break // ^^ alias
+    case 'triggered': var img = await new DIG.Triggered().getImage(urls[0]);break
+    case 'ad': var img = await new DIG.Ad().getImage(urls[0]);break
+    case 'affect': var img = await new DIG.Affect().getImage(urls[0]);break
+    case 'batslap': var img = await new DIG.Batslap().getImage(urls[0],urls[1]);break // Take 2 images
+    case 'beautiful': var img = await new DIG.Beautiful().getImage(urls[0]);break
+    case 'bed': var img = await new DIG.Bed().getImage(urls[0],urls[1]);break // takes 2 images
+    case 'bobross': var img = await new DIG.Bobross().getImage(urls[0]);break
+    case 'confusedstonk': var img = await new DIG.ConfusedStonk().getImage(urls[0]);break
+    case 'delete': var img = await new DIG.Delete().getImage(urls[0]);break
+    case 'discordblack': var img = await new DIG.DiscordBlack().getImage(urls[0]);break
+    case 'discordblue': var img = await new DIG.DiscordBlue().getImage(urls[0]);break
+    case 'doublestonk': var img = await new DIG.DoubleStonk().getImage(urls[0],urls[1]);break // takes 2 images
+    case 'facepalm': var img = await new DIG.Facepalm().getImage(urls[0]);break
+    case 'hitler': var img = await new DIG.Hitler().getImage(urls[0]);break
+    case 'jail': var img = await new DIG.Jail().getImage(urls[0]);break
+    case 'karaba': var img = await new DIG.Karaba().getImage(urls[0]);break
+    case 'kiss': var img = await new DIG.Kiss().getImage(urls[0],urls[1]);break // takes 2 images
+    case 'lisapresentation': var img = await new DIG.LisaPresentation().getImage(prompt.replace('lisapresentation ',''));break // takes text
+    case 'mms': var img = await new DIG.Mms().getImage(urls[0]);break
+    case 'notstonk': var img = await new DIG.NotStonk().getImage(urls[0]);break
+    case 'podium': var img = await new DIG.Podium().getImage(urls[0],urls[1],urls[2],params[1],params[2],params[3]);break // new DIG.Podium().getImage(`<Avatar1>, <Avatar2>, <Avatar2>, <Name1>, <Name2>, <Name3>`)
+    case 'poutine': var img = await new DIG.Poutine().getImage(urls[0]);break
+    case 'rip': var img = await new DIG.Rip().getImage(urls[0]);break
+    case 'spank': var img = await new DIG.Spank().getImage(urls[0],urls[1]);break // takes 2 urls
+    case 'stonk': var img = await new DIG.Stonk().getImage(urls[0]);break
+    case 'tatoo': var img = await new DIG.Tatoo().getImage(urls[0]);break
+    case 'thomas': var img = await new DIG.Thomas().getImage(urls[0]);break
+    case 'trash': var img = await new DIG.Trash().getImage(urls[0]);break
+    case 'wanted': var img = await new DIG.Wanted().getImage(urls[0], '$');break // takes image + currency sign, hardcoding $
+    case 'circle': var img = await new DIG.Circle().getImage(urls[0]);break
+    case 'color': var img = await new DIG.Color().getImage(params[1]);break // take hex color code
+  }
+  if (img&&cmd){
+    chargeCredits(userid,0.05)
+    var extension = ['blink','triggered','animate'].includes(cmd) ? '.gif' : '.png'
+    var msg = '<@'+userid+'> used `!meme '+prompt+'`, it cost :coin:`0.05`/`'+creditsRemaining(userid)+'`'
+    bot.createMessage(config.channelID, msg, {file: img, name: cmd+'-'+getRandomSeed()+extension})
+  }
 }
 const unique = (value, index, self) => { return self.indexOf(value) === index }
 function getRandomColorDec(){return Math.floor(Math.random()*16777215)}
@@ -702,7 +779,7 @@ async function imgurupload(file) {
 function imgbbEnabled() { if (config.imgbbClientID.length > 0) { return true } else { return false } }
 async function imgbbupload(file) {
   console.log('uploading via imgbb api')
-  console.log(file)
+  //console.log(file)
   imgbb(config.imgbbClientID, file)
     .then((response) => {console.log(response); return response})
     .catch((error) => console.error(error))
