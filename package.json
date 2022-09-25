@@ -19,7 +19,9 @@
     "dependencies": {
         "@hiveio/hive-js": "^2.0.4",
         "axios": "^0.27.2",
+        "canvas": "^2.10.1",
         "chokidar": "^3.5.3",
+        "discord-image-generation": "^1.4.14",
         "dotenv": "^16.0.2",
         "eris": "DonovanDMC/eris#ed41313d9df5ff7c31bc955e0888f9c6f732c963",
         "forever": "^4.0.3",
