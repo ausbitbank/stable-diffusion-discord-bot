@@ -11,6 +11,7 @@ const { ImgurClient } = require('imgur')
 const imgur = new ImgurClient({ clientId: config.imgurClientID})
 const imgbb = require("imgbb-uploader")
 const DIG = require("discord-image-generation")
+//const debounce = require('debounce')
 var queue = []
 var users = []
 var payments = []
@@ -348,14 +349,19 @@ function prepSlashCmd(options) { // Turn partial options into full command for s
 }
 function getCmd(newJob){ return newJob.prompt+' --width ' + newJob.width + ' --height ' + newJob.height + ' --seed ' + newJob.seed + ' --scale ' + newJob.scale + ' --sampler ' + newJob.sampler + ' --steps ' + newJob.steps + ' --strength ' + newJob.strength + ' --n ' + newJob.number + ' --gfpgan_strength ' + newJob.gfpgan_strength + ' --upscale_level ' + newJob.upscale_level + ' --upscale_strength ' + newJob.upscale_strength + ' --seamless ' + newJob.seamless + ' --variation_amount ' + newJob.variation_amount + ' --with_variations ' + newJob.with_variations}
 function getRandomSeed() {return Math.floor(Math.random() * 4294967295)}
-function chat(msg) {if (msg !== null && msg !== ''){bot.createMessage(config.channelID, msg)}}
-// function chatPrivate(msg) { if (msg !== null && msg !== '') { bot.createMessage(config.channelID, { content: msg, flags:64 }) } }
+function chat(msg) {
+  if (msg !== null && msg !== ''){
+    bot.createMessage(config.channelID, msg)
+  }
+}
 function sanitize (prompt) {
   if (config.bannedWords.length>0) { config.bannedWords.split(',').forEach((bannedWord, index) => { prompt = prompt.replace(bannedWord,'') }) }
   return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '') // (/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '')
 }
 function base64Encode(file) { var body = fs.readFileSync(file); return body.toString('base64') }
 function authorised(member) { // Basic request auth-just role based for now
+  if (!member) { return true } // not cached yet, better to allow then crash
+  if (!member.roles) { return true }
   if (member.roles.includes(config.roleID)) {return true} else {return false}
 }
 function createNewUser(id){
@@ -477,7 +483,7 @@ function getLightningInvoiceQr(memo){
   return 'https://api.v4v.app/v1/new_invoice_hive?hive_accname='+config.hivePaymentAddress+'&amount=1&currency=HBD&usd_hbd=false&app_name='+appname+'&expiry=300&message='+memo+'&qr_code=png'
 }
 function rechargePrompt(userid){
-  //if(!users.find(x=>x.id===userID)){console.log('user not found');createNewUser(userid)}
+  // TODO add encrypted memo support by default to keep discord ids private
   userCreditCheck(userid,1) // make sure the account exists first
   checkNewPayments()
   var paymentMemo = config.hivePaymentPrefix+userid
@@ -529,7 +535,6 @@ function checkNewPayments(){
   })
 }
 function sendWebhook(job){
-  // consider swapping color for getRandomColorDec
   let embeds = [ { color: getRandomColorDec(), footer: { text: job.prompt }, image: { url: job.webhook.imgurl } } ]
   axios({method: "POST",url: job.webhook.url,headers: { "Content-Type": "application/json" },data: JSON.stringify({embeds})})
     .then((response) => {console.log("Webhook delivered successfully");console.log(response)})
@@ -684,7 +689,6 @@ function lexicaSearch(query){
   axios.get('https://lexica.art/api/v1/search?q='+query)
     .then((r)=>{
       console.log('Results: '+r.length+' total, only returning the top 10')
-      //console.log(r.data.images)
       var top10 = r.data.images.slice(0,10)
       top10.forEach(i=>{
         reply.embeds.push({
@@ -692,10 +696,8 @@ function lexicaSearch(query){
           image:{url:i.src},
           footer:{text:i.prompt}
         })
-        //reply+='`'+i.prompt+'`\n'+i.src+'\n'
       })
-      //reply.embeds.forEach(r=>{reply.components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Template", custom_id: "template-" + job.id + '-' + filename, emoji: { name: '📷', id: null}, disabled: false })})
-      chat(reply)
+      chat(reply) // TODO rewrite to return object, calling function should respond as an ephemeral message to reduce channel spam
     })
     .catch((error) => console.error(error))
 }
