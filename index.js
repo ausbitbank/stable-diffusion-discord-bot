@@ -132,6 +132,7 @@ bot.on("interactionCreate", async (interaction) => {
       var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
       if (newJob) {
         newJob.number = 1
+        if (interaction.data.custom_id.startsWith('refreshUpscale-')){ newJob.upscale_level = 2 }
         if (interaction.data.custom_id.startsWith('refreshEdit-')){ newJob.prompt = interaction.data.components[0].components[0].value }
         if (newJob.webhook){delete newJob.webhook}
         if (interaction.data.custom_id.startsWith('refreshVariants')&&newJob.sampler!=='k_euler_a') { // variants do not work with k_euler_a sampler
@@ -296,6 +297,7 @@ function request(request){
   if (!args.with_variations) { args.with_variations = '' }
   args.timestamp = moment()
   args.prompt = sanitize(args._.join(' '))
+  if (args.prompt.length===0){ args.prompt=getRandom('prompt'); console.log('empty prompt found, adding random')} 
   var newJob = {
     id: queue.length+1,
     status: 'new',
@@ -333,7 +335,7 @@ function request(request){
 }
 function queueStatus() {
   if(dialogs.queue!==null){dialogs.queue.delete().catch((err)=>{console.error(err)})}
-  var statusMsg=':information_source: Waiting: `'+queue.filter(x=>x.status==='new').length+'`, Rendering: `'+queue.filter(x=>x.status==='rendering').length+'`, Recent Users: `'+queue.map(x=>x.userid).filter(unique).length+'`'
+  var statusMsg=':information_source: Waiting: `'+queue.filter(x=>x.status==='new').length+'`, Rendering: `'+queue.filter(x=>x.status==='rendering').length+'`, Recent Users: `'+queue.map(x=>x.userid).filter(unique).length+'` / `'+users.length+'`'
   if (queue.filter(x=>x.status==='rendering').length>0) {
     statusMsg+='\n:track_next:`'+queue.filter(x=>x.status==='rendering')[0].prompt + '`'
     if (queue.filter(x=>x.status==='rendering')[0].number !== 1) {statusMsg+='x'+queue.filter(x=>x.status==='rendering')[0].number}
@@ -356,7 +358,7 @@ function chat(msg) {
 }
 function sanitize (prompt) {
   if (config.bannedWords.length>0) { config.bannedWords.split(',').forEach((bannedWord, index) => { prompt = prompt.replace(bannedWord,'') }) }
-  return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '') // (/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '')
+  return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '').replace('`','') // (/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '')
 }
 function base64Encode(file) { var body = fs.readFileSync(file); return body.toString('base64') }
 function authorised(member) { // Basic request auth-just role based for now
@@ -549,7 +551,7 @@ async function addRenderApi (id) {
     try { initimg = 'data:image/png;base64,' + base64Encode(basePath + job.template + '.png') }
     catch (err) { console.error(err); initimg = null; job.template = '' }
   }
-  if (job.attachments.length > 0 && job.attachments[0].content_type === 'image/png') {
+  if (job.attachments.length > 0 && job.attachments[0].content_type && job.attachments[0].content_type.startsWith('image')) {
     console.log('fetching attachment from ' + job.attachments[0].proxy_url)
     await axios.get(job.attachments[0].proxy_url, {responseType: 'arraybuffer'})
       .then(res => { initimg = 'data:image/png;base64,' + Buffer.from(res.data).toString('base64'); job.initimg = initimg; console.log('got attachment') })
@@ -622,7 +624,7 @@ async function postRender (render) {
       if (job.upscale_level==='') {
         if (!job.initimg){ newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "10% Variant", custom_id: "refreshVariants-" + job.id + '-' + render.seed, emoji: { name: '🧬', id: null}, disabled: false }) }
         // newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Template", custom_id: "template-" + job.id + '-' + filename, emoji: { name: '📷', id: null}, disabled: false })
-        // newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Upscale", custom_id: "upscale-" + job.id + '-' + seed, emoji: { name: '🔍', id: null}, disabled: false })
+        // newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Upscale", custom_id: "refreshUpscale-" + job.id + '-' + seed, emoji: { name: '🔍', id: null}, disabled: false })
         if (job.template){ newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Remove template", custom_id: "refreshNoTemplate-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })}
       }
       newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Edit", custom_id: "edit-"+job.id, emoji: { name: '✏️', id: null}, disabled: false })
@@ -757,7 +759,7 @@ async function meme(prompt,urls,userid){
 const unique = (value, index, self) => { return self.indexOf(value) === index }
 function getRandomColorDec(){return Math.floor(Math.random()*16777215)}
 function timeDiff (date1,date2) { return date2.diff(date1, 'seconds') }
-var randoms = ['prompt','artist','city','genre','medium','emoji','subject','madeof','style','animal','bodypart','gerund','verb','adverb','adjective','star']
+var randoms = ['prompt','artist','city','genre','medium','emoji','subject','madeof','style','animal','bodypart','gerund','verb','adverb','adjective','star','fruit']
 function getRandom(what) { if (randoms.includes(what)) { try { var lines = fs.readFileSync('txt\\' + what + '.txt', 'utf-8').split(/r?\n/); return lines[Math.floor(Math.random()*lines.length)] } catch (err) { console.error(err)} } else { return what } }
 function replaceRandoms (input) {
   var output=input
