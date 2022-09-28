@@ -41,6 +41,7 @@ Invite to your server with `https://discord.com/oauth2/authorize?client_id= APPL
 - Filter blacklisted words from prompts (optional)
 - Upload to imgur api if files get too big for your discord server (optional)
 - Upload to imgbb api (optional)
+- Remixing/meming and animating images using [discord-image-generation](https://www.npmjs.com/package/discord-image-generation?activeTab=readme)
 
 ## WIP/future features:
 - Alternative render path via dreamstudio api for paying users
@@ -69,7 +70,7 @@ Seamless tiling background creation from a template
 
 ![/prompt keyword to remix a random prompt (600+ so far)](https://media.discordapp.net/attachments/968822563662860338/1020036559036231761/unknown.png)
 
-Use {animal} {star} {city} etc in prompts to replace with random keywords from a text file library
+Use `{animal}` `{star}` `{city}` etc in prompts to replace with random keywords from a text file library
 
 ![](https://media.discordapp.net/attachments/968822563662860338/1020041729342189688/unknown.png)
 
@@ -82,6 +83,11 @@ Using an init image via discord message attachment
 Recharging credit with Hive, HBD or BTC lightning
 
 ![](https://media.discordapp.net/attachments/968822563662860338/1024634986067927092/unknown.png)
+
+Generating animations with `!meme animate` and attaching images
+
+![](https://media.discordapp.net/attachments/968822563662860338/1024638314814373928/unknown.png)
+![](https://media.discordapp.net/attachments/968822563662860338/1024638318631194624/animate-1845497245.gif)
 
 Patches/Pull request are greatly appreciated!
 -----------------------
