@@ -75,7 +75,7 @@ var slashCommands = [
     cooldown: 500,
     execute: (i) => {
       log('dream slash command exec')
-      if (i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))){
+      if (i.data.resolved && i.data.resolved.attachments && i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))){
         var attachmentOrig=i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))
         var attachment=[{width:attachmentOrig.width,height:attachmentOrig.height,size:attachmentOrig.size,proxy_url:attachmentOrig.proxyUrl,content_type:attachmentOrig.contentType,filename:attachmentOrig.filename,id:attachmentOrig.id}]
       } else {
@@ -551,7 +551,7 @@ function checkNewPayments(){
 function sendWebhook(job){
   let embeds = [ { color: getRandomColorDec(), footer: { text: job.prompt }, image: { url: job.webhook.imgurl } } ]
   axios({method: "POST",url: job.webhook.url,headers: { "Content-Type": "application/json" },data: JSON.stringify({embeds})})
-    .then((response) => {log("Webhook delivered successfully");log(response)})
+    .then((response) => {log("Webhook delivered successfully")})
     .catch((error) => {console.error(error)})
 }
 async function addRenderApi (id) {
@@ -563,12 +563,10 @@ async function addRenderApi (id) {
     try { initimg = 'data:image/png;base64,' + base64Encode(basePath + job.template + '.png') }
     catch (err) { console.error(err); initimg = null; job.template = '' }
   }
-  log('addRenderApi entry, job.attachments:')
-  log(job.attachments)
   if (job.attachments[0] && job.attachments[0].content_type && job.attachments[0].content_type.startsWith('image')) {
     log('fetching attachment from ' + job.attachments[0].proxy_url)
     await axios.get(job.attachments[0].proxy_url, {responseType: 'arraybuffer'})
-      .then(res => { initimg = 'data:image/png;base64,' + Buffer.from(res.data).toString('base64'); job.initimg = initimg; log('got attachment') })
+      .then(res => { initimg = 'data:image/png;base64,' + Buffer.from(res.data).toString('base64'); log('got attachment') }) //removed //job.initimg = initimg
       .catch(err => { console.error('unable to fetch url: ' + job.attachments[0].proxy_url); console.error(err) })
   }
   var prompt = job.prompt
@@ -592,15 +590,38 @@ async function addRenderApi (id) {
       "initimg_name": '',
     }
   if (job.seamless==='on') { postObject.seamless = 'on' }
-  // Need to replace with a proper websocket solution to get instant feedback on multi-image batches
-  axios.post(apiUrl, postObject)
+  // new stream based version
+  job.status='rendering'
+  const apiResponse = await axios.post(apiUrl, postObject, {responseType: 'stream'})
+  const apiResponseStream = apiResponse.data
+  apiResponseStream.on('data', data=>{
+    var json = JSON.parse(data)
+    if (json.event==='result') {
+      job.results.push({filename: json.url, seed: json.seed}) // keep each generated images filename and seed
+      json.config.id = job.id
+      postRender(json)
+    } else {
+      log(json)
+    }
+  })
+  apiResponseStream.on('end', data=>{
+    job.status='done'
+    rendering = false
+    processQueue()
+  })
+  // end new stream based version
+  // start old session based version
+  /*axios.post(apiUrl, postObject)
     .then(res => {
       var data = res.data.split("\n")
       data.pop() // Remove blank line from the end of api output
-      //job.status = 'failed'
+      job.status = 'failed' // fail early in case of crash loop
       data.forEach(line => {
         line = JSON.parse(line)
-        if (line.event !== 'result'){ return } else {
+        log(line)
+        if (line.event !== 'result'){
+          return
+        } else {
           job.results.push({filename: line.url, seed: line.seed}) // keep each generated images filename and seed
           line.config.id = job.id
           job.status = 'done'
@@ -610,7 +631,7 @@ async function addRenderApi (id) {
       processQueue()
     })
     .catch(error => { console.error('error connecting to api server'); console.error(error) })
-    // End old axios code
+    // End old axios code */
 }
 
 async function postRender (render) {
@@ -624,7 +645,7 @@ async function postRender (render) {
       if (job.gfpgan_strength !== 0) { msg+= ':magic_wand:`gfpgan face fix (' + job.gfpgan_strength + ')`'}
       if (job.seamless === 'on') { msg+= ':knot:**`Seamless Tiling`**'}
       if (job.template) { msg+= ':frame_photo:`' + job.template + '` :muscle: `' + render.config.strength + '`'}
-      if (job.initimg) { msg+= ':paperclip:` attached template` :muscle: `' + render.config.strength + '`'}
+      if (job.attachments.length>0) { msg+= ':paperclip:` attached template` :muscle: `' + render.config.strength + '`'}
       if (job.variation_amount !== 0) { msg+= ':microbe:**`Variation ' + job.variation_amount + '`**'}
       if (job.with_variations !== '') { msg+= ':linked_paperclips:**variants `' + job.with_variations + '`**'}
       msg+= ':seedling: `' + render.seed + '`:scales:`' + render.config.cfg_scale + '`:recycle:`' + render.config.steps + '`'
@@ -636,7 +657,7 @@ async function postRender (render) {
       var newMessage = { content: msg, embeds: [{description: render.config.prompt, color: getRandomColorDec()}], components: [ { type: Constants.ComponentTypes.ACTION_ROW, components: [ ] } ] }
       newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Refresh", custom_id: "refresh-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })
       if (job.upscale_level==='') {
-        if (!job.initimg){ newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "10% Variant", custom_id: "refreshVariants-" + job.id + '-' + render.seed, emoji: { name: '🧬', id: null}, disabled: false }) }
+        if (!job.attachments.length>0){ newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "10% Variant", custom_id: "refreshVariants-" + job.id + '-' + render.seed, emoji: { name: '🧬', id: null}, disabled: false }) }
         // newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Template", custom_id: "template-" + job.id + '-' + filename, emoji: { name: '📷', id: null}, disabled: false })
         //newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Upscale", custom_id: "refreshUpscale-" + job.id + '-' + render.seed, emoji: { name: '🔍', id: null}, disabled: false })
         if (job.template){ newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Remove template", custom_id: "refreshNoTemplate-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })}
