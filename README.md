@@ -36,7 +36,7 @@ Invite to your server with `https://discord.com/oauth2/authorize?client_id= APPL
 - RealESRGAN face fixing and upscaling
 - Slash commands
 - Per user credit tracking system
-- Hive/HBD credit topups
+- Credit recharging via Hive, HBD, or btc lightning payments
 - Free small credit topups for low balance users once every x hours (optional)
 - Filter blacklisted words from prompts (optional)
 - Upload to imgur api if files get too big for your discord server (optional)
@@ -86,3 +86,6 @@ Patches/Pull request are greatly appreciated!
 
 If you have any questions you can find me (ausbitbank) in my discord here - https://discord.gg/DSdK9KRJxq
 You can test out the bot in the #artspam channel
+
+![discord](https://img.shields.io/discord/419390618209353730?style=plastic)
+![license](https://img.shields.io/github/license/ausbitbank/stable-diffusion-discord-bot?style=plastic)
