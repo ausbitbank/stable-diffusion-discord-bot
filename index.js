@@ -13,6 +13,7 @@ const imgbb = require("imgbb-uploader")
 const DIG = require("discord-image-generation")
 const log = console.log.bind(console)
 const dJSON = require('dirty-json')
+var colors = require('colors')
 //const debounce = require('debounce')
 var queue = []
 var users = []
@@ -30,10 +31,10 @@ if (config.hivePaymentAddress.length>0){
   hive.config.set('alternative_api_endpoints',['https://api.hive.blog','https://rpc.ausbit.dev','https://api.openhive.network'])
   var hiveUsd = null
   getPrices()
-  cron.schedule('0,30 * * * *', () => { log(moment()+': Checking account history every 30 minutes'); checkNewPayments() })
-  cron.schedule('55 * * * *', () => { log(moment()+': Updating hive price every 55 minutes'); getPrices() })
+  cron.schedule('0,30 * * * *', () => { log('Checking account history every 30 minutes'.dim.green); checkNewPayments() })
+  cron.schedule('55 * * * *', () => { log('Updating hive price every 55 minutes'.dim.green); getPrices() })
 }
-cron.schedule('0 */12 * * *', () => { log(moment()+': Recharging users with no credit every 12 hrs'); freeRecharge() }) // Comment this out if you don't want free regular topups of low balance users
+cron.schedule('0 */12 * * *', () => { log('Recharging users with no credit every 12 hrs'.bgCyan.bold); freeRecharge() }) // Comment this out if you don't want free regular topups of low balance users
 // guilds intent is required to see member roles from standard messages, allowing !dream to be locked to an allowed role
 const bot = new Eris.CommandClient(config.discordBotKey, {
   intents: ["guilds", "guildMessages", "messageContent", "guildMembers"],
@@ -81,7 +82,6 @@ var slashCommands = [
         var attachment=[{width:attachmentOrig.width,height:attachmentOrig.height,size:attachmentOrig.size,proxy_url:attachmentOrig.proxyUrl,content_type:attachmentOrig.contentType,filename:attachmentOrig.filename,id:attachmentOrig.id}]
       } else {
         var attachment=[]
-        log('attachment not found')
       }
       request({cmd: getCmd(prepSlashCmd(i.data.options)), userid: i.member.id, username: i.member.user.username, discriminator: i.member.user.discriminator, bot: i.member.user.bot, channelid: i.channel.id, attachments: attachment})
     }
@@ -101,7 +101,7 @@ var slashCommands = [
 ]
 
 bot.on("ready", async () => {
-  log("Connected to discord")
+  log("Connected to discord".bgGreen)
   processQueue()
   bot.getCommands().then(cmds=>{
     bot.commands = new Collection()
@@ -132,7 +132,7 @@ bot.on("interactionCreate", async (interaction) => {
     catch (error) { console.error(error); await interaction.createMessage({content:'There was an error while executing this command!', flags: 64}).catch((e) => {log(e)}) }
   }
   if((interaction instanceof Eris.ComponentInteraction||interaction instanceof Eris.ModalSubmitInteraction) && interaction.channel.id === config.channelID&&authorised(interaction.member)) {
-    log(interaction.data.custom_id+' request from ' + interaction.member.user.username)
+    log(interaction.data.custom_id.bgWhite.black.bold+' request from '.bgWhite.black.bold + interaction.member.user.username.bgWhite.black.bold)
     if (interaction.data.custom_id.startsWith('random')) {
       var prompt = getRandom('prompt')
       request({cmd: prompt, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
@@ -160,7 +160,7 @@ bot.on("interactionCreate", async (interaction) => {
         request({cmd: cmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
         return interaction.editParent({}).catch((e)=>{log(e)})
       } else {
-        console.error('unable to refresh render')
+        console.error('unable to refresh render'.red)
         return interaction.editParent({components:[]}).catch((e) => {log(e)})
       }
     } else if (interaction.data.custom_id.startsWith('template')) {
@@ -294,8 +294,8 @@ function request(request){
   if (request.cmd.includes('{')) { request.cmd = replaceRandoms(request.cmd) } // swap randomizers
   var args = parseArgs(request.cmd.split(' '),{string: ['template','init_img','sampler']}) // parse arguments
   // messy code below contains defaults values, check numbers are actually numbers and within acceptable ranges etc
-  if (!args.width || !Number.isInteger(args.width) || (defaultSize*args.width>config.pixelLimit)) { args.width = defaultSize }
-  if (!args.height || !Number.isInteger(args.height) || (defaultSize*args.height>config.pixelLimit)) { args.height = defaultSize }
+  if (!args.width || !Number.isInteger(args.width) || (defaultSize*args.width>config.pixelLimit) || args.width<256) { args.width = defaultSize }
+  if (!args.height || !Number.isInteger(args.height) || (defaultSize*args.height>config.pixelLimit)|| args.height<256) { args.height = defaultSize }
   if (!args.steps || !Number.isInteger(args.steps) || args.steps > 250) { args.steps = 50 } // max 250 steps, default 50
   if (!args.seed || !Number.isInteger(args.seed) || args.seed < 1 || args.seed > 4294967295 ) { args.seed = getRandomSeed() }
   if (!args.strength || args.strength > 1 || args.strength < 0 ) { args.strength = 0.75 }
@@ -392,7 +392,7 @@ function authorised(member) { // Basic request auth-just role based for now
 function createNewUser(id){
   users.push({id:id, credits:100}) // 100 creds for new users
   dbWrite() // Sync after new user
-  log('created new user with id ' + id)
+  log('created new user with id '.bgYellow.black.bold + id)
 }
 function userCreditCheck(userID,amount) { // Check if a user can afford a specific amount of credits, create if not existing yet
   var user = users.find(x=>x.id===userID)
@@ -400,7 +400,7 @@ function userCreditCheck(userID,amount) { // Check if a user can afford a specif
     createNewUser(userID)  
     user = users.find(x=>x.id===userID)
   }
-  log('id '+user.id+' has '+user.credits+' credits, cost is '+amount)
+  //log('id '+user.id+' has '+user.credits+' credits, cost is '+amount)
   if (parseFloat(user.credits)>=parseFloat(amount)){ return true } else { return false }
 }
 function costCalculator(job) {                 // Pass in a render, get a cost in credits
@@ -466,7 +466,7 @@ function dbRead() {
   })
 }
 function dbScheduleRead(){
-  log('read schedule db')
+  log('read schedule db'.grey.dim)
   try{
     fs.readFile(dbScheduleFile,function(err,data){
       if(err){console.error(err)}
@@ -479,11 +479,11 @@ function dbScheduleRead(){
 }
 function scheduleInit(){
   // cycle through the active schedule jobs, set up render jobs with cron
-  log('init schedule')
+  log('init schedule'.grey)
   schedule.filter(s=>s.enabled==='True').forEach(s=>{
-    log('Scheduling job: '+s.name)
+    log('Scheduling job: '.grey+s.name)
     cron.schedule(s.cron, () => {
-      log('Running scheduled job: '+s.name)
+      log('Running scheduled job: '.grey+s.name)
       var randomPrompt = s.prompts[Math.floor(Math.random()*s.prompts.length)].prompt
       var newRequest = {cmd: randomPrompt, userid: s.admins[0].id, username: s.admins[0].username, discriminator: s.admins[0].discriminator, bot: 'False', channelid: 'webhook', attachments: [], webhook: {url: s.webhook, alias: s.alias, destination: s.name}}
       request(newRequest)
@@ -500,8 +500,8 @@ function getRichList () {
 }
 function getPrices () {
   axios.get('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=hive&order=market_cap_asc&per_page=1&page=1&sparkline=false')
-    .then((response) => { hiveUsd = response.data[0].current_price; log('HIVE is worth $' + hiveUsd) })
-    .catch(() => { log('Failed to load data from coingecko api') })
+    .then((response) => { hiveUsd = response.data[0].current_price; log('HIVE: $'.inverse + hiveUsd) })
+    .catch(() => { log('Failed to load data from coingecko api'.red.bold) })
 }
 function getLightningInvoiceQr(memo){
   var appname = config.hivePaymentAddress+'_discord' // TODO this should be an .env variable
@@ -526,7 +526,7 @@ function rechargePrompt(userid){
 }
 function checkNewPayments(){
   var bitmask = ['4',null] // transfers only
-  log('Get account history for '+config.hivePaymentAddress)
+  log('Checking recent payments for '.dim+config.hivePaymentAddress)
   hive.api.getAccountHistory(config.hivePaymentAddress, -1, 1000, ...bitmask, function(err, result) {
     if(err){console.error(err)}
     if(Array.isArray(result)) {
@@ -549,8 +549,7 @@ function checkNewPayments(){
               log('hive payment')
               amountCredit = (amount*hiveUsd)*100
             }
-            log('processing new payment')
-            log('amount credit:'+amountCredit+' , amount:'+op.amount)
+            log('New Payment: amount credit:'.bgBrightGreen+amountCredit+' , amount:'+op.amount)
             creditRecharge(amountCredit,tx.trx_id,accountId,op.amount,op.from)
           }
         }
@@ -576,7 +575,7 @@ async function addRenderApi (id) {
     catch (err) { console.error(err); initimg = null; job.template = '' }
   }
   if (job.attachments[0] && job.attachments[0].content_type && job.attachments[0].content_type.startsWith('image')) {
-    log('fetching attachment from ' + job.attachments[0].proxy_url)
+    log('fetching attachment from '.bgRed + job.attachments[0].proxy_url)
     await axios.get(job.attachments[0].proxy_url, {responseType: 'arraybuffer'})
       .then(res => { initimg = 'data:image/png;base64,' + Buffer.from(res.data).toString('base64'); log('got attachment') }) //removed //job.initimg = initimg
       .catch(err => { console.error('unable to fetch url: ' + job.attachments[0].proxy_url); console.error(err) })
@@ -611,13 +610,14 @@ async function addRenderApi (id) {
     apiResponseStream.on('data', data=>{
       try {
         json = dJSON.parse(data)
-        console.log(json)
         if (json&&json.event&&json.event==='result') {
           job.results.push({filename: json.url, seed: json.seed}) // keep each generated images filename and seed
           json.config.id = job.id
           if (job.gfpgan_strength===0&&job.upscale_level===''){ postRender(json) } else { delayPost.push(json) } // Only send images after postprocessing
+        } else if (json&&json.event&&json.event==='step') {
+          //process.stdout.write(`${json.step},`) // count off individual steps on same line
         } else {
-          log(json)
+          //log(json)
         }
       } catch (e) {
         console.error(e)
