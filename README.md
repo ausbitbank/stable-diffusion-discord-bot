@@ -51,7 +51,7 @@ Slash commands with available parameters
 
 ![Slash commands with available parameters](https://media.discordapp.net/attachments/968822563662860338/1020031881242222683/unknown.png)
 
-![Slash commands with available parameters](https://media.discordapp.net/attachments/968822563662860338/1020032558467133540/unknown.png)
+![Slash commands with available parameters](https://media.discordapp.net/attachments/419466215808040980/1024623676135579708/unknown.png)
 
 Image from text with width/height parameters
 
@@ -79,7 +79,9 @@ Using an init image via discord message attachment
 
 ![](https://media.discordapp.net/attachments/968822563662860338/1020047550167912579/unknown.png)
 
+Recharging credit with Hive, HBD or BTC lightning
 
+![](https://media.discordapp.net/attachments/968822563662860338/1024634986067927092/unknown.png)
 
 Patches/Pull request are greatly appreciated!
 -----------------------
