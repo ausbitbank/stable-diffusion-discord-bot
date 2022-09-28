@@ -11,6 +11,7 @@ const { ImgurClient } = require('imgur')
 const imgur = new ImgurClient({ clientId: config.imgurClientID})
 const imgbb = require("imgbb-uploader")
 const DIG = require("discord-image-generation")
+const log = console.log.bind(console)
 //const debounce = require('debounce')
 var queue = []
 var users = []
@@ -28,10 +29,10 @@ if (config.hivePaymentAddress.length>0){
   hive.config.set('alternative_api_endpoints',['https://api.hive.blog','https://rpc.ausbit.dev','https://api.openhive.network'])
   var hiveUsd = null
   getPrices()
-  cron.schedule('0,30 * * * *', () => { console.log(moment()+': Checking account history every 30 minutes'); checkNewPayments() })
-  cron.schedule('55 * * * *', () => { console.log(moment()+': Updating hive price every 55 minutes'); getPrices() })
+  cron.schedule('0,30 * * * *', () => { log(moment()+': Checking account history every 30 minutes'); checkNewPayments() })
+  cron.schedule('55 * * * *', () => { log(moment()+': Updating hive price every 55 minutes'); getPrices() })
 }
-cron.schedule('0 */12 * * *', () => { console.log(moment()+': Recharging users with no credit every 12 hrs'); freeRecharge() }) // Comment this out if you don't want free regular topups of low balance users
+cron.schedule('0 */12 * * *', () => { log(moment()+': Recharging users with no credit every 12 hrs'); freeRecharge() }) // Comment this out if you don't want free regular topups of low balance users
 // guilds intent is required to see member roles from standard messages, allowing !dream to be locked to an allowed role
 const bot = new Eris.CommandClient(config.discordBotKey, {
   intents: ["guilds", "guildMessages", "messageContent", "guildMembers"],
@@ -73,8 +74,16 @@ var slashCommands = [
     ],
     cooldown: 500,
     execute: (i) => {
-      if (i.data.options.find(x=>x.name==='attachment')){ var attachment=[i.data.resolved.attachments[i.data.options.find(x=>x.name==='attachment').value]] } else { var attachment=[]}
-      request({cmd: getCmd(prepSlashCmd(i.data.options)), userid: i.member.id, username: i.member.user.username, discriminator: i.member.user.discriminator, bot: i.member.user.bot, channelid: i.channel.id, attachments: attachment}) }
+      log('dream slash command exec')
+      if (i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))){
+        var attachmentOrig=i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))
+        var attachment=[{width:attachmentOrig.width,height:attachmentOrig.height,size:attachmentOrig.size,proxy_url:attachmentOrig.proxyUrl,content_type:attachmentOrig.contentType,filename:attachmentOrig.filename,id:attachmentOrig.id}]
+      } else {
+        var attachment=[]
+        log('attachment not found')
+      }
+      request({cmd: getCmd(prepSlashCmd(i.data.options)), userid: i.member.id, username: i.member.user.username, discriminator: i.member.user.discriminator, bot: i.member.user.bot, channelid: i.channel.id, attachments: attachment})
+    }
   },
   {
     name: 'prompt',
@@ -91,7 +100,7 @@ var slashCommands = [
 ]
 
 bot.on("ready", async () => {
-  console.log("Connected to discord")
+  log("Connected to discord")
   processQueue()
   bot.getCommands().then(cmds=>{
     bot.commands = new Collection()
@@ -109,46 +118,49 @@ bot.on("ready", async () => {
 
 bot.on("interactionCreate", async (interaction) => {
   if(interaction instanceof Eris.CommandInteraction && interaction.channel.id === config.channelID && authorised(interaction.member)) {
-    if (!bot.commands.has(interaction.data.name)) return interaction.createMessage({content:'Command does not exist', flags:64}).catch((e) => {console.log(e)})
+    if (!bot.commands.has(interaction.data.name)) return interaction.createMessage({content:'Command does not exist', flags:64}).catch((e) => {log(e)})
     try {
       bot.commands.get(interaction.data.name).execute(interaction)
       interaction.acknowledge()
         .then(x=> {
           interaction.deleteMessage('@original')
-          .then((t) => {console.log(t)})
+          .then((t) => {log(t)})
           .catch((e) => {console.error(e)}) })
         .catch((e)=>{console.error(e)})
     }
-    catch (error) { console.error(error); await interaction.createMessage({content:'There was an error while executing this command!', flags: 64}).catch((e) => {console.log(e)}) }
+    catch (error) { console.error(error); await interaction.createMessage({content:'There was an error while executing this command!', flags: 64}).catch((e) => {log(e)}) }
   }
   if((interaction instanceof Eris.ComponentInteraction||interaction instanceof Eris.ModalSubmitInteraction) && interaction.channel.id === config.channelID&&authorised(interaction.member)) {
-    console.log(interaction.data.custom_id+' request from ' + interaction.member.user.username)
+    log(interaction.data.custom_id+' request from ' + interaction.member.user.username)
     if (interaction.data.custom_id.startsWith('random')) {
       var prompt = getRandom('prompt')
       request({cmd: prompt, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
-      return interaction.editParent({}).catch((e)=>{console.log(e)})
+      return interaction.editParent({}).catch((e)=>{log(e)})
     } else if (interaction.data.custom_id.startsWith('refresh')) {
       var id = interaction.data.custom_id.split('-')[1]
       var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
       if (newJob) {
         newJob.number = 1
-        if (interaction.data.custom_id.startsWith('refreshUpscale-')){ newJob.upscale_level = 2 }
         if (interaction.data.custom_id.startsWith('refreshEdit-')){ newJob.prompt = interaction.data.components[0].components[0].value }
         if (newJob.webhook){delete newJob.webhook}
         if (interaction.data.custom_id.startsWith('refreshVariants')&&newJob.sampler!=='k_euler_a') { // variants do not work with k_euler_a sampler
           newJob.variation_amount=0.1
           newJob.seed = interaction.data.custom_id.split('-')[2]
+        } else if (interaction.data.custom_id.startsWith('refreshUpscale-')) {
+          newJob.upscale_level = 2
+          newJob.seed = interaction.data.custom_id.split('-')[2]
+          newJob.variation_amount=0
         } else {
           newJob.variation_amount=0
           newJob.seed=getRandomSeed()
         }
         var cmd = getCmd(newJob)
-        if (!interaction.data.custom_id.startsWith('refreshNoTemplate')) { if (newJob.template){ cmd+= ' --template ' + newJob.template } } else { console.log('refreshNoTemplate') }
+        if (!interaction.data.custom_id.startsWith('refreshNoTemplate')) { if (newJob.template){ cmd+= ' --template ' + newJob.template } } else { log('refreshNoTemplate') }
         request({cmd: cmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
-        return interaction.editParent({}).catch((e)=>{console.log(e)})
+        return interaction.editParent({}).catch((e)=>{log(e)})
       } else {
         console.error('unable to refresh render')
-        return interaction.editParent({components:[]}).catch((e) => {console.log(e)})
+        return interaction.editParent({components:[]}).catch((e) => {log(e)})
       }
     } else if (interaction.data.custom_id.startsWith('template')) {
       id=interaction.data.custom_id.split('-')[1]
@@ -159,10 +171,10 @@ bot.on("interactionCreate", async (interaction) => {
         var cmd = getCmd(newJob)
         cmd+= ' --template ' + interaction.data.custom_id.split('-')[2]
         request({cmd: cmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
-        return interaction.editParent({}).catch((e)=>{console.log(e)})
+        return interaction.editParent({}).catch((e)=>{log(e)})
       } else {
         console.error('template request failed')
-        return interaction.editParent({components:[]}).catch((e) => {console.log(e)})
+        return interaction.editParent({components:[]}).catch((e) => {log(e)})
       }
     } else if (interaction.data.custom_id.startsWith('edit-')) {
       id=interaction.data.custom_id.split('-')[1]
@@ -191,34 +203,34 @@ bot.on("interactionCreate", async (interaction) => {
             ]
             }
           ]
-        }).then((r)=>{console.log(r)}).catch((e)=>{console.error(e)})
+        }).then((r)=>{log(r)}).catch((e)=>{console.error(e)})
       } else {
         console.error('edit request failed')
-        return interaction.editParent({components:[]}).catch((e) => {console.log(e)})
+        return interaction.editParent({components:[]}).catch((e) => {log(e)})
       }
     }
   }
   if (!authorised(interaction.member)) {
     console.error('unauthorised usage attempt from ')
     console.info(interaction.member)
-    return interaction.createMessage({content:':warning: You dont currently have permission to use this feature', flags:64}).catch((e) => {console.log(e)})
+    return interaction.createMessage({content:':warning: You dont currently have permission to use this feature', flags:64}).catch((e) => {log(e)})
   }
 })
 
 bot.on("messageCreate", (msg) => {
-  //console.log(msg)
+  //log(msg)
   if((msg.content.startsWith("!prompt")||msg.content.startsWith("!random")) && msg.channel.id === config.channelID&&authorised(msg.member)) {
     var p = msg.content.substr(8,msg.content.length)+getRandom('prompt')
     request({cmd: p, userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
     msg.delete().catch(() => {})
   } else if(msg.content.startsWith("!dothething") && msg.channel.id === config.channelID && msg.author.id === config.adminID) {
-    //console.log(bot.guilds)
+    //log(bot.guilds)
     msg.delete().catch(() => {})
   } else if(msg.content.startsWith("!wipequeue") && msg.channel.id === config.channelID && msg.author.id === config.adminID) {
     rendering = false
     queue = []; //users= []; payments=[];
     dbWrite()
-    console.log('admin wiped queue');
+    log('admin wiped queue');
     msg.delete().catch(() => {})
   } else if(msg.content.startsWith("!dream") && msg.channel.id === config.channelID&&authorised(msg.member)) {
     request({cmd: msg.content.substr(7, msg.content.length), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
@@ -245,8 +257,8 @@ bot.on("messageCreate", (msg) => {
     lexicaSearch(msg.content.substr(8, msg.content.length))
     //msg.delete().catch(() => {})
   } else if(msg.content.startsWith('!meme')) {
-    console.log(msg.content)
-    //console.log(msg)
+    log(msg.content)
+    //log(msg)
     if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){
       var urls = msg.attachments.map((u)=>{return u.proxy_url})
       meme(msg.content.substr(6, msg.content.length),urls,msg.author.id)
@@ -257,8 +269,8 @@ bot.on("messageCreate", (msg) => {
   } else if(msg.content.startsWith('!credit') && msg.channel.id === config.channelID && msg.author.id === config.adminID){
     var who = msg.content.split(' ')[1]
     var howmuch = msg.content.split(' ')[2]
-    console.log('!credit called')
-    console.log(who,howmuch)
+    log('!credit called')
+    log(who,howmuch)
     creditRecharge(howmuch,'manual',who)
   }
 })
@@ -267,7 +279,7 @@ bot.connect()
 
 function request(request){
   // request = { cmd: string, userid: int, username: string, discriminator: int, bot: false, channelid: int, attachments: {}, }
-  // console.log('request'); console.log(request)//tmp logging
+  // log('request'); log(request)//tmp logging
   if (request.cmd.includes('{')) { request.cmd = replaceRandoms(request.cmd) } // swap randomizers
   var args = parseArgs(request.cmd.split(' '),{string: ['template','init_img','sampler']}) // parse arguments
   // messy code below contains defaults values, check numbers are actually numbers and within acceptable ranges etc
@@ -297,7 +309,7 @@ function request(request){
   if (!args.with_variations) { args.with_variations = '' }
   args.timestamp = moment()
   args.prompt = sanitize(args._.join(' '))
-  if (args.prompt.length===0){ args.prompt=getRandom('prompt'); console.log('empty prompt found, adding random')} 
+  if (args.prompt.length===0){ args.prompt=getRandom('prompt'); log('empty prompt found, adding random')} 
   var newJob = {
     id: queue.length+1,
     status: 'new',
@@ -369,7 +381,7 @@ function authorised(member) { // Basic request auth-just role based for now
 function createNewUser(id){
   users.push({id:id, credits:100}) // 100 creds for new users
   dbWrite() // Sync after new user
-  console.log('created new user with id ' + id)
+  log('created new user with id ' + id)
 }
 function userCreditCheck(userID,amount) { // Check if a user can afford a specific amount of credits, create if not existing yet
   var user = users.find(x=>x.id===userID)
@@ -377,7 +389,7 @@ function userCreditCheck(userID,amount) { // Check if a user can afford a specif
     createNewUser(userID)  
     user = users.find(x=>x.id===userID)
   }
-  console.log('id '+user.id+' has '+user.credits+' credits, cost is '+amount)
+  log('id '+user.id+' has '+user.credits+' credits, cost is '+amount)
   if (parseFloat(user.credits)>=parseFloat(amount)){ return true } else { return false }
 }
 function costCalculator(job) {                 // Pass in a render, get a cost in credits
@@ -398,7 +410,7 @@ function chargeCredits(userID,amount){
   var user=users.find(x=>x.id===userID)
   user.credits=(user.credits-amount).toFixed(2)
   dbWrite()
-  console.log('charged id '+userID+' for '+amount+' credits, '+user.credits+' remaining')
+  log('charged id '+userID+' for '+amount+' credits, '+user.credits+' remaining')
 }
 function creditRecharge(credits,txid,userid,amount,from){
   var user=users.find(x=>x.id===userid)
@@ -419,7 +431,7 @@ function freeRecharge() {
   var freeRechargeUsers = users.filter(u=>u.credits<freeRechargeMinBalance)
   var freeRechargeMsg = ':fireworks: Congratulations '
   if (freeRechargeUsers.length>0){
-    console.log(freeRechargeUsers.length+' users with balances below '+freeRechargeMinBalance+' getting a free '+freeRechargeAmount+' credit topup')
+    log(freeRechargeUsers.length+' users with balances below '+freeRechargeMinBalance+' getting a free '+freeRechargeAmount+' credit topup')
     freeRechargeUsers.forEach(u=>{
       u.credits = parseFloat(u.credits)+freeRechargeAmount // Incentivizes drain down to 9 for max free charge leaving balance at 19 
       // u.credits = 10 // Incentivizes completely emptying balance for max free charge leaving balance at 10
@@ -429,7 +441,7 @@ function freeRecharge() {
     chat(freeRechargeMsg)
     dbWrite()
   } else {
-    console.log('No users eligible for free credit recharge')
+    log('No users eligible for free credit recharge')
   }
 }
 function dbWrite() {try { fs.writeFileSync(dbFile, JSON.stringify({ queue: queue, users: users, payments: payments })) } catch(err) {console.error(err)}}
@@ -443,7 +455,7 @@ function dbRead() {
   })
 }
 function dbScheduleRead(){
-  console.log('read schedule db')
+  log('read schedule db')
   try{
     fs.readFile(dbScheduleFile,function(err,data){
       if(err){console.error(err)}
@@ -456,11 +468,11 @@ function dbScheduleRead(){
 }
 function scheduleInit(){
   // cycle through the active schedule jobs, set up render jobs with cron
-  console.log('init schedule')
+  log('init schedule')
   schedule.filter(s=>s.enabled==='True').forEach(s=>{
-    console.log('Scheduling job: '+s.name)
+    log('Scheduling job: '+s.name)
     cron.schedule(s.cron, () => {
-      console.log('Running scheduled job: '+s.name)
+      log('Running scheduled job: '+s.name)
       var randomPrompt = s.prompts[Math.floor(Math.random()*s.prompts.length)].prompt
       var newRequest = {cmd: randomPrompt, userid: s.admins[0].id, username: s.admins[0].username, discriminator: s.admins[0].discriminator, bot: 'False', channelid: 'webhook', attachments: [], webhook: {url: s.webhook, alias: s.alias, destination: s.name}}
       request(newRequest)
@@ -472,13 +484,13 @@ function getRichList () {
   var richlistMsg = 'Rich List\n'
   u.forEach(u=>{ richlistMsg+=u.id+':coin:`'+u.credits+'`\n' })
   //chat(richlistMsg)
-  console.log(richlistMsg)
-  console.log(bot.guild.members())
+  log(richlistMsg)
+  log(bot.guild.members())
 }
 function getPrices () {
   axios.get('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=hive&order=market_cap_asc&per_page=1&page=1&sparkline=false')
-    .then((response) => { hiveUsd = response.data[0].current_price; console.log('HIVE is worth $' + hiveUsd) })
-    .catch(() => { console.log('Failed to load data from coingecko api') })
+    .then((response) => { hiveUsd = response.data[0].current_price; log('HIVE is worth $' + hiveUsd) })
+    .catch(() => { log('Failed to load data from coingecko api') })
 }
 function getLightningInvoiceQr(memo){
   var appname = config.hivePaymentAddress+'_discord' // TODO this should be an .env variable
@@ -498,11 +510,11 @@ function rechargePrompt(userid){
     {image:{url:lightningInvoiceQr}}
     ]}
   chat(paymentMsgObject)
-  console.log('ID '+userid+' asked for recharge link')
+  log('ID '+userid+' asked for recharge link')
 }
 function checkNewPayments(){
   var bitmask = ['4',null] // transfers only
-  console.log('Get account history for '+config.hivePaymentAddress)
+  log('Get account history for '+config.hivePaymentAddress)
   hive.api.getAccountHistory(config.hivePaymentAddress, -1, 1000, ...bitmask, function(err, result) {
     if(err){console.error(err)}
     if(Array.isArray(result)) {
@@ -519,14 +531,14 @@ function checkNewPayments(){
             coin=op.amount.split(' ')[1]
             amount=parseFloat(op.amount.split(' ')[0])
             if (coin==='HBD'){
-              console.log('hive payment')
+              log('hive payment')
               amountCredit = amount*100 // 1000 = 1 HBD, /10 = credit amount
             } else if (coin==='HIVE'){
-              console.log('hive payment')
+              log('hive payment')
               amountCredit = (amount*hiveUsd)*100
             }
-            console.log('processing new payment')
-            console.log('amount credit:'+amountCredit+' , amount:'+op.amount)
+            log('processing new payment')
+            log('amount credit:'+amountCredit+' , amount:'+op.amount)
             creditRecharge(amountCredit,tx.trx_id,accountId,op.amount,op.from)
           }
         }
@@ -539,7 +551,7 @@ function checkNewPayments(){
 function sendWebhook(job){
   let embeds = [ { color: getRandomColorDec(), footer: { text: job.prompt }, image: { url: job.webhook.imgurl } } ]
   axios({method: "POST",url: job.webhook.url,headers: { "Content-Type": "application/json" },data: JSON.stringify({embeds})})
-    .then((response) => {console.log("Webhook delivered successfully");console.log(response)})
+    .then((response) => {log("Webhook delivered successfully");log(response)})
     .catch((error) => {console.error(error)})
 }
 async function addRenderApi (id) {
@@ -551,10 +563,12 @@ async function addRenderApi (id) {
     try { initimg = 'data:image/png;base64,' + base64Encode(basePath + job.template + '.png') }
     catch (err) { console.error(err); initimg = null; job.template = '' }
   }
-  if (job.attachments.length > 0 && job.attachments[0].content_type && job.attachments[0].content_type.startsWith('image')) {
-    console.log('fetching attachment from ' + job.attachments[0].proxy_url)
+  log('addRenderApi entry, job.attachments:')
+  log(job.attachments)
+  if (job.attachments[0] && job.attachments[0].content_type && job.attachments[0].content_type.startsWith('image')) {
+    log('fetching attachment from ' + job.attachments[0].proxy_url)
     await axios.get(job.attachments[0].proxy_url, {responseType: 'arraybuffer'})
-      .then(res => { initimg = 'data:image/png;base64,' + Buffer.from(res.data).toString('base64'); job.initimg = initimg; console.log('got attachment') })
+      .then(res => { initimg = 'data:image/png;base64,' + Buffer.from(res.data).toString('base64'); job.initimg = initimg; log('got attachment') })
       .catch(err => { console.error('unable to fetch url: ' + job.attachments[0].proxy_url); console.error(err) })
   }
   var prompt = job.prompt
@@ -624,7 +638,7 @@ async function postRender (render) {
       if (job.upscale_level==='') {
         if (!job.initimg){ newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "10% Variant", custom_id: "refreshVariants-" + job.id + '-' + render.seed, emoji: { name: '🧬', id: null}, disabled: false }) }
         // newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Template", custom_id: "template-" + job.id + '-' + filename, emoji: { name: '📷', id: null}, disabled: false })
-        // newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Upscale", custom_id: "refreshUpscale-" + job.id + '-' + seed, emoji: { name: '🔍', id: null}, disabled: false })
+        //newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Upscale", custom_id: "refreshUpscale-" + job.id + '-' + render.seed, emoji: { name: '🔍', id: null}, disabled: false })
         if (job.template){ newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Remove template", custom_id: "refreshNoTemplate-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })}
       }
       newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Edit", custom_id: "edit-"+job.id, emoji: { name: '✏️', id: null}, disabled: false })
@@ -650,7 +664,7 @@ async function postRender (render) {
           catch (err) { console.error(err); chat('Sorry <@' + job.userid + '> imgur uploading failed, contact an admin for your image `' + filename + '.png`') }
         } else if (imgbbEnabled() && filesize < 32000000) {
           chat('<@' + job.userid + '> your file was too big for discord, uploading to imgbb now..')
-          try { imgbbupload(render.url).then(upload => { console.log(upload); chat({ content: msg, embeds: [{image: {url: upload.url}, description:render.config.prompt}]}) }) }
+          try { imgbbupload(render.url).then(upload => { log(upload); chat({ content: msg, embeds: [{image: {url: upload.url}, description:render.config.prompt}]}) }) }
           catch (err) { console.error(err); chat('Sorry <@' + job.userid + '> imgbb uploading failed, contact an admin for your image `' + filename + '.png`') }
         } else {
           chat('Sorry <@' + job.userid + '> but your file was too big for discord, contact an admin for your image `' + filename + '.png`')
@@ -671,9 +685,9 @@ function processQueue () {
       console.info(nextJob.username+':'+nextJob.cmd)
       addRenderApi(nextJob.id)
     } else {
-      console.log(nextJob.username+' cant afford this render, denying')
-      console.log('cost: '+costCalculator(nextJob))
-      console.log('credits remaining: '+creditsRemaining(nextJob.userid))
+      log(nextJob.username+' cant afford this render, denying')
+      log('cost: '+costCalculator(nextJob))
+      log('credits remaining: '+creditsRemaining(nextJob.userid))
       nextJob.status='failed'
       chat('sorry <@'+nextJob.userid+'> you don\'t have enough credits for that render (cost '+ costCalculator(nextJob) +').')
       if(config.hivePaymentAddress.length>0){
@@ -690,7 +704,7 @@ function lexicaSearch(query){
   var reply = {content:'Top 10 results from lexica.art api:', embeds:[], components:[]}
   axios.get('https://lexica.art/api/v1/search?q='+query)
     .then((r)=>{
-      console.log('Results: '+r.length+' total, only returning the top 10')
+      log('Results: '+r.length+' total, only returning the top 10')
       var top10 = r.data.images.slice(0,10)
       top10.forEach(i=>{
         reply.embeds.push({
@@ -706,7 +720,7 @@ function lexicaSearch(query){
 async function meme(prompt,urls,userid){
   params = prompt.split(' ')
   cmd = prompt.split(' ')[0]
-  //console.log(cmd)
+  //log(cmd)
   param = undefined
   //if (params[1] && !params[1].startsWith('http')){param=!prompt.split(' ')[1]}
   switch(cmd){
@@ -775,20 +789,20 @@ function replaceRandoms (input) {
 }
 function imgurEnabled() { if (config.imgurClientID.length > 0) { return true } else { return false } }
 async function imgurupload(file) {
-  console.log('uploading via imgur api')
+  log('uploading via imgur api')
   const response = await imgur.upload({ image: fs.createReadStream(file), type: 'stream'})
-  console.log(response.data)
+  log(response.data)
   return response.data
 }
 function imgbbEnabled() { if (config.imgbbClientID.length > 0) { return true } else { return false } }
 async function imgbbupload(file) {
-  console.log('uploading via imgbb api')
-  //console.log(file)
+  log('uploading via imgbb api')
+  //log(file)
   imgbb(config.imgbbClientID, file)
-    .then((response) => {console.log(response); return response})
+    .then((response) => {log(response); return response})
     .catch((error) => console.error(error))
 }
-const log = console.log.bind(console)
+
 // Monitor new files entering watchFolder, post image with filename.
 function process (file) {
   try {
