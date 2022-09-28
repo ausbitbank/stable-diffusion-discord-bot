@@ -49,11 +49,11 @@ Invite to your server with `https://discord.com/oauth2/authorize?client_id= APPL
 
 Slash commands with available parameters
 
-![Slash commands with available parameters](https://media.discordapp.net/attachments/968822563662860338/1020031881242222683/unknown.png)
-
-![Slash commands with available parameters](https://media.discordapp.net/attachments/419466215808040980/1024623676135579708/unknown.png)
+![](https://media.discordapp.net/attachments/968822563662860338/1020031881242222683/unknown.png)
 
 Image from text with width/height parameters
+
+![](https://media.discordapp.net/attachments/419466215808040980/1024623676135579708/unknown.png)
 
 ![Image from text with width/height parameters](https://media.discordapp.net/attachments/968822563662860338/1018016731475751102/unknown.png)
 
