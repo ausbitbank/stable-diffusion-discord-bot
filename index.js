@@ -12,6 +12,7 @@ const imgur = new ImgurClient({ clientId: config.imgurClientID})
 const imgbb = require("imgbb-uploader")
 const DIG = require("discord-image-generation")
 const log = console.log.bind(console)
+const dJSON = require('dirty-json')
 //const debounce = require('debounce')
 var queue = []
 var users = []
@@ -224,7 +225,17 @@ bot.on("messageCreate", (msg) => {
     request({cmd: p, userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
     msg.delete().catch(() => {})
   } else if(msg.content.startsWith("!dothething") && msg.channel.id === config.channelID && msg.author.id === config.adminID) {
-    //log(bot.guilds)
+    // clean the queue of initimg bloat (once off for older installations)
+    /*
+    dbRead()
+    queue.forEach(q=>{
+      if(q.initimg!==''){
+        console.log('removed initimg id '+q.id)
+        q.initimg=''
+      }
+    }) 
+    dbWrite()
+    */
     msg.delete().catch(() => {})
   } else if(msg.content.startsWith("!wipequeue") && msg.channel.id === config.channelID && msg.author.id === config.adminID) {
     rendering = false
@@ -501,13 +512,14 @@ function rechargePrompt(userid){
   userCreditCheck(userid,1) // make sure the account exists first
   checkNewPayments()
   var paymentMemo = config.hivePaymentPrefix+userid
-  var paymentLink = 'https://hivesigner.com/sign/transfer?to='+config.hivePaymentAddress+'&amount=1.000%20HBD&memo='+paymentMemo
+  var paymentLinkHbd = 'https://hivesigner.com/sign/transfer?to='+config.hivePaymentAddress+'&amount=1.000%20HBD&memo='+paymentMemo
+  var paymentLinkHive = 'https://hivesigner.com/sign/transfer?to='+config.hivePaymentAddress+'&amount=1.000%20HIVE&memo='+paymentMemo
   var lightningInvoiceQr = getLightningInvoiceQr(paymentMemo)
-  var paymentMsg = '<@'+ userid +'> has :coin:`'+ creditsRemaining(userid) +'`\n*Recharging costs $1usd per :coin:`100` *\nSend HBD or HIVE to `'+ config.hivePaymentAddress +'` with the memo `'+ paymentMemo +'`\n'+paymentLink+'\nOr pay 1 usd via lightning network with the QR code below'
+  var paymentMsg = '<@'+ userid +'> has :coin:`'+ creditsRemaining(userid) +'`\n*Recharging costs `1` usd per :coin:`100` *\nSend HBD or HIVE to `'+ config.hivePaymentAddress +'` with the memo `'+ paymentMemo +'`\n**Pay $1 with Hbd:** '+paymentLinkHbd+'\n**Pay $1 with Hive:**'+paymentLinkHive
   var paymentMsgObject = {
     content: paymentMsg,
     embeds:[
-    {image:{url:lightningInvoiceQr}}
+    {description:'Recharge $1 via btc lightning network', image:{url:lightningInvoiceQr}}
     ]}
   chat(paymentMsgObject)
   log('ID '+userid+' asked for recharge link')
@@ -591,24 +603,33 @@ async function addRenderApi (id) {
     }
   if (job.seamless==='on') { postObject.seamless = 'on' }
   // new stream based version
-  job.status='rendering'
-  const apiResponse = await axios.post(apiUrl, postObject, {responseType: 'stream'})
-  const apiResponseStream = apiResponse.data
-  apiResponseStream.on('data', data=>{
-    var json = JSON.parse(data)
-    if (json.event==='result') {
-      job.results.push({filename: json.url, seed: json.seed}) // keep each generated images filename and seed
-      json.config.id = job.id
-      postRender(json)
-    } else {
-      log(json)
-    }
-  })
-  apiResponseStream.on('end', data=>{
-    job.status='done'
-    rendering = false
-    processQueue()
-  })
+  const apiResponse = await axios.post(apiUrl, postObject, {responseType: 'stream'}).catch(error => { console.error('error connecting to api server'); console.error(error) })
+    if (apiResponse){
+    const apiResponseStream = apiResponse.data
+    var delayPost = []
+    var json = undefined
+    apiResponseStream.on('data', data=>{
+      try {
+        json = dJSON.parse(data)
+        console.log(json)
+        if (json&&json.event&&json.event==='result') {
+          job.results.push({filename: json.url, seed: json.seed}) // keep each generated images filename and seed
+          json.config.id = job.id
+          if (job.gfpgan_strength===0&&job.upscale_level===''){ postRender(json) } else { delayPost.push(json) } // Only send images after postprocessing
+        } else {
+          log(json)
+        }
+      } catch (e) {
+        console.error(e)
+      }
+    })
+    apiResponseStream.on('end', data=>{
+      delayPost.forEach((i)=>{postRender(i)}) // send images delayed for postprocessing
+      job.status='done'
+      rendering = false
+      processQueue()
+    })
+  }
   // end new stream based version
   // start old session based version
   /*axios.post(apiUrl, postObject)
