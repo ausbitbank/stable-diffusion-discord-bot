@@ -79,6 +79,7 @@ Once in your server you can right click him and "manage integrations" to chose w
 ![](https://media.discordapp.net/attachments/1023961603319808110/1025392370830823434/unknown.png)
 
 That's it! See the getting started guide - https://peakd.com/@ausbitbank/our-new-stable-diffusion-discord-bot
+Support will be given in the #bot-help room of the project discord above
 
 ## How to install and host for yourself
 
