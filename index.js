@@ -14,7 +14,7 @@ const DIG = require("discord-image-generation")
 const log = console.log.bind(console)
 const dJSON = require('dirty-json')
 var colors = require('colors')
-//const debounce = require('debounce')
+const debounce = require('debounce')
 var queue = []
 var users = []
 var payments = []
@@ -31,13 +31,13 @@ if (config.hivePaymentAddress.length>0){
   hive.config.set('alternative_api_endpoints',['https://api.hive.blog','https://rpc.ausbit.dev','https://api.openhive.network'])
   var hiveUsd = null
   getPrices()
-  cron.schedule('0,30 * * * *', () => { log('Checking account history every 30 minutes'.dim.green); checkNewPayments() })
-  cron.schedule('55 * * * *', () => { log('Updating hive price every 55 minutes'.dim.green); getPrices() })
+  cron.schedule('0,30 * * * *', () => { log('Checking account history every 30 minutes'.grey); checkNewPayments() })
+  cron.schedule('55 * * * *', () => { log('Updating hive price every 55 minutes'.grey); getPrices() })
 }
 cron.schedule('0 */12 * * *', () => { log('Recharging users with no credit every 12 hrs'.bgCyan.bold); freeRecharge() }) // Comment this out if you don't want free regular topups of low balance users
 // guilds intent is required to see member roles from standard messages, allowing !dream to be locked to an allowed role
 const bot = new Eris.CommandClient(config.discordBotKey, {
-  intents: ["guilds", "guildMessages", "messageContent", "guildMembers"],
+  intents: ["guilds", "guildMessages", "messageContent", "guildMembers", "directMessages", "guildMessageReactions"],
   description: "Just a slave to the art, maaan",
   owner: "ausbitbank",
   prefix: "!",
@@ -76,7 +76,6 @@ var slashCommands = [
     ],
     cooldown: 500,
     execute: (i) => {
-      log('dream slash command exec')
       if (i.data.resolved && i.data.resolved.attachments && i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))){
         var attachmentOrig=i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))
         var attachment=[{width:attachmentOrig.width,height:attachmentOrig.height,size:attachmentOrig.size,proxy_url:attachmentOrig.proxyUrl,content_type:attachmentOrig.contentType,filename:attachmentOrig.filename,id:attachmentOrig.id}]
@@ -118,21 +117,22 @@ bot.on("ready", async () => {
 })
 
 bot.on("interactionCreate", async (interaction) => {
-  if(interaction instanceof Eris.CommandInteraction && interaction.channel.id === config.channelID && authorised(interaction.member)) {
-    if (!bot.commands.has(interaction.data.name)) return interaction.createMessage({content:'Command does not exist', flags:64}).catch((e) => {log(e)})
+  if(interaction instanceof Eris.CommandInteraction && authorised(interaction,interaction.channel.id,interaction.guildID)) {//&& interaction.channel.id === config.channelID
+    if (!bot.commands.has(interaction.data.name)) return interaction.createMessage({content:'Command does not exist', flags:64}).catch((e) => {log('command does not exist'.bgRed);log(e)})
     try {
       bot.commands.get(interaction.data.name).execute(interaction)
       interaction.acknowledge()
         .then(x=> {
           interaction.deleteMessage('@original')
-          .then((t) => {log(t)})
-          .catch((e) => {console.error(e)}) })
+          .then((t) => {})//log('after delete interaction');log(t)
+          .catch((e) => {log('error after delete interaction'.bgRed);console.error(e)}) })
         .catch((e)=>{console.error(e)})
     }
     catch (error) { console.error(error); await interaction.createMessage({content:'There was an error while executing this command!', flags: 64}).catch((e) => {log(e)}) }
   }
-  if((interaction instanceof Eris.ComponentInteraction||interaction instanceof Eris.ModalSubmitInteraction) && interaction.channel.id === config.channelID&&authorised(interaction.member)) {
-    log(interaction.data.custom_id.bgWhite.black.bold+' request from '.bgWhite.black.bold + interaction.member.user.username.bgWhite.black.bold)
+  if((interaction instanceof Eris.ComponentInteraction||interaction instanceof Eris.ModalSubmitInteraction) && authorised(interaction,interaction.channel.id,interaction.guildID)) {
+    if (!interaction.member){log(interaction.user.username+' slid into artys DMs'); interaction.member={user:{id: interaction.user.id, username:interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot}}}
+    log(interaction.data.custom_id.bgCyan+' request from ' + interaction.member.user.username.bgCyan)
     if (interaction.data.custom_id.startsWith('random')) {
       var prompt = getRandom('prompt')
       request({cmd: prompt, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
@@ -204,85 +204,98 @@ bot.on("interactionCreate", async (interaction) => {
             ]
             }
           ]
-        }).then((r)=>{log(r)}).catch((e)=>{console.error(e)})
+        }).then((r)=>{}).catch((e)=>{console.error(e)})
       } else {
         console.error('edit request failed')
         return interaction.editParent({components:[]}).catch((e) => {log(e)})
       }
     }
   }
-  if (!authorised(interaction.member)) {
+  if (!authorised(interaction,interaction.channel.id,interaction.guildID)) {
     console.error('unauthorised usage attempt from ')
     console.info(interaction.member)
     return interaction.createMessage({content:':warning: You dont currently have permission to use this feature', flags:64}).catch((e) => {log(e)})
   }
 })
+async function directMessageUser(id,msg,channel){ // try, fallback to channel
+  d = await bot.getDMChannel(id).catch(() => {
+    log('failed to get dm channel, sending public message instead')
+    if (channel.length>0){bot.createMessage(channel,msg).then(()=>{log('DM sent to '.dim+id)}).catch(() => log('failed to both dm a user or message in channel'.bgRed.white))}
+  })
+  d.createMessage(msg).catch(() => {
+    log('failed to dm, sending public message instead')
+    if (channel.length>0){bot.createMessage(channel,msg).then(()=>{log('DM sent to '.dim+id)}).catch(() => log('failed to both dm a user or message in channel'.bgRed.white))}
+  })
+}
+
+bot.on("messageReactionAdd", (msg,emoji,reactor) => {
+  embeds=JSON.parse(JSON.stringify(msg.embeds))
+  if (msg.attachments.length>0) {embeds.unshift({image:{url:msg.attachments[0].url}})}
+  if (msg.channel.id===config.channelID&&msg.author.id===bot.application.id){
+    switch(emoji.name){
+      case '😂':
+      case '👍':
+      case '⭐':
+      case '❤️': log('Positive emojis'.green+emoji.name.bgWhite.rainbow); break
+      case '✉️': log('sending image to dm'.dim);directMessageUser(reactor.user.id,{content: msg.content, embeds: embeds});break //, components: msg.components
+      case '👎':
+      case '⚠️':
+      case '🙈':
+      case '💩': log('Negative emojis'.red+emoji.name.red); break
+    }
+  } 
+})
+
+//bot.on("messageReactionRemoved", (msg,emoji,userid) => {log('message reaction removed');log(msg,emoji,userid)})
+bot.on("warn", (msg,id) => {log(msg,id)})
+//bot.on("debug", (msg,id) => {log(msg,id)})
+bot.on("disconnect", () => {log('disconnected'.bgRed)})
+bot.on("error", (err,id) => {log('error'.bgRed); log(err,id)})
+//bot.on("channelCreate", (channel) => {log(channel)})
+//bot.on("channelDelete", (channel) => {log(channel)})
+bot.on("guildCreate", (guild) => {log('joined new guild'.bgRed+guild.name.bgRed)})
+bot.on("guildDelete", (guild) => {log('left guild'.bgRed+guild.name.bgRed)})
+//bot.on("guildMemberAdd", (guild,member) => {log('user joined guild'.bgRed); log(member)})
+//bot.on("guildMemberRemove", (guild,member) => {log('user left guild'.bgRed); log(guild,member)})
+//bot.on("guildMemberUpdate", (guild,member,oldMember,communicationDisabledUntil) => {log('user updated'.bgRed); log(guild,member,oldMember,communicationDisabledUntil)})
+//bot.on("channelRecipientAdd", (channel,user) => {log(channel,user)})
+//bot.on("channelRecipientRemove", (channel,user) => {log(channel,user)})
 
 bot.on("messageCreate", (msg) => {
-  //log(msg)
-  if((msg.content.startsWith("!prompt")||msg.content.startsWith("!random")) && msg.channel.id === config.channelID&&authorised(msg.member)) {
-    var p = msg.content.substr(8,msg.content.length)+getRandom('prompt')
-    request({cmd: p, userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
-    msg.delete().catch(() => {})
-  } else if(msg.content.startsWith("!dothething") && msg.channel.id === config.channelID && msg.author.id === config.adminID) {
-    // clean the queue of initimg bloat (once off for older installations)
-    /*
-    dbRead()
-    queue.forEach(q=>{
-      if(q.initimg!==''){
-        console.log('removed initimg id '+q.id)
-        q.initimg=''
-      }
-    }) 
-    dbWrite()
-    */
-    msg.delete().catch(() => {})
-  } else if(msg.content.startsWith("!wipequeue") && msg.channel.id === config.channelID && msg.author.id === config.adminID) {
-    rendering = false
-    queue = []; //users= []; payments=[];
-    dbWrite()
-    log('admin wiped queue');
-    msg.delete().catch(() => {})
-  } else if(msg.content.startsWith("!dream") && msg.channel.id === config.channelID&&authorised(msg.member)) {
-    request({cmd: msg.content.substr(7, msg.content.length), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
-  } else if(msg.content.startsWith("!recharge") && msg.channel.id === config.channelID && config.hivePaymentAddress.length>0) {
-    rechargePrompt(msg.author.id)
-  } else if(msg.content === '!queue') {
-    queueStatus()
-    msg.delete().catch(() => {})
-  } else if(msg.content === '!pause' && msg.channel.id === config.channelID && msg.author.id === config.adminID) {
-    chat(':pause_button: Bot is paused, requests will still be accepted and queued for when I return')
-    rendering = true
-    msg.delete().catch(() => {})
-  } else if(msg.content === '!resume' && msg.channel.id === config.channelID && msg.author.id === config.adminID) {
-    rendering = false
-    chat(':play_pause: Bot is back online')
-    processQueue()
-    msg.delete().catch(() => {})
-  } else if(msg.content === '!richlist' && msg.channel.id === config.channelID) {
-    getRichList()
-    msg.delete().then(()=>{exit(0)}).catch(() => {})
-  } else if(msg.content.startsWith('!restart') && msg.channel.id === config.channelID && msg.author.id === config.adminID) {
-    msg.delete().then(()=>{exit(0)}).catch(() => {})
-  } else if(msg.content.startsWith('!lexica')) {
-    lexicaSearch(msg.content.substr(8, msg.content.length))
-    //msg.delete().catch(() => {})
-  } else if(msg.content.startsWith('!meme')) {
-    log(msg.content)
-    //log(msg)
-    if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){
-      var urls = msg.attachments.map((u)=>{return u.proxy_url})
-      meme(msg.content.substr(6, msg.content.length),urls,msg.author.id)
-    } else if (msg.content.startsWith('!meme lisapresentation')){
-      meme(msg.content.substr(6, msg.content.length),urls,msg.author.id)
+  if (!msg.author.bot){log(msg.author.username.bgBlue.red.bold+':'+msg.content.bgBlack)} // an irc like view of non bot messages in allowed channels. Creepy but convenient
+  var c=msg.content.split(' ')[0]
+  if (msg.author.id!==bot.id&&authorised(msg,msg.channel.id,msg.guildID,)){ // Work in anywhere its authorized // (msg.channel.id===config.channelID||!msg.guildID) // interaction.member,interaction.channel.id,interaction.guildID
+    switch(c){
+      case '!dream':{request({cmd: msg.content.substr(7, msg.content.length), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments});break}
+      case '!prompt':
+      case '!random':{request({cmd: msg.content.substr(8,msg.content.length)+getRandom('prompt'), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments});msg.delete().catch(() => {});break}
+      case '!recharge':rechargePrompt(msg.author.id,msg.channel.id);break
+      case '!lexica':lexicaSearch(msg.content.substr(8, msg.content.length),msg.channel.id);break
+      case '!meme':{if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){meme(msg.content.substr(6, msg.content.length),msg.attachments.map((u)=>{return u.proxy_url}),msg.author.id)} else if (msg.content.startsWith('!meme lisapresentation')){meme(msg.content.substr(6, msg.content.length),urls,msg.author.id)};msg.delete().catch(() => {});break}
     }
-    msg.delete().catch(() => {})
-  } else if(msg.content.startsWith('!credit') && msg.channel.id === config.channelID && msg.author.id === config.adminID){
-    var who = msg.content.split(' ')[1]
-    var howmuch = msg.content.split(' ')[2]
-    log('!credit called')
-    log(who,howmuch)
-    creditRecharge(howmuch,'manual',who)
+  }
+  if (msg.author.id===config.adminID) { // admins only
+    log('admin, trying '+c)
+    switch(c){
+      case '!dothething':{log(bot.guilds.size);msg.delete().catch(()=>{});break}
+      case '!wipequeue':{rendering=false;queue=[];dbWrite();log('admin wiped queue'); msg.delete().catch(()=>{});break}
+      case '!queue':{queueStatus();msg.delete().catch(()=>{});break}
+      case '!pause':{chat(':pause_button: Bot is paused, requests will still be accepted and queued for when I return');rendering=true;msg.delete().catch(() => {});break}
+      case '!resume':{rendering=false;chat(':play_pause: Bot is back online');processQueue();msg.delete().catch(() => {});break}
+      case '!richlist':{getRichList();break}
+      case '!checkpayments':{checkNewPayments();msg.delete().catch(()=>{});break}
+      case '!restart':{log('Admin restarted bot'.bgRed.white);exit(0)}
+      case '!credit':{creditRecharge(msg.content.split(' ')[1], 'manual', msg.content.split(' ')[2]);break} // creditRecharge(credits,txid,userid,amount,from)
+      case '!guilds':{
+        bot.guilds.forEach((g)=>{
+          log({id: g.id, name: g.name, ownerID: g.ownerID, description: g.description, memberCount: g.memberCount})
+          //g.roles.forEach((r)=>{log({roleName: r.name})})
+          //g.members.forEach((m)=>{log({id:m.id,nick:m.nick,username:m.user.username,discriminator:m.user.discriminator})})
+          //g.channels.forEach((c)=>{log({id:c.id,type:c.type,name:c.name})})
+          //trying to inventory who already added the bot during early testing ^^
+        })
+      }
+    }
   }
 })
 
@@ -290,7 +303,6 @@ bot.connect()
 
 function request(request){
   // request = { cmd: string, userid: int, username: string, discriminator: int, bot: false, channelid: int, attachments: {}, }
-  // log('request'); log(request)//tmp logging
   if (request.cmd.includes('{')) { request.cmd = replaceRandoms(request.cmd) } // swap randomizers
   var args = parseArgs(request.cmd.split(' '),{string: ['template','init_img','sampler']}) // parse arguments
   // messy code below contains defaults values, check numbers are actually numbers and within acceptable ranges etc
@@ -356,15 +368,21 @@ function request(request){
   dbWrite() // Push db write after each new addition
   processQueue()
 }
-function queueStatus() {
+function queueStatus() { // todo report status to the relevant channel where the current render was triggered
   if(dialogs.queue!==null){dialogs.queue.delete().catch((err)=>{console.error(err)})}
-  var statusMsg=':information_source: Waiting: `'+queue.filter(x=>x.status==='new').length+'`, Rendering: `'+queue.filter(x=>x.status==='rendering').length+'`, Recent Users: `'+queue.map(x=>x.userid).filter(unique).length+'` / `'+users.length+'`'
+  var statusMsg=':information_source: Waiting: `'+queue.filter(x=>x.status==='new').length+'`, Rendering: `'+queue.filter(x=>x.status==='rendering').length+'`, Recent Users: `'+queue.map(x=>x.userid).filter(unique).length+'`/`'+users.length+'`, Guilds:`'+bot.guilds.size+'`'
   if (queue.filter(x=>x.status==='rendering').length>0) {
-    statusMsg+='\n:track_next:`'+queue.filter(x=>x.status==='rendering')[0].prompt + '`'
-    if (queue.filter(x=>x.status==='rendering')[0].number !== 1) {statusMsg+='x'+queue.filter(x=>x.status==='rendering')[0].number}
-    statusMsg+=' for ' + queue.filter(x=>x.status==='rendering')[0].username
+    var next = queue.filter(x=>x.status==='rendering')[0]
+    statusMsg+='\n:track_next:'
+    if (next.channel!==config.channelID) { // private DM render or webhook
+      statusMsg+=':face_with_open_eyes_and_hand_over_mouth:'
+    } else {
+      statusMsg+='`'+next.prompt + '`'
+    }
+    if (next.number!==1){statusMsg+='x'+next.number}
+    statusMsg+=' for '+next.username+'#'+next.discriminator
   }
-  bot.createMessage(config.channelID,statusMsg).then(x=>{dialogs.queue=x})
+  bot.createMessage(config.channelID,statusMsg).then(x=>{dialogs.queue=x}).catch((err)=>console.error(err))
 }
 function prepSlashCmd(options) { // Turn partial options into full command for slash commands, hate the redundant code here
   var job = {}
@@ -374,34 +392,46 @@ function prepSlashCmd(options) { // Turn partial options into full command for s
 }
 function getCmd(newJob){ return newJob.prompt+' --width ' + newJob.width + ' --height ' + newJob.height + ' --seed ' + newJob.seed + ' --scale ' + newJob.scale + ' --sampler ' + newJob.sampler + ' --steps ' + newJob.steps + ' --strength ' + newJob.strength + ' --n ' + newJob.number + ' --gfpgan_strength ' + newJob.gfpgan_strength + ' --upscale_level ' + newJob.upscale_level + ' --upscale_strength ' + newJob.upscale_strength + ' --seamless ' + newJob.seamless + ' --variation_amount ' + newJob.variation_amount + ' --with_variations ' + newJob.with_variations}
 function getRandomSeed() {return Math.floor(Math.random() * 4294967295)}
-function chat(msg) {
-  if (msg !== null && msg !== ''){
-    bot.createMessage(config.channelID, msg)
-  }
-}
+function chat(msg) {if (msg !== null && msg !== ''){bot.createMessage(config.channelID, msg)}}
 function sanitize (prompt) {
   if (config.bannedWords.length>0) { config.bannedWords.split(',').forEach((bannedWord, index) => { prompt = prompt.replace(bannedWord,'') }) }
-  return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '').replace('`','') // (/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '')
+  return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\&\*\[\] ,.\:]/g, '').replace('`','') // (/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '')
 }
 function base64Encode(file) { var body = fs.readFileSync(file); return body.toString('base64') }
-function authorised(member) { // Basic request auth-just role based for now
+function authorised(who,channel,guild) {
+  var bannedUsers=[];var allowedGuilds=[];var allowedChannels=[];var ignoredChannels=[];var userid=null;var username=null
+  if (who.user && who.user.id && who.user.username){userid = who.user.id;username = who.user.username} else {userid=who.author.id;username=who.author.username}
+  if (config.bannedUsers.length>0){log('banned users loaded from env');bannedUsers=config.bannedUsers.split(',')}
+  if (config.allowedGuilds.length>0){log('allowed guilds loaded from env');allowedGuilds=config.allowedGuilds.split(',')}
+  if (config.allowedChannels.length>0){log('allowed channels loaded from env');allowedChannels=config.allowedChannels.split(',')}
+  if (config.ignoredChannels.length>0){log('ignored channels loaded from env');ignoredChannels=config.ignoredChannels.split(',')}
+  if (bannedUsers.includes(userid)){
+    log('fail, user is banned:'+username);return true // disabled
+  } else if(guild && allowedGuilds.length>0 && !allowedGuilds.includes(guild)){
+    log('fail, guild not allowed:'+guild);return true // disabled
+  } else if(channel && allowedChannels.length>0 && !allowedChannels.includes(channel)){
+    log('fail, channel not allowed:'+channel);return true //disabled
+  } else if (channel && ignoredChannels.length>0 && ignoredChannels.includes(channel)){
+    log('fail, channel is ignored:'+channel);return true //disabled
+  } else {
+    //log('passed auth:'+member.username)
+    return true
+  }
+  /*return true // Disabled ffa
   if (!member) { return true } // not cached yet, better to allow then crash
-  if (!member.roles) { return true }
-  if (member.roles.includes(config.roleID)) {return true} else {return false}
+  if (!member.roles) { return true } 
+  if (member.roles.includes(config.roleID)) {return true} else {return false}*/
 }
 function createNewUser(id){
   users.push({id:id, credits:100}) // 100 creds for new users
   dbWrite() // Sync after new user
   log('created new user with id '.bgYellow.black.bold + id)
+  //chat(':tada: Welcome <@'+id+'>')
 }
 function userCreditCheck(userID,amount) { // Check if a user can afford a specific amount of credits, create if not existing yet
   var user = users.find(x=>x.id===userID)
-  if (!user){
-    createNewUser(userID)  
-    user = users.find(x=>x.id===userID)
-  }
-  //log('id '+user.id+' has '+user.credits+' credits, cost is '+amount)
-  if (parseFloat(user.credits)>=parseFloat(amount)){ return true } else { return false }
+  if (!user){createNewUser(userID);user=users.find(x=>x.id===userID)}
+  if (parseFloat(user.credits)>=parseFloat(amount)){return true}else{return false}
 }
 function costCalculator(job) {                 // Pass in a render, get a cost in credits
   var cost=1                                   // a normal render base cost, 512x512 50 steps
@@ -412,7 +442,7 @@ function costCalculator(job) {                 // Pass in a render, get a cost i
   if (job.gfpgan_strength!==0){cost=cost*1.05} // 5% charge for gfpgan face fixing
   if (job.upscale_level===2){cost=cost*2}      // 2x charge for upscale 2x
   if (job.upscale_level===4){cost=cost*4}      // 4x charge for upscale 4x 
-  if (job.webhook){cost=cost*1.1}              // 10% charge for scheduled webhooks
+  if (job.channel!==config.channelID){cost=cost*1.1} // 10% charge for DM private renders or webhooks
   cost=cost*job.number                         // Multiply by image count
   return cost.toFixed(2)                       // Return cost to 2 decimal places
 }
@@ -421,7 +451,8 @@ function chargeCredits(userID,amount){
   var user=users.find(x=>x.id===userID)
   user.credits=(user.credits-amount).toFixed(2)
   dbWrite()
-  log('charged id '+userID+' for '+amount+' credits, '+user.credits+' remaining')
+  var z = 'charged id '+userID+' for '+amount+' credits, '+user.credits+' remaining'
+  log(z.dim)
 }
 function creditRecharge(credits,txid,userid,amount,from){
   var user=users.find(x=>x.id===userid)
@@ -429,7 +460,7 @@ function creditRecharge(credits,txid,userid,amount,from){
   user.credits=(parseFloat(user.credits)+parseFloat(credits)).toFixed(2)
   if (txid!=='manual'){
     payments.push({credits:credits,txid:txid,userid:userid,amount:amount})
-    chat(':tada: <@'+userid+'> added :coin:`'+credits+'`, balance is now :coin:`'+user.credits+'`\n:heart_on_fire: Thanks `'+from+'` for the `'+amount+'` donation to the GPU fund.\n Type !refresh to get your own topup info')
+    chat(':tada: <@'+userid+'> added :coin:`'+credits+'`, balance is now :coin:`'+user.credits+'`\n:heart_on_fire: Thanks `'+from+'` for the `'+amount+'` donation to the GPU fund.\n Type !recharge to get your own topup info')
   }
   dbWrite()
 }
@@ -500,14 +531,14 @@ function getRichList () {
 }
 function getPrices () {
   axios.get('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=hive&order=market_cap_asc&per_page=1&page=1&sparkline=false')
-    .then((response) => { hiveUsd = response.data[0].current_price; log('HIVE: $'.inverse + hiveUsd) })
+    .then((response) => { hiveUsd = response.data[0].current_price; log('HIVE: $'+hiveUsd) })
     .catch(() => { log('Failed to load data from coingecko api'.red.bold) })
 }
 function getLightningInvoiceQr(memo){
   var appname = config.hivePaymentAddress+'_discord' // TODO this should be an .env variable
   return 'https://api.v4v.app/v1/new_invoice_hive?hive_accname='+config.hivePaymentAddress+'&amount=1&currency=HBD&usd_hbd=false&app_name='+appname+'&expiry=300&message='+memo+'&qr_code=png'
 }
-function rechargePrompt(userid){
+function rechargePrompt(userid,channel){
   // TODO add encrypted memo support by default to keep discord ids private
   userCreditCheck(userid,1) // make sure the account exists first
   checkNewPayments()
@@ -515,18 +546,18 @@ function rechargePrompt(userid){
   var paymentLinkHbd = 'https://hivesigner.com/sign/transfer?to='+config.hivePaymentAddress+'&amount=1.000%20HBD&memo='+paymentMemo
   var paymentLinkHive = 'https://hivesigner.com/sign/transfer?to='+config.hivePaymentAddress+'&amount=1.000%20HIVE&memo='+paymentMemo
   var lightningInvoiceQr = getLightningInvoiceQr(paymentMemo)
-  var paymentMsg = '<@'+ userid +'> has :coin:`'+ creditsRemaining(userid) +'`\n*Recharging costs `1` usd per :coin:`100` *\nSend HBD or HIVE to `'+ config.hivePaymentAddress +'` with the memo `'+ paymentMemo +'`\n**Pay $1 with Hbd:** '+paymentLinkHbd+'\n**Pay $1 with Hive:**'+paymentLinkHive
+  var paymentMsg = '<@'+ userid +'> has :coin:`'+ creditsRemaining(userid) +'` left\n\n*Recharging costs `1` usd per :coin:`100` *\nSend HBD or HIVE to `'+ config.hivePaymentAddress +'` with the memo `'+ paymentMemo +'`\n**Pay $1 with Hbd:** '+paymentLinkHbd+'\n**Pay $1 with Hive:** '+paymentLinkHive
+  var freeRechargeMsg = '..Or just wait for your free recharge of 10 credits twice a day'
   var paymentMsgObject = {
     content: paymentMsg,
-    embeds:[
-    {description:'Recharge $1 via btc lightning network', image:{url:lightningInvoiceQr}}
-    ]}
-  chat(paymentMsgObject)
+    embeds:[{description:'Pay $1 via btc lightning network', image:{url:lightningInvoiceQr}}]}
+  if (creditsRemaining(userid)<10){paymentMsgObject.embeds.push({footer:{text:freeRechargeMsg}})}
+  directMessageUser(userid,paymentMsgObject,channel).catch((err)=>log(err))
   log('ID '+userid+' asked for recharge link')
 }
 function checkNewPayments(){
   var bitmask = ['4',null] // transfers only
-  log('Checking recent payments for '.dim+config.hivePaymentAddress)
+  log('Checking recent payments for '.grey+config.hivePaymentAddress.grey)
   hive.api.getAccountHistory(config.hivePaymentAddress, -1, 1000, ...bitmask, function(err, result) {
     if(err){console.error(err)}
     if(Array.isArray(result)) {
@@ -543,13 +574,11 @@ function checkNewPayments(){
             coin=op.amount.split(' ')[1]
             amount=parseFloat(op.amount.split(' ')[0])
             if (coin==='HBD'){
-              log('hive payment')
               amountCredit = amount*100 // 1000 = 1 HBD, /10 = credit amount
             } else if (coin==='HIVE'){
-              log('hive payment')
               amountCredit = (amount*hiveUsd)*100
             }
-            log('New Payment: amount credit:'.bgBrightGreen+amountCredit+' , amount:'+op.amount)
+            log('New Payment: amount credit:'.bgBrightGreen.red+amountCredit+' , amount:'+op.amount)
             creditRecharge(amountCredit,tx.trx_id,accountId,op.amount,op.from)
           }
         }
@@ -662,16 +691,16 @@ async function postRender (render) {
       var job = queue[queue.findIndex(x => x.id === render.config.id)]
       var msg = ':brain:<@' + job.userid + '>'
       if (render.config.width !== defaultSize || render.config.height !== defaultSize) { msg+= ':straight_ruler:`' + render.config.width + 'x' + render.config.height + '`' }
-      if (job.upscale_level !== '') { msg+= ':mag:**`Upscaled x ' + job.upscale_level + ' to '+(parseFloat(job.width)*parseFloat(job.upscale_level))+'x'+(parseFloat(job.height)*parseFloat(job.upscale_level))+' (' + job.upscale_strength + ')`**'}
-      if (job.gfpgan_strength !== 0) { msg+= ':magic_wand:`gfpgan face fix (' + job.gfpgan_strength + ')`'}
+      if (job.upscale_level !== '') { msg+= ':mag:**`Upscaledx' + job.upscale_level + ' to '+(parseFloat(job.width)*parseFloat(job.upscale_level))+'x'+(parseFloat(job.height)*parseFloat(job.upscale_level))+' (' + job.upscale_strength + ')`**'}
+      if (job.gfpgan_strength !== 0) { msg+= ':magic_wand:`gfpgan face fix(' + job.gfpgan_strength + ')`'}
       if (job.seamless === 'on') { msg+= ':knot:**`Seamless Tiling`**'}
-      if (job.template) { msg+= ':frame_photo:`' + job.template + '` :muscle: `' + render.config.strength + '`'}
-      if (job.attachments.length>0) { msg+= ':paperclip:` attached template` :muscle: `' + render.config.strength + '`'}
+      if (job.template) { msg+= ':frame_photo:`' + job.template + '`:muscle:`' + render.config.strength + '`'}
+      if (job.attachments.length>0) { msg+= ':paperclip:` attached template`:muscle:`' + render.config.strength + '`'}
       if (job.variation_amount !== 0) { msg+= ':microbe:**`Variation ' + job.variation_amount + '`**'}
       if (job.with_variations !== '') { msg+= ':linked_paperclips:**variants `' + job.with_variations + '`**'}
-      msg+= ':seedling: `' + render.seed + '`:scales:`' + render.config.cfg_scale + '`:recycle:`' + render.config.steps + '`'
+      msg+= ':seedling:`' + render.seed + '`:scales:`' + render.config.cfg_scale + '`:recycle:`' + render.config.steps + '`'
       msg+= ':stopwatch:`' + timeDiff(job.timestampRequested, moment()) + 's`'
-      msg+= ':file_cabinet: `' + filename + '` :eye: `' + render.config.sampler_name + '`'
+      msg+= ':file_cabinet:`' + filename + '`:eye:`' + render.config.sampler_name + '`'
       if (job.webhook){msg+='\n:calendar:Scheduled render sent to `'+job.webhook.destination+'` discord'}
       chargeCredits(job.userid,(costCalculator(job))/job.number) // only charge successful renders
       if (job.cost){msg+=':coin:`'+(job.cost/job.number).toFixed(2).replace(/[.,]00$/, "")+'/'+ creditsRemaining(job.userid) +'`'}
@@ -691,12 +720,12 @@ async function postRender (render) {
       var filesize = fs.statSync(render.url).size
       if (filesize < 8000000) { // Within discord 8mb filesize limit
         try {
-          bot.createMessage(config.channelID, newMessage, {file: data, name: filename + '.png'}).then(m=>{
+          bot.createMessage(job.channel, newMessage, {file: data, name: filename + '.png'}).then(m=>{
             if (job.channel==='webhook'&&job.webhook) {
               job.webhook.imgurl=m.attachments[0].url
               sendWebhook(job)
             }
-          })
+          }).catch((err)=>{log(err)})
         }
         catch (err) {console.error(err)}
       } else {
@@ -730,10 +759,10 @@ function processQueue () {
       log(nextJob.username+' cant afford this render, denying')
       log('cost: '+costCalculator(nextJob))
       log('credits remaining: '+creditsRemaining(nextJob.userid))
-      nextJob.status='failed'
-      chat('sorry <@'+nextJob.userid+'> you don\'t have enough credits for that render (cost '+ costCalculator(nextJob) +').')
+      nextJob.status='failed';dbWrite()
+      //chat('sorry <@'+nextJob.userid+'> you don\'t have enough credits for that render (cost '+ costCalculator(nextJob) +').')
       if(config.hivePaymentAddress.length>0){
-        rechargePrompt(nextJob.userid)
+        rechargePrompt(nextJob.userid,nextJob.channel)
       } else {
         chat('An admin can manually top up your credit with\n`!credit '+ nextJob.userid +' 1`')
       }
@@ -741,24 +770,29 @@ function processQueue () {
     }
   }
 }
-function lexicaSearch(query){
+function lexicaSearch(query,channel){
   // Quick and dirty lexica search api, needs docs to make it more efficient (query limit etc)
-  var reply = {content:'Top 10 results from lexica.art api:', embeds:[], components:[]}
-  axios.get('https://lexica.art/api/v1/search?q='+query)
+  var api = 'https://lexica.art/api/v1/search?q='+query
+  var link = 'https://lexica.art/search?q='+query
+  var reply = {content:'Top 10 results from lexica.art api:\n**More:** '+link, embeds:[], components:[]}
+  log('Lexica search for '+query)
+  axios.get(api)
     .then((r)=>{
-      log('Results: '+r.length+' total, only returning the top 10')
       var top10 = r.data.images.slice(0,10)
+      //console.log(r.data.images[0])
       top10.forEach(i=>{
         reply.embeds.push({
           color: getRandomColorDec(),
+          description: ':seedling:`'+i.seed+'` :straight_ruler:`'+i.width+'x'+i.height+'`',
           image:{url:i.src},
           footer:{text:i.prompt}
         })
       })
-      chat(reply) // TODO rewrite to return object, calling function should respond as an ephemeral message to reduce channel spam
+      bot.createMessage(channel, reply)
     })
     .catch((error) => console.error(error))
 }
+lexicaSearch=debounce(lexicaSearch,1000,true)
 async function meme(prompt,urls,userid){
   params = prompt.split(' ')
   cmd = prompt.split(' ')[0]
@@ -815,7 +849,7 @@ async function meme(prompt,urls,userid){
 const unique = (value, index, self) => { return self.indexOf(value) === index }
 function getRandomColorDec(){return Math.floor(Math.random()*16777215)}
 function timeDiff (date1,date2) { return date2.diff(date1, 'seconds') }
-var randoms = ['prompt','artist','city','genre','medium','emoji','subject','madeof','style','animal','bodypart','gerund','verb','adverb','adjective','star','fruit']
+var randoms = ['prompt','artist','city','genre','medium','emoji','subject','madeof','style','animal','bodypart','gerund','verb','adverb','adjective','star','fruit','country','gender']
 function getRandom(what) { if (randoms.includes(what)) { try { var lines = fs.readFileSync('txt\\' + what + '.txt', 'utf-8').split(/r?\n/); return lines[Math.floor(Math.random()*lines.length)] } catch (err) { console.error(err)} } else { return what } }
 function replaceRandoms (input) {
   var output=input
