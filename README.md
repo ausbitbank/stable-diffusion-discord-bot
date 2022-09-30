@@ -68,7 +68,7 @@ Generating animations with `!meme animate` and attaching images
 ## Add arty to your discord server (easy)
 
 Come find arty in the artspam room here https://discord.gg/DSdK9KRJxq
-Right click him, and click "invite to server"
+Right click him, and click "add to server"
 
 ![](https://media.discordapp.net/attachments/343572563647004683/1025401535611547698/unknown.png)
 
