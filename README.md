@@ -1,30 +1,6 @@
 # stable-diffusion-discord-bot
 
-A basic discord bot built to interface with the webserver api built into the invoke-ai fork of stable-diffusion.
-Currently only tested on windows 10 with an nvidia 1080ti 11gb.
-
-You'll need to have https://github.com/invoke-ai/InvokeAI installed and working on your system first, as well as nodejs and npm.
-
-To install bot dependancies : `npm install` or `yarn install`
-
-Copy `db.json.example` to `db.json`
-
-Rename `.env.example` to `.env` and enter your own details:
-- Copy the Discord channel ID as `channelID`
-  - User Settings > ᴀᴘᴘ sᴇᴛᴛɪɴɢs > Advanced > enable Developer Mode [per D](https://support.discord.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID-)⁽ˀ⁾
-  - Right click Channel, Copy ID
-- `adminID` is your full Discord username#123 
-- `apiURL` is already the default for https://github.com/lstein/stable-diffusion
-- Copy Bot ᴛᴏᴋᴇɴ as `discordBotKey`
-  - [New Application](https://discord.com/developers/applications)
-  - Settings > Bot > Add Bot
-  - (If necessary: Reset Token), Copy
-  - Enable the ᴍᴇssᴀɢᴇ ᴄᴏɴᴛᴇɴᴛ ɪɴᴛᴇɴᴛ Privileged Gateway Intent [per @zsoltime on SO](https://stackoverflow.com/a/73037243).
-    - ![image](https://user-images.githubusercontent.com/115931/189581611-673c32d7-19ce-4710-8911-1e71481fe257.png)
-
-Run with `npm start` or `yarn start`
-
-Invite to your server with `https://discord.com/oauth2/authorize?client_id= APPLICATION ID HERE &scope=bot&permissions=124992` (these ᴛᴇxᴛ ᴘᴇʀᴍɪssɪᴏɴs are required for the bot to function!)
+A discord bot built to interface with the webserver api built into the invoke-ai fork of stable-diffusion.
 
 ## Current features:
 - Most features from the lstein fork are available via bot
@@ -88,6 +64,46 @@ Generating animations with `!meme animate` and attaching images
 
 ![](https://media.discordapp.net/attachments/968822563662860338/1024638314814373928/unknown.png)
 ![](https://media.discordapp.net/attachments/968822563662860338/1024638318631194624/animate-1845497245.gif)
+
+## Add arty to your discord server (easy)
+
+Come find arty in the artspam room here https://discord.gg/DSdK9KRJxq
+Right click him, and click "invite to server"
+
+![](https://media.discordapp.net/attachments/1023961603319808110/1025392370444939284/unknown.png)
+
+Once in your server you can right click him and "manage integrations" to chose what channels it should interact with
+
+![](https://media.discordapp.net/attachments/1023961603319808110/1025392370830823434/unknown.png)
+
+That's it! See the getting started guide - https://peakd.com/@ausbitbank/our-new-stable-diffusion-discord-bot
+
+## How to install and host for yourself
+
+Recommend at least 8gb video ram, lots of storage space and joining the server above for support (see #bot-help)
+
+You'll need to have https://github.com/invoke-ai/InvokeAI installed and working on your system first, as well as nodejs and npm.
+
+To install bot dependancies : `npm install` or `yarn install`
+
+Copy `db.json.example` to `db.json`
+
+Rename `.env.example` to `.env` and enter your own details:
+- Copy the Discord channel ID as `channelID`
+  - User Settings > ᴀᴘᴘ sᴇᴛᴛɪɴɢs > Advanced > enable Developer Mode [per D](https://support.discord.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID-)⁽ˀ⁾
+  - Right click Channel, Copy ID
+- `adminID` is your full Discord username#123 
+- `apiURL` is already the default for https://github.com/lstein/stable-diffusion
+- Copy Bot ᴛᴏᴋᴇɴ as `discordBotKey`
+  - [New Application](https://discord.com/developers/applications)
+  - Settings > Bot > Add Bot
+  - (If necessary: Reset Token), Copy
+  - Enable the ᴍᴇssᴀɢᴇ ᴄᴏɴᴛᴇɴᴛ ɪɴᴛᴇɴᴛ Privileged Gateway Intent [per @zsoltime on SO](https://stackoverflow.com/a/73037243).
+    - ![image](https://user-images.githubusercontent.com/115931/189581611-673c32d7-19ce-4710-8911-1e71481fe257.png)
+
+Run with `npm start` or `yarn start`
+
+Invite to your server with `https://discord.com/oauth2/authorize?client_id= APPLICATION ID HERE &scope=bot&permissions=124992` (these ᴛᴇxᴛ ᴘᴇʀᴍɪssɪᴏɴs are required for the bot to function!)
 
 Patches/Pull request are greatly appreciated!
 -----------------------
