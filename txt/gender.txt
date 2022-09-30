@@ -1,0 +1,6 @@
+boy
+girl
+man
+woman
+grandpa
+grandma
