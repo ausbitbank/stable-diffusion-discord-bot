@@ -19,7 +19,6 @@ A discord bot built to interface with the webserver api built into the invoke-ai
 - Upload to imgbb api (optional)
 - Remixing/meming and animating images using [discord-image-generation](https://www.npmjs.com/package/discord-image-generation?activeTab=readme)
 - Render prompt(s) by multiple schedules and deliver via webhooks
-- 
 
 ## WIP/future features:
 - Alternative render path via dreamstudio api for paying users
