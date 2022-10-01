@@ -18,6 +18,8 @@ A discord bot built to interface with the webserver api built into the invoke-ai
 - Upload to imgur api if files get too big for your discord server (optional)
 - Upload to imgbb api (optional)
 - Remixing/meming and animating images using [discord-image-generation](https://www.npmjs.com/package/discord-image-generation?activeTab=readme)
+- Render prompt(s) by multiple schedules and deliver via webhooks
+- 
 
 ## WIP/future features:
 - Alternative render path via dreamstudio api for paying users
@@ -79,13 +81,13 @@ Once in your server you can right click him and "manage integrations" to chose w
 ![](https://media.discordapp.net/attachments/1023961603319808110/1025392370830823434/unknown.png)
 
 That's it! See the getting started guide - https://peakd.com/@ausbitbank/our-new-stable-diffusion-discord-bot
-Support will be given in the #bot-help room of the project discord above
 
 ## How to install and host for yourself
 
 Recommend at least 8gb video ram, lots of storage space and joining the server above for support (see #bot-help)
 
 You'll need to have https://github.com/invoke-ai/InvokeAI installed and working on your system first, as well as nodejs and npm.
+Launch invokeai from its directory with `python scripts\dream.py --web` to launch the api server for the bot.
 
 To install bot dependancies : `npm install` or `yarn install`
 
