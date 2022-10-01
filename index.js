@@ -18,7 +18,6 @@ const debounce = require('debounce')
 var queue = []
 var users = []
 var payments = []
-var dbFile='./db.json' // flat file db for queue, users, payments
 dbRead()
 var schedule = []
 var dbScheduleFile='./dbSchedule.json' // flat file db for schedule
@@ -31,8 +30,8 @@ if (config.hivePaymentAddress.length>0){
   hive.config.set('alternative_api_endpoints',['https://api.hive.blog','https://rpc.ausbit.dev','https://api.openhive.network'])
   var hiveUsd = null
   getPrices()
-  cron.schedule('0,30 * * * *', () => { log('Checking account history every 30 minutes'.grey); checkNewPayments() })
-  cron.schedule('55 * * * *', () => { log('Updating hive price every 55 minutes'.grey); getPrices() })
+  cron.schedule('0,15,30,45 * * * *', () => { log('Checking account history every 15 minutes'.grey); checkNewPayments() })
+  cron.schedule('0,30 * * * *', () => { log('Updating hive price every 30 minutes'.grey); getPrices() })
 }
 cron.schedule('0 */12 * * *', () => { log('Recharging users with no credit every 12 hrs'.bgCyan.bold); freeRecharge() }) // Comment this out if you don't want free regular topups of low balance users
 // guilds intent is required to see member roles from standard messages, allowing !dream to be locked to an allowed role
@@ -47,7 +46,7 @@ const bot = new Eris.CommandClient(config.discordBotKey, {
 })
 const defaultSize = 512
 const basePath = config.basePath
-if (!config||!config.apiUrl||!config.basePath||!config.channelID||!config.adminID||!config.discordBotKey||!config.pixelLimit||!config.fileWatcher||!config.roleID) { throw('Please re-read the setup instructions at https://github.com/ausbitbank/stable-diffusion-discord-bot , you are missing the required .env configuration file') }
+if (!config||!config.apiUrl||!config.basePath||!config.channelID||!config.adminID||!config.discordBotKey||!config.pixelLimit||!config.fileWatcher) { throw('Please re-read the setup instructions at https://github.com/ausbitbank/stable-diffusion-discord-bot , you are missing the required .env configuration file or options') }
 var apiUrl = config.apiUrl
 var rendering = false
 var dialogs = {queue: null} // Track and replace our own messages to reduce spam
@@ -72,7 +71,6 @@ var slashCommands = [
       {type: '10', name: 'upscale_strength', description: 'upscale strength (smoothing/detail loss)', required: false, min_value: 0, max_value: 1},
       {type: '10', name: 'variation_amount', description: 'how much variation from the original image (need seed+not k_euler_a sampler)', required: false, min_value:0.01, max_value:1},
       {type: '3', name: 'with_variations', description: 'advanced variant control, provide seed(s)+weight eg "seed:weight,seed:weight"', required: false, min_length:4,max_length:100}
-      //{type: '3', name: 'template', description: 'use a previous render as a template (use the text next to :file_cabinet:)', required: true, min_length: 5, max_length:40 }
     ],
     cooldown: 500,
     execute: (i) => {
@@ -101,6 +99,7 @@ var slashCommands = [
 
 bot.on("ready", async () => {
   log("Connected to discord".bgGreen)
+  log("Guilds:".bgGreen+' '+bot.guilds.size)
   processQueue()
   bot.getCommands().then(cmds=>{
     bot.commands = new Collection()
@@ -158,10 +157,10 @@ bot.on("interactionCreate", async (interaction) => {
         var cmd = getCmd(newJob)
         if (!interaction.data.custom_id.startsWith('refreshNoTemplate')) { if (newJob.template){ cmd+= ' --template ' + newJob.template } } else { log('refreshNoTemplate') }
         request({cmd: cmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
-        return interaction.editParent({}).catch((e)=>{log(e)})
+        return interaction.editParent({}).catch((e)=>{console.error(e)})
       } else {
         console.error('unable to refresh render'.red)
-        return interaction.editParent({components:[]}).catch((e) => {log(e)})
+        return interaction.editParent({components:[]}).catch((e) => {console.error(e)})
       }
     } else if (interaction.data.custom_id.startsWith('template')) {
       id=interaction.data.custom_id.split('-')[1]
@@ -172,10 +171,10 @@ bot.on("interactionCreate", async (interaction) => {
         var cmd = getCmd(newJob)
         cmd+= ' --template ' + interaction.data.custom_id.split('-')[2]
         request({cmd: cmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
-        return interaction.editParent({}).catch((e)=>{log(e)})
+        return interaction.editParent({}).catch((e)=>{console.error(e)})
       } else {
         console.error('template request failed')
-        return interaction.editParent({components:[]}).catch((e) => {log(e)})
+        return interaction.editParent({components:[]}).catch((e) => {console.error(e)})
       }
     } else if (interaction.data.custom_id.startsWith('edit-')) {
       id=interaction.data.custom_id.split('-')[1]
@@ -183,38 +182,17 @@ bot.on("interactionCreate", async (interaction) => {
       if (newJob) {
         newJob.number = 1
         if (newJob.webhook){delete newJob.webhook}
-        //var cmd = getCmd(newJob)
-        //cmd+= ' --template ' + interaction.data.custom_id.split('-')[2]
-        //request({cmd: cmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
-        return interaction.createModal({
-          custom_id:'refreshEdit-'+newJob.id,
-          title:'Edit the prompt',
-          components:[
-            {
-              type:1,
-              components:[
-              {
-                type:4,
-                custom_id:'prompt',
-                label:'Prompt',
-                style:2,
-                value:newJob.prompt,
-                required:true
-              }
-            ]
-            }
-          ]
-        }).then((r)=>{}).catch((e)=>{console.error(e)})
+        return interaction.createModal({custom_id:'refreshEdit-'+newJob.id,title:'Edit the prompt',components:[{type:1,components:[{type:4,custom_id:'prompt',label:'Prompt',style:2,value:newJob.prompt,required:true}]}]}).then((r)=>{}).catch((e)=>{console.error(e)})
       } else {
         console.error('edit request failed')
-        return interaction.editParent({components:[]}).catch((e) => {log(e)})
+        return interaction.editParent({components:[]}).catch((e) => {console.error(e)})
       }
     }
   }
   if (!authorised(interaction,interaction.channel.id,interaction.guildID)) {
     console.error('unauthorised usage attempt from ')
     console.info(interaction.member)
-    return interaction.createMessage({content:':warning: You dont currently have permission to use this feature', flags:64}).catch((e) => {log(e)})
+    return interaction.createMessage({content:':warning: You dont currently have permission to use this feature', flags:64}).catch((e) => {console.error(e)})
   }
 })
 async function directMessageUser(id,msg,channel){ // try, fallback to channel
@@ -229,9 +207,9 @@ async function directMessageUser(id,msg,channel){ // try, fallback to channel
 }
 
 bot.on("messageReactionAdd", (msg,emoji,reactor) => {
-  embeds=JSON.parse(JSON.stringify(msg.embeds))
-  if (msg.attachments.length>0) {embeds.unshift({image:{url:msg.attachments[0].url}})}
-  if (msg.channel.id===config.channelID&&msg.author.id===bot.application.id){
+  embeds=dJSON.parse(JSON.stringify(msg.embeds))
+  if (msg.attachments&&msg.attachments.length>0) {embeds.unshift({image:{url:msg.attachments[0].url}})}
+  if (msg.author.id===bot.application.id){
     switch(emoji.name){
       case '😂':
       case '👍':
@@ -247,14 +225,14 @@ bot.on("messageReactionAdd", (msg,emoji,reactor) => {
 })
 
 //bot.on("messageReactionRemoved", (msg,emoji,userid) => {log('message reaction removed');log(msg,emoji,userid)})
-bot.on("warn", (msg,id) => {log(msg,id)})
+bot.on("warn", (msg,id) => {log('warn'.bgRed);log(msg,id)})
 //bot.on("debug", (msg,id) => {log(msg,id)})
 bot.on("disconnect", () => {log('disconnected'.bgRed)})
 bot.on("error", (err,id) => {log('error'.bgRed); log(err,id)})
 //bot.on("channelCreate", (channel) => {log(channel)})
 //bot.on("channelDelete", (channel) => {log(channel)})
-bot.on("guildCreate", (guild) => {log('joined new guild'.bgRed+guild.name.bgRed)})
-bot.on("guildDelete", (guild) => {log('left guild'.bgRed+guild.name.bgRed)})
+bot.on("guildCreate", (guild) => {var m='joined new guild: '+guild.name;log(m.bgRed);directMessageUser(config.adminID,m)})
+bot.on("guildDelete", (guild) => {var m='left guild: '+guild.name;log(m.bgRed);directMessageUser(config.adminID,m)})
 //bot.on("guildMemberAdd", (guild,member) => {log('user joined guild'.bgRed); log(member)})
 //bot.on("guildMemberRemove", (guild,member) => {log('user left guild'.bgRed); log(guild,member)})
 //bot.on("guildMemberUpdate", (guild,member,oldMember,communicationDisabledUntil) => {log('user updated'.bgRed); log(guild,member,oldMember,communicationDisabledUntil)})
@@ -268,33 +246,25 @@ bot.on("messageCreate", (msg) => {
     switch(c){
       case '!dream':{request({cmd: msg.content.substr(7, msg.content.length), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments});break}
       case '!prompt':
-      case '!random':{request({cmd: msg.content.substr(8,msg.content.length)+getRandom('prompt'), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments});msg.delete().catch(() => {});break}
+      case '!random':{request({cmd: msg.content.substr(8,msg.content.length)+getRandom('prompt'), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments});break}
       case '!recharge':rechargePrompt(msg.author.id,msg.channel.id);break
       case '!lexica':lexicaSearch(msg.content.substr(8, msg.content.length),msg.channel.id);break
-      case '!meme':{if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){meme(msg.content.substr(6, msg.content.length),msg.attachments.map((u)=>{return u.proxy_url}),msg.author.id)} else if (msg.content.startsWith('!meme lisapresentation')){meme(msg.content.substr(6, msg.content.length),urls,msg.author.id)};msg.delete().catch(() => {});break}
+      case '!meme':{if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){meme(msg.content.substr(6, msg.content.length),msg.attachments.map((u)=>{return u.proxy_url}),msg.author.id,msg.channel.id)} else if (msg.content.startsWith('!meme lisapresentation')){meme(msg.content.substr(6, msg.content.length),urls,msg.author.id,msg.channel.id)};break}
     }
   }
   if (msg.author.id===config.adminID) { // admins only
-    log('admin, trying '+c)
+    if (c.startsWith('!')){log('admin command: '.bgRed+c)}
     switch(c){
-      case '!dothething':{log(bot.guilds.size);msg.delete().catch(()=>{});break}
-      case '!wipequeue':{rendering=false;queue=[];dbWrite();log('admin wiped queue'); msg.delete().catch(()=>{});break}
-      case '!queue':{queueStatus();msg.delete().catch(()=>{});break}
-      case '!pause':{chat(':pause_button: Bot is paused, requests will still be accepted and queued for when I return');rendering=true;msg.delete().catch(() => {});break}
-      case '!resume':{rendering=false;chat(':play_pause: Bot is back online');processQueue();msg.delete().catch(() => {});break}
+      case '!dothething':{log(bot.guilds.size);break}
+      case '!wipequeue':{rendering=false;queue=[];dbWrite();log('admin wiped queue');break}
+      case '!queue':{queueStatus();break}
+      case '!pause':{chat(':pause_button: Bot is paused, requests will still be accepted and queued for when I return');rendering=true;break}
+      case '!resume':{rendering=false;chat(':play_pause: Bot is back online');processQueue();break}
       case '!richlist':{getRichList();break}
-      case '!checkpayments':{checkNewPayments();msg.delete().catch(()=>{});break}
+      case '!checkpayments':{checkNewPayments();break}
       case '!restart':{log('Admin restarted bot'.bgRed.white);exit(0)}
       case '!credit':{creditRecharge(msg.content.split(' ')[1], 'manual', msg.content.split(' ')[2]);break} // creditRecharge(credits,txid,userid,amount,from)
-      case '!guilds':{
-        bot.guilds.forEach((g)=>{
-          log({id: g.id, name: g.name, ownerID: g.ownerID, description: g.description, memberCount: g.memberCount})
-          //g.roles.forEach((r)=>{log({roleName: r.name})})
-          //g.members.forEach((m)=>{log({id:m.id,nick:m.nick,username:m.user.username,discriminator:m.user.discriminator})})
-          //g.channels.forEach((c)=>{log({id:c.id,type:c.type,name:c.name})})
-          //trying to inventory who already added the bot during early testing ^^
-        })
-      }
+      case '!guilds':{bot.guilds.forEach((g)=>{log({id: g.id, name: g.name, ownerID: g.ownerID, description: g.description, memberCount: g.memberCount})});break}
     }
   }
 })
@@ -306,34 +276,31 @@ function request(request){
   if (request.cmd.includes('{')) { request.cmd = replaceRandoms(request.cmd) } // swap randomizers
   var args = parseArgs(request.cmd.split(' '),{string: ['template','init_img','sampler']}) // parse arguments
   // messy code below contains defaults values, check numbers are actually numbers and within acceptable ranges etc
-  if (!args.width || !Number.isInteger(args.width) || (defaultSize*args.width>config.pixelLimit) || args.width<256) { args.width = defaultSize }
-  if (!args.height || !Number.isInteger(args.height) || (defaultSize*args.height>config.pixelLimit)|| args.height<256) { args.height = defaultSize }
-  if (!args.steps || !Number.isInteger(args.steps) || args.steps > 250) { args.steps = 50 } // max 250 steps, default 50
-  if (!args.seed || !Number.isInteger(args.seed) || args.seed < 1 || args.seed > 4294967295 ) { args.seed = getRandomSeed() }
-  if (!args.strength || args.strength > 1 || args.strength < 0 ) { args.strength = 0.75 }
-  if (!args.scale || args.scale > 30 || args.scale < 0 ) { args.scale = 7.5 }
-  if (!args.sampler) { args.sampler = 'k_lms' }
-  if (args.n) {args.number = args.n}
-  if (!args.number || !Number.isInteger(args.number) || args.number > 10 || args.number < 1) { args.number = 1 }
-  if (!args.seamless) {args.seamless = 'off'} else {
-    if (args.seamless === 'true') { args.seamless = 'on'}
-    if (args.seamless === 'false') { args.seamless = 'off'}
-  }
-  if (!args.renderer || ['localApi'].includes(args.renderer)) { args.renderer = 'localApi'}
-  if (args.template) {  // Check if template exists at this point, dont pass on invalid template
+  if (!args.width||!Number.isInteger(args.width)||(defaultSize*args.width>config.pixelLimit) || args.width<256) { args.width = defaultSize }
+  if (!args.height||!Number.isInteger(args.height)||(defaultSize*args.height>config.pixelLimit)||args.height<256){args.height=defaultSize}
+  if (!args.steps||!Number.isInteger(args.steps)||args.steps>250){args.steps=50} // max 250 steps, default 50
+  if (!args.seed||!Number.isInteger(args.seed)||args.seed<1||args.seed>4294967295){args.seed=getRandomSeed()}
+  if (!args.strength||args.strength>1||args.strength<0){args.strength=0.75}
+  if (!args.scale||args.scale>30||args.scale<0){args.scale=7.5}
+  if (!args.sampler){args.sampler='k_lms'}
+  if (args.n){args.number=args.n}
+  if (!args.number||!Number.isInteger(args.number)||args.number>10||args.number<1){args.number=1}
+  if (!args.seamless){args.seamless='off'}else{if (args.seamless==='true'){args.seamless='on'};if (args.seamless==='false'){args.seamless='off'}}
+  if (!args.renderer||['localApi'].includes(args.renderer)){args.renderer='localApi'}
+  if (args.template) {
     args.template = sanitize(args.template)
     try { if (!fs.existsSync(config.basePath+args.template+'.png')){args.template=undefined} }
     catch (err) {console.error(err);args.template=undefined}
   } else { args.template = undefined }
-  if (!args.gfpgan_strength) { args.gfpgan_strength = 0 }
-  if (!args.upscale_level) { args.upscale_level = '' }
-  if (!args.upscale_strength) { args.upscale_strength = 0.75 }
-  if (!args.variation_amount||args.variation_amount>1||args.variation_amount<0) { args.variation_amount = 0 }
-  if (!args.with_variations) { args.with_variations = '' }
-  args.timestamp = moment()
-  args.prompt = sanitize(args._.join(' '))
-  if (args.prompt.length===0){ args.prompt=getRandom('prompt'); log('empty prompt found, adding random')} 
-  var newJob = {
+  if (!args.gfpgan_strength){args.gfpgan_strength=0}
+  if (!args.upscale_level){args.upscale_level=''}
+  if (!args.upscale_strength){args.upscale_strength=0.75}
+  if (!args.variation_amount||args.variation_amount>1||args.variation_amount<0){args.variation_amount=0}
+  if (!args.with_variations){args.with_variations=''}
+  args.timestamp=moment()
+  args.prompt=sanitize(args._.join(' '))
+  if (args.prompt.length===0){args.prompt=getRandom('prompt');log('empty prompt found, adding random')} 
+  var newJob={
     id: queue.length+1,
     status: 'new',
     cmd: request.cmd,
@@ -417,10 +384,6 @@ function authorised(who,channel,guild) {
     //log('passed auth:'+member.username)
     return true
   }
-  /*return true // Disabled ffa
-  if (!member) { return true } // not cached yet, better to allow then crash
-  if (!member.roles) { return true } 
-  if (member.roles.includes(config.roleID)) {return true} else {return false}*/
 }
 function createNewUser(id){
   users.push({id:id, credits:100}) // 100 creds for new users
@@ -460,7 +423,9 @@ function creditRecharge(credits,txid,userid,amount,from){
   user.credits=(parseFloat(user.credits)+parseFloat(credits)).toFixed(2)
   if (txid!=='manual'){
     payments.push({credits:credits,txid:txid,userid:userid,amount:amount})
-    chat(':tada: <@'+userid+'> added :coin:`'+credits+'`, balance is now :coin:`'+user.credits+'`\n:heart_on_fire: Thanks `'+from+'` for the `'+amount+'` donation to the GPU fund.\n Type !recharge to get your own topup info')
+    var paymentMessage = ':tada: <@'+userid+'> added :coin:`'+credits+'`, balance is now :coin:`'+user.credits+'`\n:heart_on_fire: Thanks `'+from+'` for the `'+amount+'` donation to the GPU fund.\n Type !recharge to get your own topup info'
+    directMessageUser(userid,paymentMessage)
+    chat(paymentMessage)
   }
   dbWrite()
 }
@@ -486,15 +451,27 @@ function freeRecharge() {
     log('No users eligible for free credit recharge')
   }
 }
-function dbWrite() {try { fs.writeFileSync(dbFile, JSON.stringify({ queue: queue, users: users, payments: payments })) } catch(err) {console.error(err)}}
+function dbWrite() {
+  try {
+    fs.writeFileSync('dbQueue.json', JSON.stringify({ queue: queue }))
+    fs.writeFileSync('dbUsers.json', JSON.stringify({ users: users }))
+    fs.writeFileSync('dbPayments.json', JSON.stringify({ payments: payments }))
+  } catch(err) {log('Failed to write db files'.bgRed);log(err)}}
 function dbRead() {
-  fs.readFile(dbFile,function(err,data){
-    if(err){console.error(err)}
-    var j = JSON.parse(data)
-    queue = j.queue
-    users = j.users
-    payments = j.payments
-  })
+  try{
+    fs.readFile('dbQueue.json',function(err,data){
+      if(err){console.error(err)}
+      queue = JSON.parse(data).queue
+    })
+    fs.readFile('dbUsers.json',function(err,data){
+      if(err){console.error(err)}
+      users = JSON.parse(data).users
+    })
+    fs.readFile('dbPayments.json',function(err,data){
+      if(err){console.error(err)}
+      payments = JSON.parse(data).payments
+    })
+  } catch (err){log('Failed to read db files'.bgRed)}
 }
 function dbScheduleRead(){
   log('read schedule db'.grey.dim)
@@ -583,9 +560,7 @@ function checkNewPayments(){
           }
         }
       })
-    } else {
-      console.error('error fetching account history (results not array)')
-    }
+    } else {console.error('error fetching account history (results not array)')}
   })
 }
 function sendWebhook(job){
@@ -659,29 +634,6 @@ async function addRenderApi (id) {
       processQueue()
     })
   }
-  // end new stream based version
-  // start old session based version
-  /*axios.post(apiUrl, postObject)
-    .then(res => {
-      var data = res.data.split("\n")
-      data.pop() // Remove blank line from the end of api output
-      job.status = 'failed' // fail early in case of crash loop
-      data.forEach(line => {
-        line = JSON.parse(line)
-        log(line)
-        if (line.event !== 'result'){
-          return
-        } else {
-          job.results.push({filename: line.url, seed: line.seed}) // keep each generated images filename and seed
-          line.config.id = job.id
-          job.status = 'done'
-          postRender(line) }
-      })
-      rendering = false
-      processQueue()
-    })
-    .catch(error => { console.error('error connecting to api server'); console.error(error) })
-    // End old axios code */
 }
 
 async function postRender (render) {
@@ -746,7 +698,6 @@ async function postRender (render) {
   }
   catch(err) {console.error(err)}
 }
-
 function processQueue () {
   var nextJob = queue[queue.findIndex(x => x.status === 'new')]
   // TODO make a queueing system that prioritizes the users that have recharged the most
@@ -793,49 +744,47 @@ function lexicaSearch(query,channel){
     .catch((error) => console.error(error))
 }
 lexicaSearch=debounce(lexicaSearch,1000,true)
-async function meme(prompt,urls,userid){
+async function meme(prompt,urls,userid,channel){
   params = prompt.split(' ')
   cmd = prompt.split(' ')[0]
-  //log(cmd)
   param = undefined
-  //if (params[1] && !params[1].startsWith('http')){param=!prompt.split(' ')[1]}
   switch(cmd){
     case 'blur': var img = await new DIG.Blur(params[1]).getImage(urls[0]);break
     case 'gay': var img = await new DIG.Gay().getImage(urls[0]);break
     case 'greyscale': var img = await new DIG.Greyscale().getImage(urls[0]);break
     case 'invert': var img = await new DIG.Invert().getImage(urls[0]);break
     case 'sepia': var img = await new DIG.Sepia().getImage(urls[0]);break
-    case 'blink': var img = await new DIG.Blink().getImage(...urls);break // Can take up to 10 images (discord limit) and make animations
-    case 'animate': var img = await new DIG.Blink().getImage(...urls);break // ^^ alias
+    case 'animate':
+    case 'blink': {if (urls.length>1){var img = await new DIG.Blink().getImage(...urls)};break} // Can take up to 10 images (discord limit) and make animations
     case 'triggered': var img = await new DIG.Triggered().getImage(urls[0]);break
     case 'ad': var img = await new DIG.Ad().getImage(urls[0]);break
     case 'affect': var img = await new DIG.Affect().getImage(urls[0]);break
-    case 'batslap': var img = await new DIG.Batslap().getImage(urls[0],urls[1]);break // Take 2 images
+    case 'batslap': {if (urls.length==2){var img = await new DIG.Batslap().getImage(urls[0],urls[1])};break} // Take 2 images
     case 'beautiful': var img = await new DIG.Beautiful().getImage(urls[0]);break
-    case 'bed': var img = await new DIG.Bed().getImage(urls[0],urls[1]);break // takes 2 images
+    case 'bed': {if (urls.length==2){var img = await new DIG.Bed().getImage(urls[0],urls[1])};break} // takes 2 images
     case 'bobross': var img = await new DIG.Bobross().getImage(urls[0]);break
     case 'confusedstonk': var img = await new DIG.ConfusedStonk().getImage(urls[0]);break
     case 'delete': var img = await new DIG.Delete().getImage(urls[0]);break
     case 'discordblack': var img = await new DIG.DiscordBlack().getImage(urls[0]);break
     case 'discordblue': var img = await new DIG.DiscordBlue().getImage(urls[0]);break
-    case 'doublestonk': var img = await new DIG.DoubleStonk().getImage(urls[0],urls[1]);break // takes 2 images
+    case 'doublestonk': {if (urls.length==2){var img = await new DIG.DoubleStonk().getImage(urls[0],urls[1])};break} // takes 2 images
     case 'facepalm': var img = await new DIG.Facepalm().getImage(urls[0]);break
     case 'hitler': var img = await new DIG.Hitler().getImage(urls[0]);break
     case 'jail': var img = await new DIG.Jail().getImage(urls[0]);break
     case 'karaba': var img = await new DIG.Karaba().getImage(urls[0]);break
-    case 'kiss': var img = await new DIG.Kiss().getImage(urls[0],urls[1]);break // takes 2 images
+    case 'kiss': {if (urls.length==2){var img = await new DIG.Kiss().getImage(urls[0],urls[1])};break} // takes 2 images
     case 'lisapresentation': var img = await new DIG.LisaPresentation().getImage(prompt.replace('lisapresentation ',''));break // takes text
     case 'mms': var img = await new DIG.Mms().getImage(urls[0]);break
     case 'notstonk': var img = await new DIG.NotStonk().getImage(urls[0]);break
-    case 'podium': var img = await new DIG.Podium().getImage(urls[0],urls[1],urls[2],params[1],params[2],params[3]);break // new DIG.Podium().getImage(`<Avatar1>, <Avatar2>, <Avatar2>, <Name1>, <Name2>, <Name3>`)
+    case 'podium': {if (urls.length==3&&params[1]&&params[2]&&params[3]){var img = await new DIG.Podium().getImage(urls[0],urls[1],urls[2],params[1],params[2],params[3])};break} // new DIG.Podium().getImage(`<Avatar1>, <Avatar2>, <Avatar2>, <Name1>, <Name2>, <Name3>`)
     case 'poutine': var img = await new DIG.Poutine().getImage(urls[0]);break
     case 'rip': var img = await new DIG.Rip().getImage(urls[0]);break
-    case 'spank': var img = await new DIG.Spank().getImage(urls[0],urls[1]);break // takes 2 urls
+    case 'spank': {if (urls.length==2){var img = await new DIG.Spank().getImage(urls[0],urls[1])};break} // takes 2 urls
     case 'stonk': var img = await new DIG.Stonk().getImage(urls[0]);break
     case 'tatoo': var img = await new DIG.Tatoo().getImage(urls[0]);break
     case 'thomas': var img = await new DIG.Thomas().getImage(urls[0]);break
     case 'trash': var img = await new DIG.Trash().getImage(urls[0]);break
-    case 'wanted': var img = await new DIG.Wanted().getImage(urls[0], '$');break // takes image + currency sign, hardcoding $
+    case 'wanted': {if (urls.length==1){var img = await new DIG.Wanted().getImage(urls[0], '$')};break} // takes image + currency sign, hardcoding $
     case 'circle': var img = await new DIG.Circle().getImage(urls[0]);break
     case 'color': var img = await new DIG.Color().getImage(params[1]);break // take hex color code
   }
@@ -843,9 +792,10 @@ async function meme(prompt,urls,userid){
     chargeCredits(userid,0.05)
     var extension = ['blink','triggered','animate'].includes(cmd) ? '.gif' : '.png'
     var msg = '<@'+userid+'> used `!meme '+prompt+'`, it cost :coin:`0.05`/`'+creditsRemaining(userid)+'`'
-    bot.createMessage(config.channelID, msg, {file: img, name: cmd+'-'+getRandomSeed()+extension})
+    bot.createMessage(channel, msg, {file: img, name: cmd+'-'+getRandomSeed()+extension})
   }
 }
+meme=debounce(meme,1000,true)
 const unique = (value, index, self) => { return self.indexOf(value) === index }
 function getRandomColorDec(){return Math.floor(Math.random()*16777215)}
 function timeDiff (date1,date2) { return date2.diff(date1, 'seconds') }
