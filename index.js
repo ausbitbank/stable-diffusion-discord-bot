@@ -80,7 +80,12 @@ var slashCommands = [
       } else {
         var attachment=[]
       }
-      request({cmd: getCmd(prepSlashCmd(i.data.options)), userid: i.member.id, username: i.member.user.username, discriminator: i.member.user.discriminator, bot: i.member.user.bot, channelid: i.channel.id, attachments: attachment})
+      // below allows for the different data structure in public interactions vs direct messages
+      if (i.member) {
+        request({cmd: getCmd(prepSlashCmd(i.data.options)), userid: i.member.id, username: i.member.user.username, discriminator: i.member.user.discriminator, bot: i.member.user.bot, channelid: i.channel.id, attachments: attachment})
+      } else if (i.user){
+        request({cmd: getCmd(prepSlashCmd(i.data.options)), userid: i.user.id, username: i.user.username, discriminator: i.user.discriminator, bot: i.user.bot, channelid: i.channel.id, attachments: attachment})
+      }
     }
   },
   {
@@ -92,7 +97,12 @@ var slashCommands = [
       var prompt = ''
       if (i.data.options) { prompt+= i.data.options[0].value + ' ' }
       prompt += getRandom('prompt')
-      request({cmd: prompt, userid: i.member.id, username: i.member.user.username, discriminator: i.member.user.discriminator, bot: i.member.user.bot, channelid: i.channel.id, attachments: []})
+      // below allows for the different data structure in public interactions vs direct messages
+      if (i.member){ // pubchan
+        request({cmd: prompt, userid: i.member.id, username: i.member.username, discriminator: i.member.discriminator, bot: i.member.bot, channelid: i.channel.id, attachments: []})
+      } else if (i.user) { // direct message
+        request({cmd: prompt, userid: i.user.id, username: i.user.username, discriminator: i.user.discriminator, bot: i.user.bot, channelid: i.channel.id, attachments: []})
+      }
     }
   }
 ]
@@ -198,11 +208,10 @@ bot.on("interactionCreate", async (interaction) => {
 async function directMessageUser(id,msg,channel){ // try, fallback to channel
   d = await bot.getDMChannel(id).catch(() => {
     log('failed to get dm channel, sending public message instead')
-    if (channel.length>0){bot.createMessage(channel,msg).then(()=>{log('DM sent to '.dim+id)}).catch(() => log('failed to both dm a user or message in channel'.bgRed.white))}
+    if (channel&&channel.length>0){bot.createMessage(channel,msg).then(()=>{log('DM sent to '.dim+id)}).catch(() => log('failed to both dm a user or message in channel'.bgRed.white))}
   })
   d.createMessage(msg).catch(() => {
-    log('failed to dm, sending public message instead')
-    if (channel.length>0){bot.createMessage(channel,msg).then(()=>{log('DM sent to '.dim+id)}).catch(() => log('failed to both dm a user or message in channel'.bgRed.white))}
+    if (channel&&channel.length>0){bot.createMessage(channel,msg).then(()=>{log('DM sent to '.dim+id)}).catch(() => log('failed to both dm a user or message in channel'.bgRed.white))}
   })
 }
 
@@ -214,7 +223,7 @@ bot.on("messageReactionAdd", (msg,emoji,reactor) => {
       case '😂':
       case '👍':
       case '⭐':
-      case '❤️': log('Positive emojis'.green+emoji.name.bgWhite.rainbow); break
+      case '❤️': log('Positive emojis'.green+emoji.name.bgWhite.rainbow); breakaf
       case '✉️': log('sending image to dm'.dim);directMessageUser(reactor.user.id,{content: msg.content, embeds: embeds});break //, components: msg.components
       case '👎':
       case '⚠️':
@@ -233,9 +242,12 @@ bot.on("error", (err,id) => {log('error'.bgRed); log(err,id)})
 //bot.on("channelDelete", (channel) => {log(channel)})
 bot.on("guildCreate", (guild) => {var m='joined new guild: '+guild.name;log(m.bgRed);directMessageUser(config.adminID,m)})
 bot.on("guildDelete", (guild) => {var m='left guild: '+guild.name;log(m.bgRed);directMessageUser(config.adminID,m)})
-//bot.on("guildMemberAdd", (guild,member) => {log('user joined guild'.bgRed); log(member)})
-//bot.on("guildMemberRemove", (guild,member) => {log('user left guild'.bgRed); log(guild,member)})
-//bot.on("guildMemberUpdate", (guild,member,oldMember,communicationDisabledUntil) => {log('user updated'.bgRed); log(guild,member,oldMember,communicationDisabledUntil)})
+bot.on("guildAvailable", (guild) => {var m='guild available: '+guild.name;log(m.bgRed)})
+bot.on("channelCreate", (channel) => {var m='channel created: '.bgRed;log(m);log(channel)})
+bot.on("channelDelete", (channel) => {var m='channel deleted: '.bgRed;log(m);log(channel)})
+bot.on("guildMemberAdd", (guild,member) => {var m='User '+member.username+'#'+member.discriminator+' joined guild '+guild.name;log(m.bgCyan)})
+bot.on("guildMemberRemove", (guild,member) => {var m='User '+member.username+'#'+member.discriminator+' left guild '+guild.name;log(m.bgCyan)})
+//bot.on("guildMemberUpdate", (guild,member,oldMember,communicationDisabledUntil) => {log('user updated'.bgRed); log(member)}) // todo fires on user edits, want to reward users that start boosting HQ server, oldMember.premiumSince=Timestamp since boosting guild
 //bot.on("channelRecipientAdd", (channel,user) => {log(channel,user)})
 //bot.on("channelRecipientRemove", (channel,user) => {log(channel,user)})
 
@@ -341,15 +353,16 @@ function queueStatus() { // todo report status to the relevant channel where the
   if (queue.filter(x=>x.status==='rendering').length>0) {
     var next = queue.filter(x=>x.status==='rendering')[0]
     statusMsg+='\n:track_next:'
-    if (next.channel!==config.channelID) { // private DM render or webhook
+    /*if (next.channel!==config.channelID) { // private DM render or webhook
       statusMsg+=':face_with_open_eyes_and_hand_over_mouth:'
-    } else {
+    } else {*/
       statusMsg+='`'+next.prompt + '`'
-    }
+    //} No longer needed as we only report prompts to the channel that called them
     if (next.number!==1){statusMsg+='x'+next.number}
     statusMsg+=' for '+next.username+'#'+next.discriminator
   }
-  bot.createMessage(config.channelID,statusMsg).then(x=>{dialogs.queue=x}).catch((err)=>console.error(err))
+  if (next){var chan=next.channel} else {var chan=config.channelID}
+  bot.createMessage(chan,statusMsg).then(x=>{dialogs.queue=x}).catch((err)=>console.error(err))
 }
 function prepSlashCmd(options) { // Turn partial options into full command for slash commands, hate the redundant code here
   var job = {}
@@ -704,7 +717,7 @@ function processQueue () {
   if (nextJob!==undefined&&rendering===false) {
     if (userCreditCheck(nextJob.userid,costCalculator(nextJob))) {
       rendering=true
-      console.info(nextJob.username+':'+nextJob.cmd)
+      log(nextJob.username.bgWhite.red+':'+nextJob.cmd.replace('\r','').replace('\n').bgWhite.black)
       addRenderApi(nextJob.id)
     } else {
       log(nextJob.username+' cant afford this render, denying')
