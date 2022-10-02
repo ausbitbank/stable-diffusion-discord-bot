@@ -104,6 +104,19 @@ var slashCommands = [
         request({cmd: prompt, userid: i.user.id, username: i.user.username, discriminator: i.user.discriminator, bot: i.user.bot, channelid: i.channel.id, attachments: []})
       }
     }
+  },
+  {
+    name: 'lexica',
+    description: 'Search lexica.art with keywords or an image url',
+    options: [ {type: '3', name: 'query', description: 'What are you looking for', required: true} ],
+    cooldown: 500,
+    execute: (i) => {
+      var query = ''
+      if (i.data.options) {
+        query+= i.data.options[0].value
+        lexicaSearch(query,i.channel.id)
+      }
+    }
   }
 ]
 
@@ -223,7 +236,7 @@ bot.on("messageReactionAdd", (msg,emoji,reactor) => {
       case '😂':
       case '👍':
       case '⭐':
-      case '❤️': log('Positive emojis'.green+emoji.name.bgWhite.rainbow); breakaf
+      case '❤️': log('Positive emojis'.green+emoji.name.bgWhite.rainbow); break
       case '✉️': log('sending image to dm'.dim);directMessageUser(reactor.user.id,{content: msg.content, embeds: embeds});break //, components: msg.components
       case '👎':
       case '⚠️':
@@ -401,7 +414,7 @@ function authorised(who,channel,guild) {
 function createNewUser(id){
   users.push({id:id, credits:100}) // 100 creds for new users
   dbWrite() // Sync after new user
-  log('created new user with id '.bgYellow.black.bold + id)
+  log('created new user with id '.bgBlue.black.bold + id)
   //chat(':tada: Welcome <@'+id+'>')
 }
 function userCreditCheck(userID,amount) { // Check if a user can afford a specific amount of credits, create if not existing yet
@@ -428,7 +441,7 @@ function chargeCredits(userID,amount){
   user.credits=(user.credits-amount).toFixed(2)
   dbWrite()
   var z = 'charged id '+userID+' for '+amount+' credits, '+user.credits+' remaining'
-  log(z.dim)
+  log(z.dim.bold)
 }
 function creditRecharge(credits,txid,userid,amount,from){
   var user=users.find(x=>x.id===userid)
@@ -445,7 +458,7 @@ function creditRecharge(credits,txid,userid,amount,from){
 function freeRecharge() {
   // allow for regular topups of empty accounts
   // new users get 100 credits on first appearance, then freeRechargeAmount more every 12 hours IF their balance is less then freeRechargeMinBalance
-  // first lets find accounts with credit<z
+  // first lets find accounts with credit < freeRechargeMinBalance
   var freeRechargeMinBalance = 10
   var freeRechargeAmount = 10
   var freeRechargeUsers = users.filter(u=>u.credits<freeRechargeMinBalance)
@@ -525,7 +538,7 @@ function getPrices () {
     .catch(() => { log('Failed to load data from coingecko api'.red.bold) })
 }
 function getLightningInvoiceQr(memo){
-  var appname = config.hivePaymentAddress+'_discord' // TODO this should be an .env variable
+  var appname = config.hivePaymentAddress+'_discord' // TODO should this be an .env variable?
   return 'https://api.v4v.app/v1/new_invoice_hive?hive_accname='+config.hivePaymentAddress+'&amount=1&currency=HBD&usd_hbd=false&app_name='+appname+'&expiry=300&message='+memo+'&qr_code=png'
 }
 function rechargePrompt(userid,channel){
@@ -695,15 +708,15 @@ async function postRender (render) {
         catch (err) {console.error(err)}
       } else {
         if (imgurEnabled() && filesize < 10000000) {
-          chat('<@' + job.userid + '> your file was too big for discord, uploading to imgur now..')
-          try { imgurupload(render.url).then(upload => { chat({ content: msg, embeds: [{image: {url: upload.link}, description:render.config.prompt}]}) }) }
-          catch (err) { console.error(err); chat('Sorry <@' + job.userid + '> imgur uploading failed, contact an admin for your image `' + filename + '.png`') }
+          bot.createMessage(job.channel,'<@' + job.userid + '> your file was too big for discord, uploading to imgur now..')
+          try { imgurupload(render.url).then(upload => { bot.createMessage(job.channel,{ content: msg, embeds: [{image: {url: upload.link}, description:render.config.prompt}]}) }) }
+          catch (err) { console.error(err); bot.createMessage(job.channel,'Sorry <@' + job.userid + '> imgur uploading failed, contact an admin for your image `' + filename + '.png`') }
         } else if (imgbbEnabled() && filesize < 32000000) {
           chat('<@' + job.userid + '> your file was too big for discord, uploading to imgbb now..')
-          try { imgbbupload(render.url).then(upload => { log(upload); chat({ content: msg, embeds: [{image: {url: upload.url}, description:render.config.prompt}]}) }) }
-          catch (err) { console.error(err); chat('Sorry <@' + job.userid + '> imgbb uploading failed, contact an admin for your image `' + filename + '.png`') }
+          try { imgbbupload(render.url).then(upload => { log(upload); bot.createMessage(job.channel,{ content: msg, embeds: [{image: {url: upload.url}, description:render.config.prompt}]}) }) }
+          catch (err) { console.error(err); bot.createMessage(job.channel,'Sorry <@' + job.userid + '> imgbb uploading failed, contact an admin for your image `' + filename + '.png`') }
         } else {
-          chat('Sorry <@' + job.userid + '> but your file was too big for discord, contact an admin for your image `' + filename + '.png`')
+          bot.createMessage(job.channel,'Sorry <@' + job.userid + '> but your file was too big for discord, contact an admin for your image `' + filename + '.png`')
         }
       }
     }
@@ -738,17 +751,40 @@ function lexicaSearch(query,channel){
   // Quick and dirty lexica search api, needs docs to make it more efficient (query limit etc)
   var api = 'https://lexica.art/api/v1/search?q='+query
   var link = 'https://lexica.art/search?q='+query
-  var reply = {content:'Top 10 results from lexica.art api:\n**More:** '+link, embeds:[], components:[]}
-  log('Lexica search for '+query)
+  var reply = {content:'Query: `'+query+'`\nTop 10 results from lexica.art api:\n**More:** '+link, embeds:[], components:[]}
   axios.get(api)
     .then((r)=>{
-      var top10 = r.data.images.slice(0,10)
+      log('Lexica search for :`'+query+'` gave '+r.data.images.length+' results')
+      // we only care about SD results
+      var filteredResults = r.data.images.filter(i=>i.model==='stable-diffusion')//.slice(0,10)
+      // want only unique prompt ids
+      filteredResults = filteredResults.filter((value, index, self) => {
+        return self.findIndex(v => v.promptid === value.promptid) === index;
+      })
+      // shuffle and trim to 10 results // todo make this an option once lexica writes api docs
+      shuffle(filteredResults)
+      filteredResults = filteredResults.slice(0,10)
       //console.log(r.data.images[0])
-      top10.forEach(i=>{
+      /*
+      {
+        id: '07bb9901-14e8-4d9a-ab8c-ee29361677e0',
+        gallery: 'https://lexica.art?q=07bb9901-14e8-4d9a-ab8c-ee29361677e0',
+        src: 'https://lexica-serve-encoded-images.sharif.workers.dev/md/07bb9901-14e8-4d9a-ab8c-ee29361677e0',
+        srcSmall: 'https://lexica-serve-encoded-images.sharif.workers.dev/sm/07bb9901-14e8-4d9a-ab8c-ee29361677e0',
+        prompt: 'milt kahl sketch of black hair cuban girl with dog nose ',
+        width: 512,
+        height: 512,
+        seed: '477122037',
+        grid: false,
+        model: 'stable-diffusion',
+        promptid: '40b36d7e-f1f2-4327-862f-2c77b4a6b808'
+      }
+      */
+      filteredResults.forEach(i=>{
         reply.embeds.push({
           color: getRandomColorDec(),
           description: ':seedling:`'+i.seed+'` :straight_ruler:`'+i.width+'x'+i.height+'`',
-          image:{url:i.src},
+          image:{url:i.srcSmall},
           footer:{text:i.prompt}
         })
       })
@@ -757,6 +793,7 @@ function lexicaSearch(query,channel){
     .catch((error) => console.error(error))
 }
 lexicaSearch=debounce(lexicaSearch,1000,true)
+function shuffle(array) {for (let i = array.length - 1; i > 0; i--) {let j = Math.floor(Math.random() * (i + 1));[array[i], array[j]] = [array[j], array[i]]}} // fisher-yates shuffle
 async function meme(prompt,urls,userid,channel){
   params = prompt.split(' ')
   cmd = prompt.split(' ')[0]
