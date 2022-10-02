@@ -42,7 +42,7 @@ const bot = new Eris.CommandClient(config.discordBotKey, {
   prefix: "!",
   reconnect: 'auto',
   compress: true,
-  getAllUsers: true,
+  getAllUsers: false,
 })
 const defaultSize = 512
 const basePath = config.basePath
@@ -89,7 +89,7 @@ var slashCommands = [
     }
   },
   {
-    name: 'prompt',
+    name: 'random',
     description: 'Show me a random prompt from the library',
     options: [ {type: '3', name: 'prompt', description: 'Add these keywords to a random prompt', required: false} ],
     cooldown: 500,
@@ -117,6 +117,12 @@ var slashCommands = [
         lexicaSearch(query,i.channel.id)
       }
     }
+  },
+  {
+    name: 'recharge',
+    description: 'Recharge your render credits with Hive, HBD or Bitcoin over lightning network',
+    cooldown: 500,
+    execute: (i) => {if (i.member) {rechargePrompt(i.member.id,i.channel.id)} else if (i.user){rechargePrompt(i.user.id,i.channel.id)}}
   }
 ]
 
@@ -230,7 +236,7 @@ async function directMessageUser(id,msg,channel){ // try, fallback to channel
 
 bot.on("messageReactionAdd", (msg,emoji,reactor) => {
   embeds=dJSON.parse(JSON.stringify(msg.embeds))
-  if (msg.attachments&&msg.attachments.length>0) {embeds.unshift({image:{url:msg.attachments[0].url}})}
+  if (embeds&&msg.attachments&&msg.attachments.length>0) {embeds.unshift({image:{url:msg.attachments[0].url}})}
   if (msg.author.id===bot.application.id){
     switch(emoji.name){
       case '😂':
@@ -275,6 +281,7 @@ bot.on("messageCreate", (msg) => {
       case '!recharge':rechargePrompt(msg.author.id,msg.channel.id);break
       case '!lexica':lexicaSearch(msg.content.substr(8, msg.content.length),msg.channel.id);break
       case '!meme':{if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){meme(msg.content.substr(6, msg.content.length),msg.attachments.map((u)=>{return u.proxy_url}),msg.author.id,msg.channel.id)} else if (msg.content.startsWith('!meme lisapresentation')){meme(msg.content.substr(6, msg.content.length),urls,msg.author.id,msg.channel.id)};break}
+      case '!avatar':{var avatars='';msg.mentions.forEach((m)=>{avatars+=m.avatarURL.replace('size=128','size=512')+'\n'});bot.createMessage(msg.channel.id,avatars);break}
     }
   }
   if (msg.author.id===config.adminID) { // admins only
@@ -290,6 +297,7 @@ bot.on("messageCreate", (msg) => {
       case '!restart':{log('Admin restarted bot'.bgRed.white);exit(0)}
       case '!credit':{creditRecharge(msg.content.split(' ')[1], 'manual', msg.content.split(' ')[2]);break} // creditRecharge(credits,txid,userid,amount,from)
       case '!guilds':{bot.guilds.forEach((g)=>{log({id: g.id, name: g.name, ownerID: g.ownerID, description: g.description, memberCount: g.memberCount})});break}
+      case '!updateslashcommands':{bot.getCommands().then(cmds=>{bot.commands = new Collection();for (const c of slashCommands) {bot.commands.set(c.name, c);bot.createCommand({name: c.name,description: c.description,options: c.options ?? [],type: Constants.ApplicationCommandTypes.CHAT_INPUT})}});break}
     }
   }
 })
@@ -729,6 +737,7 @@ function processQueue () {
   // TODO make a queueing system that prioritizes the users that have recharged the most
   if (nextJob!==undefined&&rendering===false) {
     if (userCreditCheck(nextJob.userid,costCalculator(nextJob))) {
+      bot.editStatus('online')
       rendering=true
       log(nextJob.username.bgWhite.red+':'+nextJob.cmd.replace('\r','').replace('\n').bgWhite.black)
       addRenderApi(nextJob.id)
@@ -745,6 +754,10 @@ function processQueue () {
       }
       processQueue()
     }
+  } else {
+    // no jobs, not rendering
+    log('Finished queue, setting idle status'.dim)
+    bot.editStatus('idle')
   }
 }
 function lexicaSearch(query,channel){
@@ -754,13 +767,13 @@ function lexicaSearch(query,channel){
   var reply = {content:'Query: `'+query+'`\nTop 10 results from lexica.art api:\n**More:** '+link, embeds:[], components:[]}
   axios.get(api)
     .then((r)=>{
-      log('Lexica search for :`'+query+'` gave '+r.data.images.length+' results')
       // we only care about SD results
       var filteredResults = r.data.images.filter(i=>i.model==='stable-diffusion')//.slice(0,10)
       // want only unique prompt ids
       filteredResults = filteredResults.filter((value, index, self) => {
         return self.findIndex(v => v.promptid === value.promptid) === index;
       })
+      log('Lexica search for :`'+query+'` gave '+r.data.images.length+' results, '+filteredResults.length+' after filtering')
       // shuffle and trim to 10 results // todo make this an option once lexica writes api docs
       shuffle(filteredResults)
       filteredResults = filteredResults.slice(0,10)
