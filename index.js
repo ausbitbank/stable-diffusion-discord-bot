@@ -62,7 +62,7 @@ var slashCommands = [
       {type: '4', name: 'seed', description: 'seed (initial noise pattern)', required: false},
       {type: '10', name: 'strength', description: 'how much noise to add to your template image (0.1-0.9)', required: false, min_value:0.1, max_value:1},
       {type: '10', name: 'scale', description: 'how important is the prompt', required: false, min_value:1, max_value:30},
-      {type: '4', name: 'number', description: 'how many would you like', required: false, min_value: 1, max_value: 4},
+      {type: '4', name: 'number', description: 'how many would you like', required: false, min_value: 1, max_value: 10},
       {type: '5', name: 'seamless', description: 'Seamlessly tiling textures', required: false},
       {type: '3', name: 'sampler', description: 'which sampler to use (default is k_lms)', required: false, choices: [{name: 'ddim', value: 'ddim'},{name: 'plms', value: 'plms'},{name: 'k_lms', value: 'k_lms'},{name: 'k_dpm_2', value: 'k_dpm_2'},{name: 'k_dpm_2_a', value: 'k_dpm_2_a'},{name: 'k_euler', value: 'k_euler'},{name: 'k_euler_a', value: 'k_euler_a'},{name: 'k_heun', value: 'k_heun'}]},
       {type: '11', name: 'attachment', description: 'use template image', required: false},
