@@ -90,7 +90,7 @@ Launch invokeai from its directory with `python scripts\dream.py --web` to launc
 
 To install bot dependancies : `npm install` or `yarn install`
 
-Copy `db.json.example` to `db.json`
+If its a fresh install, rename the queue, payments and users db files to remove `.example` from the filename, eg `dbPayments.json.example` to `dbPayments.json`
 
 Rename `.env.example` to `.env` and enter your own details:
 - Copy the Discord channel ID as `channelID`
