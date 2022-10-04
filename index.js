@@ -34,7 +34,6 @@ if (config.hivePaymentAddress.length>0){
   cron.schedule('0,30 * * * *', () => { log('Updating hive price every 30 minutes'.grey); getPrices() })
 }
 cron.schedule('0 */12 * * *', () => { log('Recharging users with no credit every 12 hrs'.bgCyan.bold); freeRecharge() }) // Comment this out if you don't want free regular topups of low balance users
-// guilds intent is required to see member roles from standard messages, allowing !dream to be locked to an allowed role
 const bot = new Eris.CommandClient(config.discordBotKey, {
   intents: ["guilds", "guildMessages", "messageContent", "guildMembers", "directMessages", "guildMessageReactions"],
   description: "Just a slave to the art, maaan",
@@ -114,6 +113,8 @@ var slashCommands = [
       var query = ''
       if (i.data.options) {
         query+= i.data.options[0].value
+        if (i.member){var who=i.member}else if(i.user){var who=i.user}
+        log('lexica search from '+who.username)
         lexicaSearch(query,i.channel.id)
       }
     }
@@ -160,7 +161,7 @@ bot.on("interactionCreate", async (interaction) => {
   }
   if((interaction instanceof Eris.ComponentInteraction||interaction instanceof Eris.ModalSubmitInteraction) && authorised(interaction,interaction.channel.id,interaction.guildID)) {
     if (!interaction.member){log(interaction.user.username+' slid into artys DMs'); interaction.member={user:{id: interaction.user.id, username:interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot}}}
-    log(interaction.data.custom_id.bgCyan+' request from ' + interaction.member.user.username.bgCyan)
+    log(interaction.data.custom_id.bgCyan.black+' request from ' + interaction.member.user.username.bgCyan.black)
     if (interaction.data.custom_id.startsWith('random')) {
       var prompt = getRandom('prompt')
       request({cmd: prompt, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
@@ -175,6 +176,9 @@ bot.on("interactionCreate", async (interaction) => {
         if (interaction.data.custom_id.startsWith('refreshVariants')&&newJob.sampler!=='k_euler_a') { // variants do not work with k_euler_a sampler
           newJob.variation_amount=0.1
           newJob.seed = interaction.data.custom_id.split('-')[2]
+          if (interaction.data.custom_id.split('-')[3]){ // variant of a variant
+            newJob.with_variations=interaction.data.custom_id.split('-')[3]+':0.2' // todo find good default variant weight
+          }
         } else if (interaction.data.custom_id.startsWith('refreshUpscale-')) {
           newJob.upscale_level = 2
           newJob.seed = interaction.data.custom_id.split('-')[2]
@@ -184,8 +188,15 @@ bot.on("interactionCreate", async (interaction) => {
           newJob.seed=getRandomSeed()
         }
         var cmd = getCmd(newJob)
-        if (!interaction.data.custom_id.startsWith('refreshNoTemplate')) { if (newJob.template){ cmd+= ' --template ' + newJob.template } } else { log('refreshNoTemplate') }
-        request({cmd: cmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
+        var attach = []
+        if (!interaction.data.custom_id.startsWith('refreshNoTemplate')) {
+          if (newJob.template){ cmd+= ' --template ' + newJob.template }
+          if (newJob.attachments.length>0){attach=newJob.attachments} // transfer attachments to new jobs unless specifically asked not to
+        } else {
+          log('refreshNoTemplate')
+        }
+        var finalReq = {cmd: cmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: attach}
+        request(finalReq)
         return interaction.editParent({}).catch((e)=>{console.error(e)})
       } else {
         console.error('unable to refresh render'.red)
@@ -219,8 +230,8 @@ bot.on("interactionCreate", async (interaction) => {
     }
   }
   if (!authorised(interaction,interaction.channel.id,interaction.guildID)) {
-    console.error('unauthorised usage attempt from ')
-    console.info(interaction.member)
+    log('unauthorised usage attempt from'.bgRed)
+    log(interaction.member)
     return interaction.createMessage({content:':warning: You dont currently have permission to use this feature', flags:64}).catch((e) => {console.error(e)})
   }
 })
@@ -235,15 +246,17 @@ async function directMessageUser(id,msg,channel){ // try, fallback to channel
 }
 
 bot.on("messageReactionAdd", (msg,emoji,reactor) => {
-  embeds=dJSON.parse(JSON.stringify(msg.embeds))
+  var embeds=false
+  if (msg.embeds){embeds=dJSON.parse(JSON.stringify(msg.embeds))}
   if (embeds&&msg.attachments&&msg.attachments.length>0) {embeds.unshift({image:{url:msg.attachments[0].url}})}
+  if (!reactor.user){log('DEBUG reactor.user.id not found, find its replacement here'.bgRed); log(reactor)}
   if (msg.author.id===bot.application.id){
     switch(emoji.name){
       case '😂':
       case '👍':
       case '⭐':
       case '❤️': log('Positive emojis'.green+emoji.name.bgWhite.rainbow); break
-      case '✉️': log('sending image to dm'.dim);directMessageUser(reactor.user.id,{content: msg.content, embeds: embeds});break //, components: msg.components
+      case '✉️': log('sending image to dm'.dim);directMessageUser(reactor.user.id,{content: msg.content, embeds: embeds});break // todo debug occasional error about reactor.user.id undefined here
       case '👎':
       case '⚠️':
       case '🙈':
@@ -262,10 +275,10 @@ bot.on("error", (err,id) => {log('error'.bgRed); log(err,id)})
 bot.on("guildCreate", (guild) => {var m='joined new guild: '+guild.name;log(m.bgRed);directMessageUser(config.adminID,m)})
 bot.on("guildDelete", (guild) => {var m='left guild: '+guild.name;log(m.bgRed);directMessageUser(config.adminID,m)})
 bot.on("guildAvailable", (guild) => {var m='guild available: '+guild.name;log(m.bgRed)})
-bot.on("channelCreate", (channel) => {var m='channel created: '.bgRed;log(m);log(channel)})
-bot.on("channelDelete", (channel) => {var m='channel deleted: '.bgRed;log(m);log(channel)})
-bot.on("guildMemberAdd", (guild,member) => {var m='User '+member.username+'#'+member.discriminator+' joined guild '+guild.name;log(m.bgCyan)})
-bot.on("guildMemberRemove", (guild,member) => {var m='User '+member.username+'#'+member.discriminator+' left guild '+guild.name;log(m.bgCyan)})
+bot.on("channelCreate", (channel) => {var m='channel created: '+channel.name+' in '+channel.guild.name+' for '+channel.memberCount+' users';log(m.bgRed)})
+bot.on("channelDelete", (channel) => {var m='channel deleted: '+channel.name+' in '+channel.guild.name+' for '+channel.memberCount+' users';log(m.bgRed)})
+bot.on("guildMemberAdd", (guild,member) => {var m='User '+member.username+'#'+member.discriminator+' joined guild '+guild.name;log(m.bgMagenta)})
+bot.on("guildMemberRemove", (guild,member) => {var m='User '+member.username+'#'+member.discriminator+' left guild '+guild.name;log(m.bgMagenta)})
 //bot.on("guildMemberUpdate", (guild,member,oldMember,communicationDisabledUntil) => {log('user updated'.bgRed); log(member)}) // todo fires on user edits, want to reward users that start boosting HQ server, oldMember.premiumSince=Timestamp since boosting guild
 //bot.on("channelRecipientAdd", (channel,user) => {log(channel,user)})
 //bot.on("channelRecipientRemove", (channel,user) => {log(channel,user)})
@@ -662,7 +675,10 @@ async function addRenderApi (id) {
       }
     })
     apiResponseStream.on('end', data=>{
-      delayPost.forEach((i)=>{postRender(i)}) // send images delayed for postprocessing
+      if (delayPost.length>0){
+        log('delayed renders after postprocessing:'); log(delayPost)
+        delayPost.forEach((i)=>{postRender(i)}) // send images delayed for postprocessing
+      }
       job.status='done'
       rendering = false
       processQueue()
@@ -683,7 +699,7 @@ async function postRender (render) {
       if (job.template) { msg+= ':frame_photo:`' + job.template + '`:muscle:`' + render.config.strength + '`'}
       if (job.attachments.length>0) { msg+= ':paperclip:` attached template`:muscle:`' + render.config.strength + '`'}
       if (job.variation_amount !== 0) { msg+= ':microbe:**`Variation ' + job.variation_amount + '`**'}
-      if (job.with_variations !== '') { msg+= ':linked_paperclips:**variants `' + job.with_variations + '`**'}
+      if (job.with_variations !== '') { msg+= ':linked_paperclips:with variants `' + job.with_variations + '`'}
       msg+= ':seedling:`' + render.seed + '`:scales:`' + render.config.cfg_scale + '`:recycle:`' + render.config.steps + '`'
       msg+= ':stopwatch:`' + timeDiff(job.timestampRequested, moment()) + 's`'
       msg+= ':file_cabinet:`' + filename + '`:eye:`' + render.config.sampler_name + '`'
@@ -693,7 +709,13 @@ async function postRender (render) {
       var newMessage = { content: msg, embeds: [{description: render.config.prompt, color: getRandomColorDec()}], components: [ { type: Constants.ComponentTypes.ACTION_ROW, components: [ ] } ] }
       newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Refresh", custom_id: "refresh-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })
       if (job.upscale_level==='') {
-        if (!job.attachments.length>0){ newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "10% Variant", custom_id: "refreshVariants-" + job.id + '-' + render.seed, emoji: { name: '🧬', id: null}, disabled: false }) }
+        if (!job.attachments.length>0&&job.sampler!=='k_euler_a'){
+          if (job.variation_amount===0){ // not already a variant
+            newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "10% Variant", custom_id: "refreshVariants-" + job.id + '-' + render.seed, emoji: { name: '🧬', id: null}, disabled: false })
+          } else { // job is a variant, we need the original seed + variant seed
+            newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "10% Variant", custom_id: "refreshVariants-" + job.id + '-' + job.seed + '-' + render.seed, emoji: { name: '🧬', id: null}, disabled: false })
+          }
+        }
         // newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Template", custom_id: "template-" + job.id + '-' + filename, emoji: { name: '📷', id: null}, disabled: false })
         //newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Upscale", custom_id: "refreshUpscale-" + job.id + '-' + render.seed, emoji: { name: '🔍', id: null}, disabled: false })
         if (job.template){ newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Remove template", custom_id: "refreshNoTemplate-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })}
@@ -711,7 +733,7 @@ async function postRender (render) {
               job.webhook.imgurl=m.attachments[0].url
               sendWebhook(job)
             }
-          }).catch((err)=>{log(err)})
+          }).catch((err)=>{log('caught error posting to discord'.bgRed);log(err)})
         }
         catch (err) {console.error(err)}
       } else {
@@ -754,7 +776,7 @@ function processQueue () {
       }
       processQueue()
     }
-  } else {
+  } else if(!rendering&&!nextJob) {
     // no jobs, not rendering
     log('Finished queue, setting idle status'.dim)
     bot.editStatus('idle')
@@ -801,6 +823,7 @@ function lexicaSearch(query,channel){
           footer:{text:i.prompt}
         })
       })
+      //directMessageUser()
       bot.createMessage(channel, reply)
     })
     .catch((error) => console.error(error))
