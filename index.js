@@ -322,8 +322,22 @@ function request(request){
   if (request.cmd.includes('{')) { request.cmd = replaceRandoms(request.cmd) } // swap randomizers
   var args = parseArgs(request.cmd.split(' '),{string: ['template','init_img','sampler']}) // parse arguments
   // messy code below contains defaults values, check numbers are actually numbers and within acceptable ranges etc
-  if (!args.width||!Number.isInteger(args.width)||(defaultSize*args.width>config.pixelLimit) || args.width<256) { args.width = defaultSize }
-  if (!args.height||!Number.isInteger(args.height)||(defaultSize*args.height>config.pixelLimit)||args.height<256){args.height=defaultSize}
+  if (!args.width||!Number.isInteger(args.width)||args.width<256){args.width=defaultSize }
+  if (!args.height||!Number.isInteger(args.height)||args.height<256){args.height=defaultSize}
+  if ((args.width*args.height)>config.pixelLimit) { // too big, try to compromise, find aspect ratio and use max resolution of same ratio
+    if (args.width===args.height){
+      args.width=closestRes(Math.sqrt(config.pixelLimit)); args.height=closestRes(Math.sqrt(config.pixelLimit))
+    } else if (args.width>args.height){
+      var ratio = args.height/args.width
+      args.width=closestRes(Math.sqrt(config.pixelLimit))
+      args.height=closestRes(args.width*ratio)
+    } else {
+      var ratio = args.width/args.height
+      args.height=closestRes(Math.sqrt(config.pixelLimit))
+      args.width=closestRes(args.height*ratio)
+    }
+    log('compromised resolution to '+args.width+'x'+args.height)
+  }
   if (!args.steps||!Number.isInteger(args.steps)||args.steps>250){args.steps=50} // max 250 steps, default 50
   if (!args.seed||!Number.isInteger(args.seed)||args.seed<1||args.seed>4294967295){args.seed=getRandomSeed()}
   if (!args.strength||args.strength>1||args.strength<0){args.strength=0.75}
@@ -398,6 +412,14 @@ function queueStatus() { // todo report status to the relevant channel where the
   if (next){var chan=next.channel} else {var chan=config.channelID}
   bot.createMessage(chan,statusMsg).then(x=>{dialogs.queue=x}).catch((err)=>console.error(err))
 }
+function closestRes(n){ // diffusion needs a resolution as a multiple of 64 pixels, find the closest
+    var q, n1, n2; var m=64
+    q=n/m
+    n1=m*q
+    if ((n*m)>0){n2=m*(q+1)}else{n2=m*(q-1)}
+    if (Math.abs(n-n1)<Math.abs(n-n2)){return n1.toFixed(0)}        
+    return n2.toFixed(0)
+}
 function prepSlashCmd(options) { // Turn partial options into full command for slash commands, hate the redundant code here
   var job = {}
   var defaults = [{ name: 'prompt', value: ''},{name: 'width', value: defaultSize},{name:'height',value:defaultSize},{name:'steps',value:50},{name:'scale',value:7.5},{name:'sampler',value:'k_lms'},{name:'seed', value: getRandomSeed()},{name:'strength',value:0.75},{name:'number',value:1},{name:'gfpgan_strength',value:0},{name:'upscale_strength',value:0.75},{name:'upscale_level',value:''},{name:'seamless',value:'off'},{name:'variation_amount',value:0},{name:'with_variations',value:''}]
@@ -461,7 +483,7 @@ function chargeCredits(userID,amount){
   var user=users.find(x=>x.id===userID)
   user.credits=(user.credits-amount).toFixed(2)
   dbWrite()
-  var z = 'charged id '+userID+' for '+amount+' credits, '+user.credits+' remaining'
+  var z = 'charged id '+userID+' for '+amount+' credits, '+user.credits.bgRed+' remaining'
   log(z.dim.bold)
 }
 function creditRecharge(credits,txid,userid,amount,from){
@@ -676,7 +698,7 @@ async function addRenderApi (id) {
     })
     apiResponseStream.on('end', data=>{
       if (delayPost.length>0){
-        log('delayed renders after postprocessing:'); log(delayPost)
+        //log('delayed renders after postprocessing:'); log(delayPost)
         delayPost.forEach((i)=>{postRender(i)}) // send images delayed for postprocessing
       }
       job.status='done'
@@ -692,7 +714,7 @@ async function postRender (render) {
       filename = render.url.split('\\')[render.url.split('\\').length-1].replace(".png","")
       var job = queue[queue.findIndex(x => x.id === render.config.id)]
       var msg = ':brain:<@' + job.userid + '>'
-      if (render.config.width !== defaultSize || render.config.height !== defaultSize) { msg+= ':straight_ruler:`' + render.config.width + 'x' + render.config.height + '`' }
+      msg+= ':straight_ruler:`' + render.config.width + 'x' + render.config.height + '`' //if (render.config.width !== defaultSize || render.config.height !== defaultSize) { msg+= ':straight_ruler:`' + render.config.width + 'x' + render.config.height + '`' }
       if (job.upscale_level !== '') { msg+= ':mag:**`Upscaledx' + job.upscale_level + ' to '+(parseFloat(job.width)*parseFloat(job.upscale_level))+'x'+(parseFloat(job.height)*parseFloat(job.upscale_level))+' (' + job.upscale_strength + ')`**'}
       if (job.gfpgan_strength !== 0) { msg+= ':magic_wand:`gfpgan face fix(' + job.gfpgan_strength + ')`'}
       if (job.seamless === 'on') { msg+= ':knot:**`Seamless Tiling`**'}
