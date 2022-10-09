@@ -8,7 +8,7 @@ var parseArgs = require('minimist')
 const chokidar = require('chokidar')
 const moment = require('moment')
 const { ImgurClient } = require('imgur')
-if (imgurEnabled){const imgur = new ImgurClient({ clientId: config.imgurClientID})}
+const imgur = new ImgurClient({ clientId: config.imgurClientID})
 const imgbb = require("imgbb-uploader")
 const DIG = require("discord-image-generation")
 const log = console.log.bind(console)
@@ -41,7 +41,7 @@ const bot = new Eris.CommandClient(config.discordBotKey, {
   prefix: "!",
   reconnect: 'auto',
   compress: true,
-  getAllUsers: false,
+  getAllUsers: false, //drastically affects startup time if true, only used for richlist function atm
 })
 const defaultSize = 512
 const basePath = config.basePath
@@ -289,7 +289,18 @@ bot.on("messageCreate", (msg) => {
   var c=msg.content.split(' ')[0]
   if (msg.author.id!==bot.id&&authorised(msg,msg.channel.id,msg.guildID,)){ // Work anywhere its authorized // (msg.channel.id===config.channelID||!msg.guildID) // interaction.member,interaction.channel.id,interaction.guildID
     switch(c){
-      case '!dream':{request({cmd: msg.content.substr(7, msg.content.length), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments});break}
+      case '!dream':{
+        request({cmd: msg.content.substr(7, msg.content.length), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments});
+        /*var queuelength=queue.filter((q)=>q.status==='new').length
+        if (queuelength===0){msg.addReaction('⏭️')}
+        if (queuelength===1){msg.addReaction('1️')}
+        if (queuelength===2){msg.addReaction('2️')}
+        if (queuelength===3){msg.addReaction('3️')}
+        if (queuelength===4){msg.addReaction('4️')}
+        if (queuelength===5){msg.addReaction('5️')}
+        if (queuelength>5){msg.addReaction('🦥')}*/
+        break
+      }
       case '!prompt':
       case '!random':{request({cmd: msg.content.substr(8,msg.content.length)+getRandom('prompt'), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments});break}
       case '!recharge':rechargePrompt(msg.author.id,msg.channel.id);break
@@ -301,7 +312,7 @@ bot.on("messageCreate", (msg) => {
   if (msg.author.id===config.adminID) { // admins only
     if (c.startsWith('!')){log('admin command: '.bgRed+c)}
     switch(c){
-      case '!dothething':{break}
+      case '!dothething':{log(bot.users.get(msg.author.id).username);break}
       case '!wipequeue':{rendering=false;queue=[];dbWrite();log('admin wiped queue');break}
       case '!queue':{queueStatus();break}
       case '!pause':{chat(':pause_button: Bot is paused, requests will still be accepted and queued for when I return');rendering=true;break}
@@ -406,18 +417,22 @@ function queueStatus() { // todo report status to the relevant channel where the
   var waitGps=tidyNumber((getPixelStepsTotal(wait)/1000000).toFixed(0))
   var renderq=queue.filter((j)=>j.status==='rendering')
   var renderGps=tidyNumber((getPixelStepsTotal(renderq)/1000000).toFixed(0))
+  var totalWaitLength=parseInt(wait.length)+parseInt(renderq.length)
+  var totalWaitGps=parseInt(waitGps)+parseInt(renderGps)
   var statusMsg=':busts_in_silhouette: `'+queue.map(x=>x.userid).filter(unique).length+'`/`'+users.length+'` :european_castle:`'+bot.guilds.size+'` :fire: `'+doneGps+'`'
-  if (wait.length>0){statusMsg=':ticket:`'+wait.length+'`(`'+waitGps+'`) '+statusMsg}
+  if (totalWaitLength>0){statusMsg=':ticket:`'+totalWaitLength+'`(`'+totalWaitGps+'`) '+statusMsg} else {statusMsg=':ticket:`'+totalWaitLength+'`'+statusMsg}
   if (renderq.length>0) {
     var next = renderq[0]
     statusMsg+='\n:track_next:'
     statusMsg+='`'+next.prompt + '`'
     if (next.number!==1){statusMsg+='x'+next.number}
-    statusMsg+=' :artist: **'+next.username+'**#'+next.discriminator+' :coin:`'+costCalculator(next)+'` :fire:`'+renderGps+'`'
+    statusMsg+=' :brain: **'+next.username+'**#'+next.discriminator+' :coin:`'+costCalculator(next)+'` :fire:`'+renderGps+'`'
   }
-  if (next){var chan=next.channel} else {var chan=config.channelID}
+  if (next&&next.channel!=='webhook'){var chan=next.channel} else {var chan=config.channelID}
+  log(statusMsg)
   bot.createMessage(chan,statusMsg).then(x=>{dialogs.queue=x}).catch((err)=>console.error(err))
 }
+queueStatus=debounce(queueStatus,2000,true)
 function closestRes(n){ // diffusion needs a resolution as a multiple of 64 pixels, find the closest
     var q, n1, n2; var m=64
     q=n/m
@@ -529,19 +544,10 @@ function dbWrite() {
   } catch(err) {log('Failed to write db files'.bgRed);log(err)}}
 function dbRead() {
   try{
-    fs.readFile('dbQueue.json',function(err,data){
-      if(err){console.error(err)}
-      queue = JSON.parse(data).queue
-    })
-    fs.readFile('dbUsers.json',function(err,data){
-      if(err){console.error(err)}
-      users = JSON.parse(data).users
-    })
-    fs.readFile('dbPayments.json',function(err,data){
-      if(err){console.error(err)}
-      payments = JSON.parse(data).payments
-    })
-  } catch (err){log('Failed to read db files'.bgRed)}
+    queue = JSON.parse(fs.readFileSync('dbQueue.json')).queue
+    users = JSON.parse(fs.readFileSync('dbUsers.json')).users
+    payments = JSON.parse(fs.readFileSync('dbPayments.json')).payments
+  } catch (err){log('Failed to read db files'.bgRed);log(err)}
 }
 function dbScheduleRead(){
   log('read schedule db'.grey.dim)
@@ -568,13 +574,20 @@ function scheduleInit(){
     })
   })
 }
+function getUser(id){
+  var user=bot.users.get(id)
+  if (user){return user}else{return null}
+}
+function getUsername(id){
+  var user=getUser(id)
+  log(user)
+  if(user!==null&&user.username){return user.username}else{return null}
+}
 function getRichList () {
   var u = users.filter(u=>u.credits>11).sort((a,b)=>b.credits-a.credits)
   var richlistMsg = 'Rich List\n'
-  u.forEach(u=>{ richlistMsg+=u.id+':coin:`'+u.credits+'`\n' })
-  //chat(richlistMsg)
+  u.forEach(u=>{richlistMsg+=getUsername(u.id)+':coin:`'+u.credits+'`\n'})
   log(richlistMsg)
-  log(bot.guild.members())
 }
 function getPrices () {
   var url='https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=hive&order=market_cap_asc&per_page=1&page=1&sparkline=false'
@@ -795,11 +808,14 @@ async function postRender (render) {
 function processQueue () {
   // WIP attempt to make a harder to dominate queue
   // TODO make a queueing system that prioritizes the users that have recharged the most
-  /*var queueNew = queue.filter((q)=>{q.status==='new'}) // first alias to simplify
-  var queueUnique = queueNew.filter((value,index,self)=>{return self.findIndex(v=>v.userid===value.userid)===index}) // reduce to 1 entry in queue per username
-  var nextJobId = queueUnique[Math.floor(Math.random()*queueUnique.length)].id // random select*/
-  //var nextJob = queue[queue.findIndex(x => x.id === nextJobId)]
-  var nextJob = queue[queue.findIndex(x => x.status === 'new')]
+  var queueNew = queue.filter((q)=>q.status==='new') // first alias to simplify
+  if (queueNew.length>0){
+    var queueUnique = queueNew.filter((value,index,self)=>{return self.findIndex(v=>v.userid===value.userid)===index}) // reduce to 1 entry in queue per username
+    var nextJobId = queueUnique[Math.floor(Math.random()*queueUnique.length)].id // random select
+    var nextJob = queue[queue.findIndex(x => x.id === nextJobId)]
+  } else {
+    var nextJob = queue[queue.findIndex(x => x.status === 'new')]
+  }
   if (nextJob&&!rendering) {
     if (userCreditCheck(nextJob.userid,costCalculator(nextJob))) {
       bot.editStatus('online')
@@ -822,6 +838,14 @@ function processQueue () {
   } else if (nextJob&&rendering){
     //log('Waiting for '+queue.filter((q)=>{['new','rendering'].includes(q.status)}).length)+' jobs'
   } else if(!nextJob&&!rendering) { // no jobs, not rendering
+    renderJobErrors=queue.filter((q)=>q.status==='rendering')
+    if(renderJobErrors.length>0){
+      log('These job statuses are set to rendering, but rendering=false - this shouldnt happen'.bgRed)
+      log(renderJobErrors)
+      // should we re-enable and reprocess? or set to failed
+      // renderJobErrors.forEach((j)=>{j.status==='failed'})
+      // renderJobErrors[0].status==='new';processQueue()
+    }
     log('Finished queue, setting idle status'.dim)
     bot.editStatus('idle')
   }
@@ -841,22 +865,6 @@ function lexicaSearch(query,channel){
       // shuffle and trim to 10 results // todo make this an option once lexica writes api docs
       shuffle(filteredResults)
       filteredResults = filteredResults.slice(0,10)
-      //console.log(r.data.images[0])
-      /*
-      {
-        id: '07bb9901-14e8-4d9a-ab8c-ee29361677e0',
-        gallery: 'https://lexica.art?q=07bb9901-14e8-4d9a-ab8c-ee29361677e0',
-        src: 'https://lexica-serve-encoded-images.sharif.workers.dev/md/07bb9901-14e8-4d9a-ab8c-ee29361677e0',
-        srcSmall: 'https://lexica-serve-encoded-images.sharif.workers.dev/sm/07bb9901-14e8-4d9a-ab8c-ee29361677e0',
-        prompt: 'milt kahl sketch of black hair cuban girl with dog nose ',
-        width: 512,
-        height: 512,
-        seed: '477122037',
-        grid: false,
-        model: 'stable-diffusion',
-        promptid: '40b36d7e-f1f2-4327-862f-2c77b4a6b808'
-      }
-      */
       filteredResults.forEach(i=>{
         reply.embeds.push({
           color: getRandomColorDec(),
