@@ -15,6 +15,8 @@ const log = console.log.bind(console)
 const dJSON = require('dirty-json')
 var colors = require('colors')
 const debounce = require('debounce')
+const io = require("socket.io-client")
+const socket = io(config.apiUrl,{reconnect: true})
 var queue = []
 var users = []
 var payments = []
@@ -168,7 +170,7 @@ bot.on("interactionCreate", async (interaction) => {
       return interaction.editParent({}).catch((e)=>{log(e)})
     } else if (interaction.data.custom_id.startsWith('refresh')) {
       var id = interaction.data.custom_id.split('-')[1]
-      var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
+      if (queue.length>=(id-1)){var newJob=JSON.parse(JSON.stringify(queue[id-1]))} // parse/stringify to deep copy and make sure we dont edit the original}
       if (newJob) {
         newJob.number = 1
         if (interaction.data.custom_id.startsWith('refreshEdit-')){ newJob.prompt = interaction.data.components[0].components[0].value }
@@ -176,8 +178,11 @@ bot.on("interactionCreate", async (interaction) => {
         if (interaction.data.custom_id.startsWith('refreshVariants')&&newJob.sampler!=='k_euler_a') { // variants do not work with k_euler_a sampler
           newJob.variation_amount=0.1
           newJob.seed = interaction.data.custom_id.split('-')[2]
-          if (interaction.data.custom_id.split('-')[3]){ // variant of a variant
-            newJob.with_variations=interaction.data.custom_id.split('-')[3]+':0.1' // todo find good default variant weight
+          var variantseed = interaction.data.custom_id.split('-')[3]
+          if (variantseed){ // variant of a variant
+            //newJob.with_variations = [[parseInt(variantseed),0.1]]
+            log('variant of a variant')
+            //log(newJob.with_variations)
           }
         } else if (interaction.data.custom_id.startsWith('refreshUpscale-')) {
           newJob.upscale_level = 2
@@ -359,7 +364,7 @@ function request(request){
   if (!args.sampler){args.sampler='k_lms'}
   if (args.n){args.number=args.n}
   if (!args.number||!Number.isInteger(args.number)||args.number>10||args.number<1){args.number=1}
-  if (!args.seamless){args.seamless='off'}else{if (args.seamless==='true'){args.seamless='on'};if (args.seamless==='false'){args.seamless='off'}}
+  if (!args.seamless||args.seamless!==true){args.seamless=false}
   if (!args.renderer||['localApi'].includes(args.renderer)){args.renderer='localApi'}
   if (args.template) {
     args.template = sanitize(args.template)
@@ -370,7 +375,9 @@ function request(request){
   if (!args.upscale_level){args.upscale_level=''}
   if (!args.upscale_strength){args.upscale_strength=0.75}
   if (!args.variation_amount||args.variation_amount>1||args.variation_amount<0){args.variation_amount=0}
-  if (!args.with_variations){args.with_variations=''}; args.with_variations=args.with_variations.toString()
+  if (!args.with_variations){args.with_variations=[]}//; args.with_variations=args.with_variations.toString()
+  if (!args.threshold){args.threshold=0}
+  if (!args.perlin||args.perlin>1||args.perlin<0){args.perlin=0}
   args.timestamp=moment()
   args.prompt=sanitize(args._.join(' '))
   if (args.prompt.length===0){args.prompt=getRandom('prompt');log('empty prompt found, adding random')} 
@@ -394,6 +401,8 @@ function request(request){
     sampler: args.sampler,
     renderer: args.renderer,
     strength: args.strength,
+    threshold: args.threshold,
+    perlin: args.perlin,
     template: args.template,
     gfpgan_strength: args.gfpgan_strength,
     upscale_level: args.upscale_level,
@@ -426,6 +435,10 @@ function queueStatus() { // todo report status to the relevant channel where the
     statusMsg+='\n:track_next:'
     statusMsg+='`'+next.prompt + '`'
     if (next.number!==1){statusMsg+='x'+next.number}
+    if (next.upscale_level!==''){statusMsg+=':mag:'}
+    if (next.variation_amount!==0){statusMsg+=':microbe:'}
+    if (next.steps>50){statusMsg+=':recycle:'}
+    if (next.seamless!==false){statusMsg+=':knot:'}
     statusMsg+=' :brain: **'+next.username+'**#'+next.discriminator+' :coin:`'+costCalculator(next)+'` :fire:`'+renderGps+'`'
   }
   if (next&&next.channel!=='webhook'){var chan=next.channel} else {var chan=config.channelID}
@@ -443,7 +456,7 @@ function closestRes(n){ // diffusion needs a resolution as a multiple of 64 pixe
 }
 function prepSlashCmd(options) { // Turn partial options into full command for slash commands, hate the redundant code here
   var job = {}
-  var defaults = [{ name: 'prompt', value: ''},{name: 'width', value: defaultSize},{name:'height',value:defaultSize},{name:'steps',value:50},{name:'scale',value:7.5},{name:'sampler',value:'k_lms'},{name:'seed', value: getRandomSeed()},{name:'strength',value:0.75},{name:'number',value:1},{name:'gfpgan_strength',value:0},{name:'upscale_strength',value:0.75},{name:'upscale_level',value:''},{name:'seamless',value:'off'},{name:'variation_amount',value:0},{name:'with_variations',value:''}]
+  var defaults = [{ name: 'prompt', value: ''},{name: 'width', value: defaultSize},{name:'height',value:defaultSize},{name:'steps',value:50},{name:'scale',value:7.5},{name:'sampler',value:'k_lms'},{name:'seed', value: getRandomSeed()},{name:'strength',value:0.75},{name:'number',value:1},{name:'gfpgan_strength',value:0},{name:'upscale_strength',value:0.75},{name:'upscale_level',value:''},{name:'seamless',value:"false"},{name:'variation_amount',value:0},{name:'with_variations',value:[]}]
   defaults.forEach(d=>{ if (options.find(o=>{ if (o.name===d.name) { return true } else { return false } })) { job[d.name] = options.find(o=>{ if (o.name===d.name) { return true } else { return false } }).value } else { job[d.name] = d.value } })
   return job
 }
@@ -507,12 +520,16 @@ function chargeCredits(userID,amount){
 }
 function creditRecharge(credits,txid,userid,amount,from){
   var user=users.find(x=>x.id===userid)
+  log('user is')
+  log(user)
   if(!user){createNewUser(userid)}
-  user.credits=(parseFloat(user.credits)+parseFloat(credits)).toFixed(2)
+  if (user && user.credits){
+    user.credits=(parseFloat(user.credits)+parseFloat(credits)).toFixed(2)
+  }
   if (txid!=='manual'){
     payments.push({credits:credits,txid:txid,userid:userid,amount:amount})
     var paymentMessage = ':tada: <@'+userid+'> added :coin:`'+credits+'`, balance is now :coin:`'+user.credits+'`\n:heart_on_fire: Thanks `'+from+'` for the `'+amount+'` donation to the GPU fund.\n Type !recharge to get your own topup info'
-    directMessageUser(userid,paymentMessage)
+    //directMessageUser(userid,paymentMessage)
     chat(paymentMessage)
   }
   dbWrite()
@@ -664,6 +681,107 @@ function sendWebhook(job){
     .then((response) => {log("Webhook delivered successfully")})
     .catch((error) => {console.error(error)})
 }
+
+socket.on("connect", (socket) => {
+    log('connected to socket')
+    //log(socket)
+})
+
+socket.on("generationResult", (data) => {generationResult(data)})
+socket.on("initialImageUploaded", (data) => {
+  initialImageUploaded(data)
+})
+socket.on("progressUpdate", (data) => {
+  if (data.isProcessing===false){
+    rendering=false
+  }
+})
+socket.on('error', (error) => {
+    log('socket error')
+    log(error)
+})
+
+function generationResult(data){
+  log('got generation result')
+  //log(data.metadata.image.prompt)
+  var url=data.url
+  url=config.basePath+data.url.split('/')[data.url.split('/').length-1]
+  var image=data.metadata.image
+  log(queue.findIndex(j=>j.status==='rendering'))
+  var job = queue[queue.findIndex(j=>j.status==='rendering')]
+  log(job)
+  if (job){
+    log('job found in generationResult')
+    job.results.push({filename: url, seed: image.seed})
+    var postRenderObject = {filename: url, seed: image.seed, id:job.id, width:image.width,height:image.height}
+    postRender(postRenderObject)
+  } else {
+    log('job not found in generationResult')
+    rendering=false
+  }
+  if (job.results.length>=job.number){
+    log('setting job status to done')
+    log('job.status')
+    job.status='done'
+    log(job.status)
+    rendering=false
+    log('rendering='+rendering)
+    processQueue()
+  }
+}
+
+function initialImageUploaded(data){
+  log('got init image')
+  var url=data.url
+  var filename=config.basePath+"/"+data.url.replace('outputs/','')//.replace('/','\\')
+  var id=data.url.split('/')[data.url.split('/').length-1].split('.')[0]
+  log('init image id is '+id)
+  log('filename is '+filename)
+  var job = queue.find(j=>j.status==='waitingForInitUpload')
+  log(job)
+  if(job){
+    log('job found')
+    job.init_img=filename
+    emitRenderApi(job)
+  } else {
+    log('job not found')
+    
+  }
+}
+
+async function emitRenderApi(job){
+  log('enter emitRenderApi')
+  //["uploadInitialImage",{"_placeholder":true,"num":0},"unknown.png"]
+  // followed by datastream, then we receive the below
+  // ["initialImageUploaded",{"url":"outputs/init-images/unknown.af8590bcdfcf4d39b4d26b29e24ce724.png"}]
+  var prompt = job.prompt
+  var postObject = {
+      "prompt": prompt,
+      "iterations": job.number,
+      "steps": job.steps,
+      "cfg_scale": job.scale,
+      "threshold": job.threshold, // todo init values to get started, still needs controls
+      "perlin": job.perlin, // todo ^^
+      "sampler_name": job.sampler,
+      "width": job.width,
+      "height": job.height,
+      "seed": job.seed,
+      "seamless": job.seamless,
+      "progress_images": false,
+      "variation_amount": job.variation_amount,
+      "with_variations": job.with_variations,
+      "strength": job.strength,
+      "fit": true
+  }
+  var upscale = false
+  var facefix = false
+  if(job.gfpgan_strength!==0){facefix={strength:job.gfpgan_strength}}
+  if(job.upscale_level!==''){upscale={level:job.upscale_level,strength:job.upscale_strength}}
+  //log('init_img:' + job.init_img)
+  log(postObject,upscale,facefix)
+  socket.emit('generateImage',postObject,upscale,facefix)
+}
+
 async function addRenderApi (id) {
   var job = queue[queue.findIndex(x=>x.id===id)] 
   var initimg = null
@@ -676,31 +794,29 @@ async function addRenderApi (id) {
   if (job.attachments[0] && job.attachments[0].content_type && job.attachments[0].content_type.startsWith('image')) {
     log('fetching attachment from '.bgRed + job.attachments[0].proxy_url)
     await axios.get(job.attachments[0].proxy_url, {responseType: 'arraybuffer'})
-      .then(res => { initimg = 'data:image/png;base64,' + Buffer.from(res.data).toString('base64'); log('got attachment') }) //removed //job.initimg = initimg
+      .then(res => {
+        //initimg = 'data:image/png;base64,' + Buffer.from(res.data).toString('base64')
+        initimg = Buffer.from(res.data)
+        log('got attachment')
+      }) //removed //job.initimg = initimg
       .catch(err => { console.error('unable to fetch url: ' + job.attachments[0].proxy_url); console.error(err) })
   }
-  var prompt = job.prompt
-  var postObject = {
-      "prompt": prompt,
-      "iterations": job.number,
-      "steps": job.steps,
-      "cfg_scale": job.scale,
-      "sampler_name": job.sampler,
-      "width": job.width,
-      "height": job.height,
-      "seed": job.seed,
-      "variation_amount": job.variation_amount,
-      "with_variations": job.with_variations,
-      "initimg": initimg,
-      "strength": job.strength,
-      "fit": "on",
-      "gfpgan_strength": job.gfpgan_strength,
-      "upscale_level": job.upscale_level, // 2 or 4 or ''
-      "upscale_strength": job.upscale_strength,
-      "initimg_name": '',
-    }
-  if (job.seamless==='on') { postObject.seamless = 'on' }
-  // new stream based version
+  if (initimg!==null){
+    job.status==='waitingForInitUpload'
+    socket.emit('uploadInitialImage', initimg, job.id+'.png')
+  } else {
+    emitRenderApi(job)
+  }
+
+  //log('submitted a job')
+  //socket.emit('generateImage', {"prompt":"horse","iterations":1,"steps":20,"cfg_scale":7.5,"threshold":0,"perlin":0,"height":512,"width":512,"sampler_name":"k_lms","seed":4210104655,"seamless":false,"progress_images":false,"variation_amount":0},{"level":2,"strength":0.75},{"strength":0.8}])
+  //["generateImage",{"prompt":"crash test dummy","iterations":1,"steps":50,"cfg_scale":9,"threshold":0,"perlin":0,"height":512,"width":512,"sampler_name":"k_lms","seed":890257030,"seamless":false,"progress_images":false,"variation_amount":0.1,"with_variations":[[890257029,0.8]]},{"level":4,"strength":0.75},false]
+  //["generateImage",{"prompt":"crash test dummy","iterations":1,"steps":50,"cfg_scale":9,"threshold":0,"perlin":0,"height":512,"width":512,"sampler_name":"k_lms","seed":890257030,"seamless":false,"progress_images":false,"init_img":"outputs/init-images/f4a03869d66b1869cd9703afff39cd1e.294d2e9ccac14d1a99f92886d907aaa6.jpg","strength":0.75,"fit":true,"variation_amount":0},false,false]
+  //["uploadInitialImage",{"_placeholder":true,"num":0},"unknown.png"]
+  // followed by datastream, then we receive the below
+  // ["initialImageUploaded",{"url":"outputs/init-images/unknown.af8590bcdfcf4d39b4d26b29e24ce724.png"}]
+  //["progressUpdate",{"currentStep":1,"totalSteps":50,"currentIteration":1,"totalIterations":1,"currentStatus":"Preparing","isProcessing":true,"currentStatusHasSteps":false,"hasError":false}]
+  /* new stream based version
   const apiResponse = await axios.post(apiUrl, postObject, {responseType: 'stream'}).catch(error => { console.error('error connecting to api server'); console.error(error) })
     if (apiResponse){
     const apiResponseStream = apiResponse.data
@@ -730,37 +846,39 @@ async function addRenderApi (id) {
       rendering = false
       processQueue()
     })
-  }
+  }*/
 }
 
 async function postRender (render) {
-  try { fs.readFile(render.url, null, function(err, data) {
+  log('postRender incoming')
+  log(render)
+  try { fs.readFile(render.filename, null, function(err, data) {
     if (err) { console.error(err) } else {
-      filename = render.url.split('\\')[render.url.split('\\').length-1].replace(".png","")
-      var job = queue[queue.findIndex(x => x.id === render.config.id)]
+      filename = render.filename.split('\\')[render.filename.split('\\').length-1].replace(".png","")
+      var job = queue[queue.findIndex(x => x.id === render.id)]
       var msg = ':brain:<@' + job.userid + '>'
-      msg+= ':straight_ruler:`' + render.config.width + 'x' + render.config.height + '`' //if (render.config.width !== defaultSize || render.config.height !== defaultSize) { msg+= ':straight_ruler:`' + render.config.width + 'x' + render.config.height + '`' }
-      if (job.upscale_level !== '') { msg+= ':mag:**`Upscaledx' + job.upscale_level + ' to '+(parseFloat(job.width)*parseFloat(job.upscale_level))+'x'+(parseFloat(job.height)*parseFloat(job.upscale_level))+' (' + job.upscale_strength + ')`**'}
-      if (job.gfpgan_strength !== 0) { msg+= ':magic_wand:`gfpgan face fix(' + job.gfpgan_strength + ')`'}
-      if (job.seamless === 'on') { msg+= ':knot:**`Seamless Tiling`**'}
-      if (job.template) { msg+= ':frame_photo:`' + job.template + '`:muscle:`' + render.config.strength + '`'}
-      if (job.attachments.length>0) { msg+= ':paperclip:` attached template`:muscle:`' + render.config.strength + '`'}
-      if (job.variation_amount !== 0) { msg+= ':microbe:**`Variation ' + job.variation_amount + '`**'}
-      if (job.with_variations !== '') { msg+= ':linked_paperclips:with variants `' + job.with_variations + '`'}
-      msg+= ':seedling:`' + render.seed + '`:scales:`' + render.config.cfg_scale + '`:recycle:`' + render.config.steps + '`'
+      msg+= ':straight_ruler:`' + render.width + 'x' + render.height + '`'
+      if (job.upscale_level!=='') { msg+= ':mag:**`Upscaledx' + job.upscale_level + ' to '+(parseFloat(job.width)*parseFloat(job.upscale_level))+'x'+(parseFloat(job.height)*parseFloat(job.upscale_level))+' (' + job.upscale_strength + ')`**'}
+      if (job.gfpgan_strength!==0) { msg+= ':magic_wand:`gfpgan face fix(' + job.gfpgan_strength + ')`'}
+      if (job.seamless===true) { msg+= ':knot:**`Seamless Tiling`**'}
+      if (job.template) { msg+= ':frame_photo:`' + job.template + '`:muscle:`' + job.strength + '`'}
+      if (job.attachments.length>0) { msg+= ':paperclip:` attached template`:muscle:`' + job.strength + '`'}
+      if (job.variation_amount!==0) { msg+= ':microbe:**`Variation ' + job.variation_amount + '`**'}
+      if (job.with_variations.length>0) { msg+= ':linked_paperclips:with variants `' + job.with_variations + '`'}
+      msg+= ':seedling:`' + render.seed + '`:scales:`' + job.scale + '`:recycle:`' + job.steps + '`'
       msg+= ':stopwatch:`' + timeDiff(job.timestampRequested, moment()) + 's`'
-      msg+= ':file_cabinet:`' + filename + '`:eye:`' + render.config.sampler_name + '`'
+      msg+= ':file_cabinet:`' + filename + '`:eye:`' + job.sampler + '`'
       if (job.webhook){msg+='\n:calendar:Scheduled render sent to `'+job.webhook.destination+'` discord'}
       chargeCredits(job.userid,(costCalculator(job))/job.number) // only charge successful renders
       if (job.cost){msg+=':coin:`'+(job.cost/job.number).toFixed(2).replace(/[.,]00$/, "")+'/'+ creditsRemaining(job.userid) +'`'}
-      var newMessage = { content: msg, embeds: [{description: render.config.prompt, color: getRandomColorDec()}], components: [ { type: Constants.ComponentTypes.ACTION_ROW, components: [ ] } ] }
+      var newMessage = { content: msg, embeds: [{description: job.prompt, color: getRandomColorDec()}], components: [ { type: Constants.ComponentTypes.ACTION_ROW, components: [ ] } ] }
       newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Refresh", custom_id: "refresh-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })
       if (job.upscale_level==='') {
         if (!job.attachments.length>0&&job.sampler!=='k_euler_a'){
           if (job.variation_amount===0){ // not already a variant
             newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "10% Variant", custom_id: "refreshVariants-" + job.id + '-' + render.seed, emoji: { name: '🧬', id: null}, disabled: false })
           } else { // job is a variant, we need the original seed + variant seed
-            newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "10% Variant", custom_id: "refreshVariants-" + job.id + '-' + job.seed + '-' + render.seed, emoji: { name: '🧬', id: null}, disabled: false })
+            //newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "10% Variant", custom_id: "refreshVariants-" + job.id + '-' + job.seed + '-' + render.seed, emoji: { name: '🧬', id: null}, disabled: false })
           }
         }
         // newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Template", custom_id: "template-" + job.id + '-' + filename, emoji: { name: '📷', id: null}, disabled: false })
@@ -772,7 +890,7 @@ async function postRender (render) {
         newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Random", custom_id: "random", emoji: { name: '🔀', id: null}, disabled: false })
       }
       if (newMessage.components[0].components.length===0){delete newMessage.components} // If no components are used there will be a discord api error so remove it
-      var filesize = fs.statSync(render.url).size
+      var filesize = fs.statSync(render.filename).size
       if (filesize < 8000000) { // Within discord 8mb filesize limit
         try {
           bot.createMessage(job.channel, newMessage, {file: data, name: filename + '.png'}).then(m=>{
@@ -786,14 +904,14 @@ async function postRender (render) {
       } else {
         if (imgurEnabled() && filesize < 10000000) {
           bot.createMessage(job.channel,'<@' + job.userid + '> your file was too big for discord, uploading to imgur now..')
-          try { imgurupload(render.url).then(upload => { bot.createMessage(job.channel,{ content: msg, embeds: [{image: {url: upload.link}, description:render.config.prompt}]}) }) }
+          try { imgurupload(render.filename).then(upload => { bot.createMessage(job.channel,{ content: msg, embeds: [{image: {url: upload.link}, description:job.prompt}]}) }) }
           catch (err) { console.error(err); bot.createMessage(job.channel,'Sorry <@' + job.userid + '> imgur uploading failed, contact an admin for your image `' + filename + '.png`') }
         } else if (imgbbEnabled() && filesize < 32000000) {
           chat('<@' + job.userid + '> your file was too big for discord, uploading to imgbb now..')
-          try { imgbbupload(render.url).then(upload => { log(upload); bot.createMessage(job.channel,{ content: msg, embeds: [{image: {url: upload.url}, description:render.config.prompt}]}) }) }
+          try { imgbbupload(render.filename).then(upload => { log(upload); bot.createMessage(job.channel,{ content: msg, embeds: [{image: {url: upload.url}, description:job.prompt}]}) }) }
           catch (err) { console.error(err); bot.createMessage(job.channel,'Sorry <@' + job.userid + '> imgbb uploading failed, contact an admin for your image `' + filename + '.png`') }
         } else {
-          try {oshiupload(render.url).then(upload=>{log(upload); bot.createMessage(job.channel,{ content: msg+'\nLarge image uploaded to oshi.at : '+upload}) })}
+          try {oshiupload(render.filename).then(upload=>{log(upload); bot.createMessage(job.channel,{ content: msg+'\nLarge image uploaded to oshi.at : '+upload}) })}
           catch (err) {
             console.error(err)
             bot.createMessage(job.channel,'Sorry <@' + job.userid + '> but your file was too big for discord, contact an admin for your image `' + filename + '.png`')
@@ -806,6 +924,7 @@ async function postRender (render) {
   catch(err) {console.error(err)}
 }
 function processQueue () {
+  log('processQueue')
   // WIP attempt to make a harder to dominate queue
   // TODO make a queueing system that prioritizes the users that have recharged the most
   var queueNew = queue.filter((q)=>q.status==='new') // first alias to simplify
@@ -817,6 +936,7 @@ function processQueue () {
     var nextJob = queue[queue.findIndex(x => x.status === 'new')]
   }
   if (nextJob&&!rendering) {
+    log('nextJob&&!rendering')
     if (userCreditCheck(nextJob.userid,costCalculator(nextJob))) {
       bot.editStatus('online')
       rendering=true
@@ -836,15 +956,21 @@ function processQueue () {
       processQueue()
     }
   } else if (nextJob&&rendering){
+    log('nextJob&&rendering')
     //log('Waiting for '+queue.filter((q)=>{['new','rendering'].includes(q.status)}).length)+' jobs'
   } else if(!nextJob&&!rendering) { // no jobs, not rendering
+    log('!nextJob&&!rendering')
     renderJobErrors=queue.filter((q)=>q.status==='rendering')
     if(renderJobErrors.length>0){
       log('These job statuses are set to rendering, but rendering=false - this shouldnt happen'.bgRed)
       log(renderJobErrors)
+      renderJobErrors.forEach((j)=>{
+        if(j.status==='rendering'){
+          log('setting status to failed for id '+j.id)
+          j.status='failed'
+        }
+      })
       // should we re-enable and reprocess? or set to failed
-      // renderJobErrors.forEach((j)=>{j.status==='failed'})
-      // renderJobErrors[0].status==='new';processQueue()
     }
     log('Finished queue, setting idle status'.dim)
     bot.editStatus('idle')
