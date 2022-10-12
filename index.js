@@ -180,9 +180,9 @@ bot.on("interactionCreate", async (interaction) => {
           newJob.seed = interaction.data.custom_id.split('-')[2]
           var variantseed = interaction.data.custom_id.split('-')[3]
           if (variantseed){ // variant of a variant
-            //newJob.with_variations = [[parseInt(variantseed),0.1]]
+            newJob.with_variations = [[parseInt(variantseed),0.1]]
             log('variant of a variant')
-            //log(newJob.with_variations)
+            log(newJob.with_variations)
           }
         } else if (interaction.data.custom_id.startsWith('refreshUpscale-')) {
           newJob.upscale_level = 2
@@ -688,66 +688,59 @@ socket.on("connect", (socket) => {
 })
 
 socket.on("generationResult", (data) => {generationResult(data)})
-socket.on("initialImageUploaded", (data) => {
-  initialImageUploaded(data)
-})
-socket.on("progressUpdate", (data) => {
-  if (data.isProcessing===false){
-    rendering=false
-  }
-})
+socket.on("postprocessingResult", (data) => {postprocessingResult(data)})
+socket.on("initialImageUploaded", (data) => {initialImageUploaded(data)})
+socket.on("progressUpdate", (data) => {if(data.isProcessing===false){rendering=false}else{rendering=true}})
 socket.on('error', (error) => {
     log('socket error')
     log(error)
 })
 
-function generationResult(data){
-  log('got generation result')
-  //log(data.metadata.image.prompt)
+function postprocessingResult(data){
+  log(data)
   var url=data.url
   url=config.basePath+data.url.split('/')[data.url.split('/').length-1]
-  var image=data.metadata.image
-  log(queue.findIndex(j=>j.status==='rendering'))
+  var postRenderObject = {filename: url, seed: data.metadata.image.seed, width:data.metadata.image.width,height:data.metadata.image.height}
+  log(postRenderObject)
+  //postRender(postRenderObject)
+}
+
+function generationResult(data){
+  var url=data.url
+  url=config.basePath+data.url.split('/')[data.url.split('/').length-1]
   var job = queue[queue.findIndex(j=>j.status==='rendering')]
-  log(job)
   if (job){
-    log('job found in generationResult')
-    job.results.push({filename: url, seed: image.seed})
-    var postRenderObject = {filename: url, seed: image.seed, id:job.id, width:image.width,height:image.height}
+    job.results.push(data)
+    var postRenderObject = {id:job.id,filename: url, seed: data.metadata.image.seed, resultNumber:job.results.length-1, width:data.metadata.image.width,height:data.metadata.image.height}
     postRender(postRenderObject)
-  } else {
-    log('job not found in generationResult')
-    rendering=false
-  }
+  }else{rendering=false}
   if (job.results.length>=job.number){
-    log('setting job status to done')
-    log('job.status')
     job.status='done'
-    log(job.status)
     rendering=false
-    log('rendering='+rendering)
     processQueue()
   }
 }
 
 function initialImageUploaded(data){
-  log('got init image')
   var url=data.url
   var filename=config.basePath+"/"+data.url.replace('outputs/','')//.replace('/','\\')
   var id=data.url.split('/')[data.url.split('/').length-1].split('.')[0]
-  log('init image id is '+id)
-  log('filename is '+filename)
-  var job = queue.find(j=>j.status==='waitingForInitUpload')
-  log(job)
+  var job = queue[id-1]
   if(job){
-    log('job found')
     job.init_img=filename
     emitRenderApi(job)
-  } else {
-    log('job not found')
-    
   }
 }
+
+function runPostProcessing(result, options){  
+  //options={"type":"gfpgan","gfpgan_strength":0.8}
+  socket.emit('runPostProcessing',result,options)
+}
+// capture result
+// 42["postprocessingResult",{"url":"outputs/000313.3208696952.postprocessed.png","mtime":1665588046.4130075,"metadata":{"model":"stable diffusion","model_id":"stable-diffusion-1.4","model_hash":"fe4efff1e174c627256e44ec2991ba279b3816e364b49f9be2abc0b3ff3f8556","app_id":"lstein/stable-diffusion","app_version":"v1.15","image":{"prompt":[{"prompt":"insanely detailed. instagram photo, kodak portra. by wlop, ilya kuvshinov, krenz cushart, greg rutkowski, pixiv. zbrush sculpt, octane, maya, houdini, vfx. closeup anonymous by ayami kojima in gran turismo for ps 5 cinematic dramatic atmosphere, sharp focus, volumetric lighting","weight":1.0}],"steps":50,"cfg_scale":7.5,"threshold":0,"perlin":0,"width":512,"height":512,"seed":3208696952,"seamless":false,"postprocessing":[{"type":"gfpgan","strength":0.8}],"sampler":"k_lms","variations":[],"type":"txt2img"}}}]
+
+//{type:'gfpgan',gfpgan_strength:0.8}
+//{"type":"esrgan","upscale":[4,0.75]}
 
 async function emitRenderApi(job){
   log('enter emitRenderApi')
@@ -777,8 +770,7 @@ async function emitRenderApi(job){
   var facefix = false
   if(job.gfpgan_strength!==0){facefix={strength:job.gfpgan_strength}}
   if(job.upscale_level!==''){upscale={level:job.upscale_level,strength:job.upscale_strength}}
-  //log('init_img:' + job.init_img)
-  log(postObject,upscale,facefix)
+  if(job.init_img){postObject.init_img=job.init_img}
   socket.emit('generateImage',postObject,upscale,facefix)
 }
 
@@ -795,58 +787,16 @@ async function addRenderApi (id) {
     log('fetching attachment from '.bgRed + job.attachments[0].proxy_url)
     await axios.get(job.attachments[0].proxy_url, {responseType: 'arraybuffer'})
       .then(res => {
-        //initimg = 'data:image/png;base64,' + Buffer.from(res.data).toString('base64')
         initimg = Buffer.from(res.data)
         log('got attachment')
-      }) //removed //job.initimg = initimg
+      })
       .catch(err => { console.error('unable to fetch url: ' + job.attachments[0].proxy_url); console.error(err) })
   }
   if (initimg!==null){
-    job.status==='waitingForInitUpload'
     socket.emit('uploadInitialImage', initimg, job.id+'.png')
   } else {
     emitRenderApi(job)
   }
-
-  //log('submitted a job')
-  //socket.emit('generateImage', {"prompt":"horse","iterations":1,"steps":20,"cfg_scale":7.5,"threshold":0,"perlin":0,"height":512,"width":512,"sampler_name":"k_lms","seed":4210104655,"seamless":false,"progress_images":false,"variation_amount":0},{"level":2,"strength":0.75},{"strength":0.8}])
-  //["generateImage",{"prompt":"crash test dummy","iterations":1,"steps":50,"cfg_scale":9,"threshold":0,"perlin":0,"height":512,"width":512,"sampler_name":"k_lms","seed":890257030,"seamless":false,"progress_images":false,"variation_amount":0.1,"with_variations":[[890257029,0.8]]},{"level":4,"strength":0.75},false]
-  //["generateImage",{"prompt":"crash test dummy","iterations":1,"steps":50,"cfg_scale":9,"threshold":0,"perlin":0,"height":512,"width":512,"sampler_name":"k_lms","seed":890257030,"seamless":false,"progress_images":false,"init_img":"outputs/init-images/f4a03869d66b1869cd9703afff39cd1e.294d2e9ccac14d1a99f92886d907aaa6.jpg","strength":0.75,"fit":true,"variation_amount":0},false,false]
-  //["uploadInitialImage",{"_placeholder":true,"num":0},"unknown.png"]
-  // followed by datastream, then we receive the below
-  // ["initialImageUploaded",{"url":"outputs/init-images/unknown.af8590bcdfcf4d39b4d26b29e24ce724.png"}]
-  //["progressUpdate",{"currentStep":1,"totalSteps":50,"currentIteration":1,"totalIterations":1,"currentStatus":"Preparing","isProcessing":true,"currentStatusHasSteps":false,"hasError":false}]
-  /* new stream based version
-  const apiResponse = await axios.post(apiUrl, postObject, {responseType: 'stream'}).catch(error => { console.error('error connecting to api server'); console.error(error) })
-    if (apiResponse){
-    const apiResponseStream = apiResponse.data
-    var delayPost = []
-    var json = undefined
-    apiResponseStream.on('data', data=>{
-      try {
-        json = dJSON.parse(data)
-        if (json&&json.event&&json.event==='result') {
-          job.results.push({filename: json.url, seed: json.seed}) // keep each generated images filename and seed
-          json.config.id = job.id
-          if (job.gfpgan_strength===0&&job.upscale_level===''){ postRender(json) } else { delayPost.push(json) } // Only send images after postprocessing
-        }
-      } catch (e) {
-        job.status='failed'
-        rendering=false
-        processQueue()
-        console.error(e)
-      }
-    })
-    apiResponseStream.on('end', data=>{
-      if (delayPost.length>0){
-        //log('delayed renders after postprocessing:'); log(delayPost)
-        delayPost.forEach((i)=>{postRender(i)}) // send images delayed for postprocessing
-      }
-      job.status='done'
-      rendering = false
-      processQueue()
-    })
-  }*/
 }
 
 async function postRender (render) {
