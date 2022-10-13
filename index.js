@@ -61,7 +61,7 @@ var slashCommands = [
       {type: '4', name: 'height', description: 'height of the image in pixels', required: false, min_value: 256, max_value: 1024 },
       {type: '4', name: 'steps', description: 'how many steps to render for', required: false, min_value: 5, max_value: 250 },
       {type: '4', name: 'seed', description: 'seed (initial noise pattern)', required: false},
-      {type: '10', name: 'strength', description: 'how much noise to add to your template image (0.1-0.9)', required: false, min_value:0.1, max_value:1},
+      {type: '10', name: 'strength', description: 'how much noise to add to your template image (0.1-0.9)', required: false, min_value:0.1, max_value:0.99},
       {type: '10', name: 'scale', description: 'how important is the prompt', required: false, min_value:1, max_value:30},
       {type: '4', name: 'number', description: 'how many would you like', required: false, min_value: 1, max_value: 10},
       {type: '5', name: 'seamless', description: 'Seamlessly tiling textures', required: false},
@@ -71,10 +71,14 @@ var slashCommands = [
       {type: '3', name: 'upscale_level', description: 'upscale amount', required: false, choices: [{name: 'none', value: '0'},{name: '2x', value: '2'},{name: '4x', value: '4'}]},
       {type: '10', name: 'upscale_strength', description: 'upscale strength (smoothing/detail loss)', required: false, min_value: 0, max_value: 1},
       {type: '10', name: 'variation_amount', description: 'how much variation from the original image (need seed+not k_euler_a sampler)', required: false, min_value:0.01, max_value:1},
-      {type: '3', name: 'with_variations', description: 'advanced variant control, provide seed(s)+weight eg "seed:weight,seed:weight"', required: false, min_length:4,max_length:100}
+      {type: '3', name: 'with_variations', description: 'Advanced variant control, provide seed(s)+weight eg "seed:weight,seed:weight"', required: false, min_length:4,max_length:100},
+      {type: '10', name: 'threshold', description: 'Advanced threshold control', required: false, min_value:0, max_value:40},
+      {type: '10', name: 'perlin', description: 'Add perlin noise to your image', required: false, min_value:0, max_value:1},
+      {type: '5', name: 'hires_fix', description: 'High resolution fix (re-renders twice using template)', required: false},
     ],
     cooldown: 500,
     execute: (i) => {
+      // get attachments
       if (i.data.resolved && i.data.resolved.attachments && i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))){
         var attachmentOrig=i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))
         var attachment=[{width:attachmentOrig.width,height:attachmentOrig.height,size:attachmentOrig.size,proxy_url:attachmentOrig.proxyUrl,content_type:attachmentOrig.contentType,filename:attachmentOrig.filename,id:attachmentOrig.id}]
@@ -148,6 +152,7 @@ bot.on("ready", async () => {
 })
 
 bot.on("interactionCreate", async (interaction) => {
+  log(interaction.data)
   if(interaction instanceof Eris.CommandInteraction && authorised(interaction,interaction.channel.id,interaction.guildID)) {//&& interaction.channel.id === config.channelID
     if (!bot.commands.has(interaction.data.name)) return interaction.createMessage({content:'Command does not exist', flags:64}).catch((e) => {log('command does not exist'.bgRed);log(e)})
     try {
@@ -232,6 +237,97 @@ bot.on("interactionCreate", async (interaction) => {
         console.error('edit request failed')
         return interaction.editParent({components:[]}).catch((e) => {console.error(e)})
       }
+    } else if (interaction.data.custom_id.startsWith('tweak-')) {
+      id=interaction.data.custom_id.split('-')[1]
+      rn=interaction.data.custom_id.split('-')[2]
+      var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
+      if (newJob) {
+        newJob.number = 1
+        if (newJob.webhook){delete newJob.webhook}
+        var tweakResponse=          {
+            content:'',
+            flags:64,
+            components:[
+              {type:Constants.ComponentTypes.ACTION_ROW,components:[
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Portrait aspect ratio", custom_id: "twkaspectPortrait-"+id+'-'+rn, emoji: { name: '↕️', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Square aspect ratio", custom_id: "twkaspectSquare-"+id+'-'+rn, emoji: { name: '🔳', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Landscape aspect ratio", custom_id: "twkaspectLandscape-"+id+'-'+rn, emoji: { name: '↔️', id: null}, disabled: false },
+                //{type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "4k wallpaper", custom_id: "twkaspect4k-"+id+'-'+rn, emoji: { name: '↔️', id: null}, disabled: false }
+              ]},
+              {type:Constants.ComponentTypes.ACTION_ROW,components:[
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Scale - 1", custom_id: "twkscaleMinus-"+id+'-'+rn, emoji: { name: '⚖️', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Scale + 1", custom_id: "twkscalePlus-"+id+'-'+rn, emoji: { name: '⚖️', id: null}, disabled: false }
+              ]},
+              {type:Constants.ComponentTypes.ACTION_ROW,components:[
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Upscale 2x", custom_id: "twkupscale2-"+id+'-'+rn, emoji: { name: '🔍', id: null}, disabled: true },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Upscale 4x", custom_id: "twkupscale4-"+id+'-'+rn, emoji: { name: '🔎', id: null}, disabled: true },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Face Fix GfpGAN", custom_id: "twkgfpgan-"+id+'-'+rn, emoji: { name: '💄', id: null}, disabled: true },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "High Resolution Fix", custom_id: "twkhiresfix-"+id+'-'+rn, emoji: { name: '🔭', id: null}, disabled: false }
+              ]},
+              {type:Constants.ComponentTypes.ACTION_ROW,components:[
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "1% variant", custom_id: "twkvariant1-"+id+'-'+rn, emoji: { name: '🧬', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "5% variant", custom_id: "twkvariant5-"+id+'-'+rn, emoji: { name: '🧬', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "10% variant", custom_id: "twkvariant10-"+id+'-'+rn, emoji: { name: '🧬', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "25% variant", custom_id: "twkvariant25-"+id+'-'+rn, emoji: { name: '🧬', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "50% variant", custom_id: "twkvariant50-"+id+'-'+rn, emoji: { name: '🧬', id: null}, disabled: false },
+              ]}
+            ]
+          }
+          // need to disable buttons depending on the current parameters
+          if (newJob.width===512&&newJob.height===640){tweakResponse.components[0].components[0].disabled=true}
+          if (newJob.width===newJob.height){tweakResponse.components[0].components[1].disabled=true}
+          if (newJob.width===640&&newJob.height===512){tweakResponse.components[0].components[2].disabled=true}
+          if (newJob.width===960&&newJob.height===512){tweakResponse.components[0].components[3].disabled=true}
+          if (newJob.scale<=1){tweakResponse.components[1].components[0].disabled=true}
+          if (newJob.scale>=30){tweakResponse.components[1].components[1].disabled=true}
+          if (newJob.gfpgan_strength!==0){tweakResponse.components[2].components[2].disabled=true}
+          if (newJob.hires_fix===true){tweakResponse.components[2].components[3].disabled=true}
+          if (newJob.variation_amount===0.01){tweakResponse.components[3].components[0].disabled=true}
+          if (newJob.variation_amount===0.05){tweakResponse.components[3].components[1].disabled=true}
+          if (newJob.variation_amount===0.1){tweakResponse.components[3].components[2].disabled=true}
+          if (newJob.variation_amount===0.25){tweakResponse.components[3].components[3].disabled=true}
+          if (newJob.variation_amount===0.5){tweakResponse.components[3].components[4].disabled=true}
+          
+        return interaction.createMessage(tweakResponse).then((r)=>{}).catch((e)=>{console.error(e)})
+      } else {
+        console.error('Edit request failed')
+        return interaction.editParent({components:[]}).catch((e) => {console.error(e)})
+      }
+    } else if (interaction.data.custom_id.startsWith('twk')) {
+      log(interaction.data)
+      var jobId=interaction.data.custom_id.split('-')[1]
+      log(queue[jobId-1])
+      var newJob=JSON.parse(JSON.stringify(queue[jobId-1])) //copy job
+      var resultNumber=interaction.data.custom_id.split('-')[2]
+      var result=newJob.results[resultNumber-1] // The full settings output from api for previous result, ready for postprocessing
+      var postProcess=false
+      newJob.results=[] // wipe results from old job
+      switch(interaction.data.custom_id.split('-')[0].replace('twk','')){
+        case 'scalePlus': newJob.scale=newJob.scale+1;break
+        case 'scaleMinus': newJob.scale=newJob.scale-1;break
+        case 'aspectPortrait': newJob.height=640;newJob.width=512;break
+        case 'aspectLandscape': newJob.width=640;newJob.height=512;break
+        case 'aspectSquare': newJob.width=defaultSize;newJob.height=defaultSize;break
+        case 'aspect4k': newJob.width=960;newJob.height=512;newJob.upscale_level=4;newJob.hires_fix=true;break
+        case 'upscale2': newJob.upscale_level=2;break // currently resubmitting jobs, update to use postprocess once working
+        case 'upscale4': newJob.upscale_level=4;break
+        case 'variant1': newJob.variation_amount=0.01;break
+        case 'variant5': newJob.variation_amount=0.05;break
+        case 'variant10': newJob.variation_amount=0.1;break
+        case 'variant25': newJob.variation_amount=0.25;break
+        case 'variant50': newJob.variation_amount=0.50;break
+        case 'hiresfix': newJob.hires_fix=true;break
+      }
+      if (postProcess){ // submit as postProcess request
+        //todo
+      } else { // submit as new job with changes
+      if (interaction.member) {
+        request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
+      } else if (interaction.user){
+        request({cmd: getCmd(newJob), userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, attachments: []})
+      }
+      }
+      return interaction.editParent({}).catch((e)=>{log(e)})
     }
   }
   if (!authorised(interaction,interaction.channel.id,interaction.guildID)) {
@@ -281,7 +377,7 @@ bot.on("error", (err,id) => {log('error'.bgRed); log(err,id)})
 bot.on("guildCreate", (guild) => {var m='joined new guild: '+guild.name;log(m.bgRed);directMessageUser(config.adminID,m)})
 bot.on("guildDelete", (guild) => {var m='left guild: '+guild.name;log(m.bgRed);directMessageUser(config.adminID,m)})
 bot.on("guildAvailable", (guild) => {var m='guild available: '+guild.name;log(m.bgRed)})
-bot.on("channelCreate", (channel) => {var m='channel created: '+channel.name+' in '+channel.guild.name+' for '+channel.memberCount+' users';log(m.bgRed)})
+bot.on("channelCreate", (channel) => {var m='channel created: '+channel.name+' in '+channel.guild.name;log(m.bgRed)})
 bot.on("channelDelete", (channel) => {var m='channel deleted: '+channel.name+' in '+channel.guild.name;log(m.bgRed)})
 bot.on("guildMemberAdd", (guild,member) => {var m='User '+member.username+'#'+member.discriminator+' joined guild '+guild.name;log(m.bgMagenta)})
 bot.on("guildMemberRemove", (guild,member) => {var m='User '+member.username+'#'+member.discriminator+' left guild '+guild.name;log(m.bgMagenta)})
@@ -333,13 +429,10 @@ bot.on("messageCreate", (msg) => {
 })
 
 bot.connect()
-function getGuildFromId(guildid){
-  return bot.guilds.find((g)=>{g.id===guildid})
-}
 function request(request){
   // request = { cmd: string, userid: int, username: string, discriminator: int, bot: false, channelid: int, attachments: {}, }
   if (request.cmd.includes('{')) { request.cmd = replaceRandoms(request.cmd) } // swap randomizers
-  var args = parseArgs(request.cmd.split(' '),{string: ['template','init_img','sampler']}) // parse arguments
+  var args = parseArgs(request.cmd.split(' '),{string: ['template','init_img','sampler'],boolean: ['seamless','hires_fix']}) // parse arguments //
   // messy code below contains defaults values, check numbers are actually numbers and within acceptable ranges etc
   if (!args.width||!Number.isInteger(args.width)||args.width<256){args.width=defaultSize }
   if (!args.height||!Number.isInteger(args.height)||args.height<256){args.height=defaultSize}
@@ -359,12 +452,11 @@ function request(request){
   }
   if (!args.steps||!Number.isInteger(args.steps)||args.steps>250){args.steps=50} // max 250 steps, default 50
   if (!args.seed||!Number.isInteger(args.seed)||args.seed<1||args.seed>4294967295){args.seed=getRandomSeed()}
-  if (!args.strength||args.strength>1||args.strength<0){args.strength=0.75}
+  if (!args.strength||args.strength>=1||args.strength<=0){args.strength=0.75}
   if (!args.scale||args.scale>30||args.scale<0){args.scale=7.5}
   if (!args.sampler){args.sampler='k_lms'}
   if (args.n){args.number=args.n}
   if (!args.number||!Number.isInteger(args.number)||args.number>10||args.number<1){args.number=1}
-  if (!args.seamless||args.seamless!==true){args.seamless=false}
   if (!args.renderer||['localApi'].includes(args.renderer)){args.renderer='localApi'}
   if (args.template) {
     args.template = sanitize(args.template)
@@ -407,11 +499,12 @@ function request(request){
     gfpgan_strength: args.gfpgan_strength,
     upscale_level: args.upscale_level,
     upscale_strength: args.upscale_strength,
-    seamless: args.seamless,
     variation_amount: args.variation_amount,
     with_variations: args.with_variations,
     results: []
   }
+  if(args.seamless===true||args.seamless==='True'){newJob.seamless=true}else{newJob.seamless=false}
+  if(args.hires_fix===true||args.hires_fix==='True'){newJob.hires_fix=true}else{newJob.hires_fix=false}
   if(newJob.channel==='webhook'&&request.webhook){newJob.webhook=request.webhook}
   newJob.cost = costCalculator(newJob)
   queue.push(newJob)
@@ -436,9 +529,12 @@ function queueStatus() { // todo report status to the relevant channel where the
     statusMsg+='`'+next.prompt + '`'
     if (next.number!==1){statusMsg+='x'+next.number}
     if (next.upscale_level!==''){statusMsg+=':mag:'}
+    if (next.gfpgan_strength!==0){statusMsg+=':lipstick:'}
     if (next.variation_amount!==0){statusMsg+=':microbe:'}
     if (next.steps>50){statusMsg+=':recycle:'}
-    if (next.seamless!==false){statusMsg+=':knot:'}
+    if (next.seamless===true){statusMsg+=':knot:'}
+    if (next.hires_fix===true){statusMsg+=':telescope:'}
+    if (next.width!==next.height){statusMsg+=':straight_ruler:'}
     statusMsg+=' :brain: **'+next.username+'**#'+next.discriminator+' :coin:`'+costCalculator(next)+'` :fire:`'+renderGps+'`'
   }
   if (next&&next.channel!=='webhook'){var chan=next.channel} else {var chan=config.channelID}
@@ -456,11 +552,14 @@ function closestRes(n){ // diffusion needs a resolution as a multiple of 64 pixe
 }
 function prepSlashCmd(options) { // Turn partial options into full command for slash commands, hate the redundant code here
   var job = {}
-  var defaults = [{ name: 'prompt', value: ''},{name: 'width', value: defaultSize},{name:'height',value:defaultSize},{name:'steps',value:50},{name:'scale',value:7.5},{name:'sampler',value:'k_lms'},{name:'seed', value: getRandomSeed()},{name:'strength',value:0.75},{name:'number',value:1},{name:'gfpgan_strength',value:0},{name:'upscale_strength',value:0.75},{name:'upscale_level',value:''},{name:'seamless',value:"false"},{name:'variation_amount',value:0},{name:'with_variations',value:[]}]
+  //log('prepSlashCmd input')
+  //log(options)
+  var defaults = [{ name: 'prompt', value: ''},{name: 'width', value: defaultSize},{name:'height',value:defaultSize},{name:'steps',value:50},{name:'scale',value:7.5},{name:'sampler',value:'k_lms'},{name:'seed', value: getRandomSeed()},{name:'strength',value:0.75},{name:'number',value:1},{name:'gfpgan_strength',value:0},{name:'upscale_strength',value:0.75},{name:'upscale_level',value:''},{name:'seamless',value:false},{name:'variation_amount',value:0},{name:'with_variations',value:[]},{name:'threshold',value:0},{name:'perlin',value:0},{name:'hires_fix',value:false}]
   defaults.forEach(d=>{ if (options.find(o=>{ if (o.name===d.name) { return true } else { return false } })) { job[d.name] = options.find(o=>{ if (o.name===d.name) { return true } else { return false } }).value } else { job[d.name] = d.value } })
+  //log('prepSlashCmd output');log(job)
   return job
 }
-function getCmd(newJob){ return newJob.prompt+' --width ' + newJob.width + ' --height ' + newJob.height + ' --seed ' + newJob.seed + ' --scale ' + newJob.scale + ' --sampler ' + newJob.sampler + ' --steps ' + newJob.steps + ' --strength ' + newJob.strength + ' --n ' + newJob.number + ' --gfpgan_strength ' + newJob.gfpgan_strength + ' --upscale_level ' + newJob.upscale_level + ' --upscale_strength ' + newJob.upscale_strength + ' --seamless ' + newJob.seamless + ' --variation_amount ' + newJob.variation_amount + ' --with_variations ' + newJob.with_variations}
+function getCmd(newJob){ return newJob.prompt+' --width ' + newJob.width + ' --height ' + newJob.height + ' --seed ' + newJob.seed + ' --scale ' + newJob.scale + ' --sampler ' + newJob.sampler + ' --steps ' + newJob.steps + ' --strength ' + newJob.strength + ' --n ' + newJob.number + ' --gfpgan_strength ' + newJob.gfpgan_strength + ' --upscale_level ' + newJob.upscale_level + ' --upscale_strength ' + newJob.upscale_strength + ' --seamless ' + newJob.seamless + ' --hires_fix ' + newJob.hires_fix + ' --variation_amount ' + newJob.variation_amount + ' --with_variations ' + newJob.with_variations}
 function getRandomSeed() {return Math.floor(Math.random() * 4294967295)}
 function chat(msg) {if (msg !== null && msg !== ''){bot.createMessage(config.channelID, msg)}}
 function sanitize (prompt) {
@@ -502,9 +601,10 @@ function costCalculator(job) {                 // Pass in a render, get a cost i
   var pixels=job.width*job.height              // How many pixels does this render use?
   cost=(pixels/pixelBase)*cost                 // premium or discount for resolution relative to default
   cost=(job.steps/50)*cost                     // premium or discount for step count relative to default
-  if (job.gfpgan_strength!==0){cost=cost*1.05} // 5% charge for gfpgan face fixing
-  if (job.upscale_level===2){cost=cost*2}      // 2x charge for upscale 2x
+  if (job.gfpgan_strength!==0){cost=cost*1.05} // 5% charge for gfpgan face fixing (minor increased processing time)
+  if (job.upscale_level===2){cost=cost*2}      // 2x charge for upscale 2x (increased processing+storage+bandwidth)
   if (job.upscale_level===4){cost=cost*4}      // 4x charge for upscale 4x 
+  if (job.hires_fix===true){cost=cost*2}       // 2x charge for hires_fix (renders at least twice, needs more experimentation)
   if (job.channel!==config.channelID){cost=cost*1.1} // 10% charge for renders outside of home channel
   cost=cost*job.number                         // Multiply by image count
   return cost.toFixed(2)                       // Return cost to 2 decimal places
@@ -606,7 +706,7 @@ function getRichList () {
   u.forEach(u=>{richlistMsg+=getUsername(u.id)+':coin:`'+u.credits+'`\n'})
   log(richlistMsg)
 }
-function getPrices () {
+function getPrices () { // TODO fallback to getting costs from hive internal market
   var url='https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=hive&order=market_cap_asc&per_page=1&page=1&sparkline=false'
   axios.get(url)
     .then((response) => { hiveUsd = response.data[0].current_price; log('HIVE: $'+hiveUsd) })
@@ -616,7 +716,7 @@ function getLightningInvoiceQr(memo){
   var appname = config.hivePaymentAddress+'_discord' // TODO should this be an .env variable?
   return 'https://api.v4v.app/v1/new_invoice_hive?hive_accname='+config.hivePaymentAddress+'&amount=1&currency=HBD&usd_hbd=false&app_name='+appname+'&expiry=300&message='+memo+'&qr_code=png'
 }
-function getPixelSteps(job){
+function getPixelSteps(job){ // raw (width * height) * (steps * number). Does not account for postprocessing
   var p = parseInt(job.width)*parseInt(job.height)
   var s = parseInt(job.steps)*parseInt(job.number)
   var ps= p*s
@@ -647,6 +747,8 @@ function rechargePrompt(userid,channel){
 function checkNewPayments(){
   var bitmask = ['4',null] // transfers only
   log('Checking recent payments for '.grey+config.hivePaymentAddress.grey)
+  // TODO there has to be a more efficient method, revisit below
+  // TODO add support for recurring transfers / subscriptions
   hive.api.getAccountHistory(config.hivePaymentAddress, -1, 1000, ...bitmask, function(err, result) {
     if(err){console.error(err)}
     if(Array.isArray(result)) {
@@ -675,28 +777,21 @@ function checkNewPayments(){
     } else {console.error('error fetching account history (results not array)')}
   })
 }
-function sendWebhook(job){
+function sendWebhook(job){ // TODO eris has its own internal webhook method, investigate and maybe replace this
   let embeds = [ { color: getRandomColorDec(), footer: { text: job.prompt }, image: { url: job.webhook.imgurl } } ]
   axios({method: "POST",url: job.webhook.url,headers: { "Content-Type": "application/json" },data: JSON.stringify({embeds})})
     .then((response) => {log("Webhook delivered successfully")})
     .catch((error) => {console.error(error)})
 }
 
-socket.on("connect", (socket) => {
-    log('connected to socket')
-    //log(socket)
-})
-
+//socket.on("connect", (socket) => {log(socket)})
 socket.on("generationResult", (data) => {generationResult(data)})
 socket.on("postprocessingResult", (data) => {postprocessingResult(data)})
 socket.on("initialImageUploaded", (data) => {initialImageUploaded(data)})
 socket.on("progressUpdate", (data) => {if(data.isProcessing===false){rendering=false}else{rendering=true}})
-socket.on('error', (error) => {
-    log('socket error')
-    log(error)
-})
+socket.on('error', (error) => {log('Api socket error'.bgRed);log(error)})
 
-function postprocessingResult(data){
+function postprocessingResult(data){ // TODO unfinished, untested
   log(data)
   var url=data.url
   url=config.basePath+data.url.split('/')[data.url.split('/').length-1]
@@ -707,6 +802,7 @@ function postprocessingResult(data){
 
 function generationResult(data){
   var url=data.url
+  log(data.metadata.image)
   url=config.basePath+data.url.split('/')[data.url.split('/').length-1]
   var job = queue[queue.findIndex(j=>j.status==='rendering')]
   if (job){
@@ -716,7 +812,7 @@ function generationResult(data){
   }else{rendering=false}
   if (job.results.length>=job.number){
     job.status='done'
-    rendering=false
+    rendering=false // is this needed anymore now we have socket updates?
     processQueue()
   }
 }
@@ -743,34 +839,35 @@ function runPostProcessing(result, options){
 //{"type":"esrgan","upscale":[4,0.75]}
 
 async function emitRenderApi(job){
-  log('enter emitRenderApi')
-  //["uploadInitialImage",{"_placeholder":true,"num":0},"unknown.png"]
-  // followed by datastream, then we receive the below
-  // ["initialImageUploaded",{"url":"outputs/init-images/unknown.af8590bcdfcf4d39b4d26b29e24ce724.png"}]
+  //log('emitRenderApi receiving job')
+  //log(job)
   var prompt = job.prompt
   var postObject = {
       "prompt": prompt,
       "iterations": job.number,
       "steps": job.steps,
       "cfg_scale": job.scale,
-      "threshold": job.threshold, // todo init values to get started, still needs controls
-      "perlin": job.perlin, // todo ^^
+      "threshold": job.threshold,
+      "perlin": job.perlin,
       "sampler_name": job.sampler,
       "width": job.width,
       "height": job.height,
       "seed": job.seed,
-      "seamless": job.seamless,
       "progress_images": false,
       "variation_amount": job.variation_amount,
       "with_variations": job.with_variations,
       "strength": job.strength,
       "fit": true
   }
+  if(job.seamless&&job.seamless===true){postObject.seamless=true}
+  if(job.hires_fix&&job.hires_fix===true){postObject.hires_fix=true}
   var upscale = false
   var facefix = false
   if(job.gfpgan_strength!==0){facefix={strength:job.gfpgan_strength}}
   if(job.upscale_level!==''){upscale={level:job.upscale_level,strength:job.upscale_strength}}
   if(job.init_img){postObject.init_img=job.init_img}
+  //log('emitRenderApi sending')
+  //log(postObject)
   socket.emit('generateImage',postObject,upscale,facefix)
 }
 
@@ -800,8 +897,6 @@ async function addRenderApi (id) {
 }
 
 async function postRender (render) {
-  log('postRender incoming')
-  log(render)
   try { fs.readFile(render.filename, null, function(err, data) {
     if (err) { console.error(err) } else {
       filename = render.filename.split('\\')[render.filename.split('\\').length-1].replace(".png","")
@@ -811,6 +906,7 @@ async function postRender (render) {
       if (job.upscale_level!=='') { msg+= ':mag:**`Upscaledx' + job.upscale_level + ' to '+(parseFloat(job.width)*parseFloat(job.upscale_level))+'x'+(parseFloat(job.height)*parseFloat(job.upscale_level))+' (' + job.upscale_strength + ')`**'}
       if (job.gfpgan_strength!==0) { msg+= ':magic_wand:`gfpgan face fix(' + job.gfpgan_strength + ')`'}
       if (job.seamless===true) { msg+= ':knot:**`Seamless Tiling`**'}
+      if (job.hires_fix===true) { msg+= ':telescope:**`High Resolution Fix`**'}
       if (job.template) { msg+= ':frame_photo:`' + job.template + '`:muscle:`' + job.strength + '`'}
       if (job.attachments.length>0) { msg+= ':paperclip:` attached template`:muscle:`' + job.strength + '`'}
       if (job.variation_amount!==0) { msg+= ':microbe:**`Variation ' + job.variation_amount + '`**'}
@@ -832,10 +928,10 @@ async function postRender (render) {
           }
         }
         // newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Template", custom_id: "template-" + job.id + '-' + filename, emoji: { name: '📷', id: null}, disabled: false })
-        //newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Upscale", custom_id: "refreshUpscale-" + job.id + '-' + render.seed, emoji: { name: '🔍', id: null}, disabled: false })
         if (job.template){ newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Remove template", custom_id: "refreshNoTemplate-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })}
       }
-      newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Edit", custom_id: "edit-"+job.id, emoji: { name: '✏️', id: null}, disabled: false })
+      newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Edit Prompt", custom_id: "edit-"+job.id, emoji: { name: '✏️', id: null}, disabled: false })
+      newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Tweak", custom_id: "tweak-"+job.id+'-'+render.resultNumber, emoji: { name: '🧪', id: null}, disabled: false })
       if (newMessage.components[0].components.length<5){
         newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Random", custom_id: "random", emoji: { name: '🔀', id: null}, disabled: false })
       }
@@ -874,7 +970,6 @@ async function postRender (render) {
   catch(err) {console.error(err)}
 }
 function processQueue () {
-  log('processQueue')
   // WIP attempt to make a harder to dominate queue
   // TODO make a queueing system that prioritizes the users that have recharged the most
   var queueNew = queue.filter((q)=>q.status==='new') // first alias to simplify
@@ -886,7 +981,7 @@ function processQueue () {
     var nextJob = queue[queue.findIndex(x => x.status === 'new')]
   }
   if (nextJob&&!rendering) {
-    log('nextJob&&!rendering')
+    //log('nextJob&&!rendering')
     if (userCreditCheck(nextJob.userid,costCalculator(nextJob))) {
       bot.editStatus('online')
       rendering=true
@@ -906,10 +1001,10 @@ function processQueue () {
       processQueue()
     }
   } else if (nextJob&&rendering){
-    log('nextJob&&rendering')
+    //log('nextJob&&rendering')
     //log('Waiting for '+queue.filter((q)=>{['new','rendering'].includes(q.status)}).length)+' jobs'
   } else if(!nextJob&&!rendering) { // no jobs, not rendering
-    log('!nextJob&&!rendering')
+    //log('!nextJob&&!rendering')
     renderJobErrors=queue.filter((q)=>q.status==='rendering')
     if(renderJobErrors.length>0){
       log('These job statuses are set to rendering, but rendering=false - this shouldnt happen'.bgRed)
