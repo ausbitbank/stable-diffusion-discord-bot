@@ -249,20 +249,22 @@ bot.on("interactionCreate", async (interaction) => {
             flags:64,
             components:[
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Portrait aspect ratio", custom_id: "twkaspectPortrait-"+id+'-'+rn, emoji: { name: '↕️', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Square aspect ratio", custom_id: "twkaspectSquare-"+id+'-'+rn, emoji: { name: '🔳', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Landscape aspect ratio", custom_id: "twkaspectLandscape-"+id+'-'+rn, emoji: { name: '↔️', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Portrait aspect ratio", custom_id: "twkaspectPortrait-"+id+'-'+rn, emoji: { name: '↕️', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Square aspect ratio", custom_id: "twkaspectSquare-"+id+'-'+rn, emoji: { name: '🔳', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Landscape aspect ratio", custom_id: "twkaspectLandscape-"+id+'-'+rn, emoji: { name: '↔️', id: null}, disabled: false },
                 //{type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "4k wallpaper", custom_id: "twkaspect4k-"+id+'-'+rn, emoji: { name: '↔️', id: null}, disabled: false }
               ]},
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Scale - 1", custom_id: "twkscaleMinus-"+id+'-'+rn, emoji: { name: '⚖️', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Scale + 1", custom_id: "twkscalePlus-"+id+'-'+rn, emoji: { name: '⚖️', id: null}, disabled: false }
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Scale + 1", custom_id: "twkscalePlus-"+id+'-'+rn, emoji: { name: '⚖️', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Steps - 5", custom_id: "twkstepsMinus-"+id+'-'+rn, emoji: { name: '♻️', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Steps + 5", custom_id: "twkstepsPlus-"+id+'-'+rn, emoji: { name: '♻️', id: null}, disabled: false }
               ]},
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Upscale 2x", custom_id: "twkupscale2-"+id+'-'+rn, emoji: { name: '🔍', id: null}, disabled: true },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Upscale 4x", custom_id: "twkupscale4-"+id+'-'+rn, emoji: { name: '🔎', id: null}, disabled: true },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Face Fix GfpGAN", custom_id: "twkgfpgan-"+id+'-'+rn, emoji: { name: '💄', id: null}, disabled: true },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "High Resolution Fix", custom_id: "twkhiresfix-"+id+'-'+rn, emoji: { name: '🔭', id: null}, disabled: false }
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Upscale 2x", custom_id: "twkupscale2-"+id+'-'+rn, emoji: { name: '🔍', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Upscale 4x", custom_id: "twkupscale4-"+id+'-'+rn, emoji: { name: '🔎', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Face Fix GfpGAN", custom_id: "twkgfpgan-"+id+'-'+rn, emoji: { name: '💄', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "High Resolution Fix", custom_id: "twkhiresfix-"+id+'-'+rn, emoji: { name: '🔭', id: null}, disabled: false }
               ]},
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "1% variant", custom_id: "twkvariant1-"+id+'-'+rn, emoji: { name: '🧬', id: null}, disabled: false },
@@ -273,21 +275,23 @@ bot.on("interactionCreate", async (interaction) => {
               ]}
             ]
           }
-          // need to disable buttons depending on the current parameters
-          if (newJob.width===512&&newJob.height===640){tweakResponse.components[0].components[0].disabled=true}
+          // Disable buttons depending on the current parameters
+          if (newJob.width===512&&newJob.height===704){tweakResponse.components[0].components[0].disabled=true}
           if (newJob.width===newJob.height){tweakResponse.components[0].components[1].disabled=true}
-          if (newJob.width===640&&newJob.height===512){tweakResponse.components[0].components[2].disabled=true}
-          if (newJob.width===960&&newJob.height===512){tweakResponse.components[0].components[3].disabled=true}
+          if (newJob.width===704&&newJob.height===512){tweakResponse.components[0].components[2].disabled=true}
+          //if (newJob.width===960&&newJob.height===512){tweakResponse.components[0].components[3].disabled=true}
           if (newJob.scale<=1){tweakResponse.components[1].components[0].disabled=true}
           if (newJob.scale>=30){tweakResponse.components[1].components[1].disabled=true}
+          if (newJob.steps<=5){tweakResponse.components[1].components[2].disabled=true}
+          if (newJob.steps>=145){tweakResponse.components[1].components[3].disabled=true}
           if (newJob.gfpgan_strength!==0){tweakResponse.components[2].components[2].disabled=true}
-          if (newJob.hires_fix===true){tweakResponse.components[2].components[3].disabled=true}
-          if (newJob.variation_amount===0.01){tweakResponse.components[3].components[0].disabled=true}
-          if (newJob.variation_amount===0.05){tweakResponse.components[3].components[1].disabled=true}
-          if (newJob.variation_amount===0.1){tweakResponse.components[3].components[2].disabled=true}
-          if (newJob.variation_amount===0.25){tweakResponse.components[3].components[3].disabled=true}
-          if (newJob.variation_amount===0.5){tweakResponse.components[3].components[4].disabled=true}
-          
+          if (newJob.hires_fix===true||(newJob.width*newJob.height)<300000){tweakResponse.components[2].components[3].disabled=true}
+          if (newJob.variation_amount===0.01||newJob.sampler==='k_euler_a'){tweakResponse.components[3].components[0].disabled=true}
+          if (newJob.variation_amount===0.05||newJob.sampler==='k_euler_a'){tweakResponse.components[3].components[1].disabled=true}
+          if (newJob.variation_amount===0.1||newJob.sampler==='k_euler_a'){tweakResponse.components[3].components[2].disabled=true}
+          if (newJob.variation_amount===0.25||newJob.sampler==='k_euler_a'){tweakResponse.components[3].components[3].disabled=true}
+          if (newJob.variation_amount===0.5||newJob.sampler==='k_euler_a'){tweakResponse.components[3].components[4].disabled=true}
+          //interaction.editParent({components:[]}).catch((e) => {console.error(e)})
         return interaction.createMessage(tweakResponse).then((r)=>{}).catch((e)=>{console.error(e)})
       } else {
         console.error('Edit request failed')
@@ -305,8 +309,10 @@ bot.on("interactionCreate", async (interaction) => {
       switch(interaction.data.custom_id.split('-')[0].replace('twk','')){
         case 'scalePlus': newJob.scale=newJob.scale+1;break
         case 'scaleMinus': newJob.scale=newJob.scale-1;break
-        case 'aspectPortrait': newJob.height=640;newJob.width=512;break
-        case 'aspectLandscape': newJob.width=640;newJob.height=512;break
+        case 'stepsPlus': newJob.scale=newJob.steps+5;break
+        case 'stepsMinus': newJob.scale=newJob.steps-5;break
+        case 'aspectPortrait': newJob.height=704;newJob.width=512;break
+        case 'aspectLandscape': newJob.width=704;newJob.height=512;break
         case 'aspectSquare': newJob.width=defaultSize;newJob.height=defaultSize;break
         case 'aspect4k': newJob.width=960;newJob.height=512;newJob.upscale_level=4;newJob.hires_fix=true;break
         case 'upscale2': newJob.upscale_level=2;break // currently resubmitting jobs, update to use postprocess once working
@@ -317,6 +323,9 @@ bot.on("interactionCreate", async (interaction) => {
         case 'variant25': newJob.variation_amount=0.25;break
         case 'variant50': newJob.variation_amount=0.50;break
         case 'hiresfix': newJob.hires_fix=true;break
+        case 'upscale2': newJob.upscale_level=2;break // All of these should be migrated to the postProcess function once working, faster/cheaper
+        case 'upscale4': newJob.upscale_level=4;break //
+        case 'gfpgan': newJob.gfpgan_strength=0.5;break //
       }
       if (postProcess){ // submit as postProcess request
         //todo
@@ -327,7 +336,7 @@ bot.on("interactionCreate", async (interaction) => {
         request({cmd: getCmd(newJob), userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, attachments: []})
       }
       }
-      return interaction.editParent({}).catch((e)=>{log(e)})
+      return interaction.editParent({content:':hourglass:'+interaction.data.custom_id.split('-')[0].replace('twk','')+' selected',components:[]}).catch((e) => {console.error(e)})
     }
   }
   if (!authorised(interaction,interaction.channel.id,interaction.guildID)) {
@@ -802,7 +811,7 @@ function postprocessingResult(data){ // TODO unfinished, untested
 
 function generationResult(data){
   var url=data.url
-  log(data.metadata.image)
+  //log(data.metadata.image)
   url=config.basePath+data.url.split('/')[data.url.split('/').length-1]
   var job = queue[queue.findIndex(j=>j.status==='rendering')]
   if (job){
