@@ -347,7 +347,7 @@ bot.on("interactionCreate", async (interaction) => {
         case 'upscale4': newJob.upscale_level=4;break //
         case 'gfpgan': newJob.gfpgan_strength=0.8;break //
         case 'default': newCmd=newJob.prompt;break
-        case 'fast': newJob.sampler='k_euler_a';newJob.steps=20;break
+        case 'fast': newJob.sampler='k_euler_a';newJob.steps=25;break
         case 'slow': newJob.sampler='k_euler_a';newJob.steps=100;break
         case 'batch5': newJob.seed=getRandomSeed();newJob.number=5;break
       }
@@ -455,7 +455,19 @@ bot.on("messageCreate", (msg) => {
       case '!richlist':{getRichList();break}
       case '!checkpayments':{checkNewPayments();break}
       case '!restart':{log('Admin restarted bot'.bgRed.white);exit(0)}
-      case '!credit':{if (msg.mentions.length>0){var creditsToAdd=msg.content.split(' ')[1];if (Number.isInteger(creditsToAdd)){msg.mentions.forEach((m)=>{creditRecharge(creditsToAdd,'manual',m)})};bot.createMessage(msg.channel.id,(msg.mentions.length)+' users received a manual `'+creditsToAdd+'` :coin: topup')};break
+      case '!credit':{
+        if (msg.mentions.length>0){
+          var creditsToAdd=parseFloat(msg.content.split(' ')[1])
+          if (Number.isInteger(creditsToAdd)){
+            msg.mentions.forEach((m)=>{
+              creditRecharge(creditsToAdd,'manual',m.id)
+            })
+            bot.createMessage(msg.channel.id,(msg.mentions.length)+' users received a manual `'+creditsToAdd+'` :coin: topup')
+          } else {
+            log('creditsToAdd failed int test');log(creditsToAdd)
+          }
+        }
+        break
       }
       case '!guilds':{bot.guilds.forEach((g)=>{log({id: g.id, name: g.name, ownerID: g.ownerID, description: g.description, memberCount: g.memberCount})});break}
       case '!updateslashcommands':{bot.getCommands().then(cmds=>{bot.commands = new Collection();for (const c of slashCommands) {bot.commands.set(c.name, c);bot.createCommand({name: c.name,description: c.description,options: c.options ?? [],type: Constants.ApplicationCommandTypes.CHAT_INPUT})}});break}
@@ -599,7 +611,7 @@ function getRandomSeed() {return Math.floor(Math.random() * 4294967295)}
 function chat(msg) {if (msg !== null && msg !== ''){bot.createMessage(config.channelID, msg)}}
 function sanitize (prompt) {
   if (config.bannedWords.length>0) { config.bannedWords.split(',').forEach((bannedWord, index) => { prompt = prompt.replace(bannedWord,'') }) }
-  return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\&\*\[\] ,.\:]/g, '').replace('`','') // (/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '')
+  return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()!\&\*\[\] ,.\:]/g, '').replace('`','') // (/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '')
 }
 function base64Encode(file) { var body = fs.readFileSync(file); return body.toString('base64') }
 function authorised(who,channel,guild) {
@@ -621,13 +633,15 @@ function authorised(who,channel,guild) {
   } else { return true }
 }
 function createNewUser(id){
+  log('createnewuser called with id',id)
+  if (id.id){id=id.id}
   users.push({id:id, credits:100}) // 100 creds for new users
   dbWrite() // Sync after new user
   log('created new user with id '.bgBlue.black.bold + id)
 }
 function userCreditCheck(userID,amount) { // Check if a user can afford a specific amount of credits, create if not existing yet
-  var user = users.find(x=>x.id===userID)
-  if (!user){createNewUser(userID);user=users.find(x=>x.id===userID)}
+  var user = users.find(x=>x.id===String(userID))
+  if (!user){createNewUser(userID);user=users.find(x=>x.id===String(userID))}
   if (parseFloat(user.credits)>=parseFloat(amount)){return true}else{return false}
 }
 function costCalculator(job) {                 // Pass in a render, get a cost in credits
@@ -655,8 +669,6 @@ function chargeCredits(userID,amount){
 }
 function creditRecharge(credits,txid,userid,amount,from){
   var user=users.find(x=>x.id===userid)
-  log('user is')
-  log(user)
   if(!user){createNewUser(userid)}
   if (user && user.credits){
     user.credits=(parseFloat(user.credits)+parseFloat(credits)).toFixed(2)
@@ -1046,13 +1058,7 @@ function processQueue () {
     if(renderJobErrors.length>0){
       log('These job statuses are set to rendering, but rendering=false - this shouldnt happen'.bgRed)
       log(renderJobErrors)
-      renderJobErrors.forEach((j)=>{
-        if(j.status==='rendering'){
-          log('setting status to failed for id '+j.id)
-          j.status='failed'
-        }
-      })
-      // should we re-enable and reprocess? or set to failed
+      renderJobErrors.forEach((j)=>{if(j.status==='rendering'){log('setting status to failed for id '+j.id);j.status='failed'}})
     }
     log('Finished queue, setting idle status'.dim)
     bot.editStatus('idle')
