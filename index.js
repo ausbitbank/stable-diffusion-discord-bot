@@ -57,23 +57,23 @@ var slashCommands = [
     description: 'Create a new image from your prompt',
     options: [
       {type: '3', name: 'prompt', description: 'what would you like to see ?', required: true, min_length: 1, max_length:75 },
-      {type: '4', name: 'width', description: 'width of the image in pixels', required: false, min_value: 256, max_value: 1024 },
-      {type: '4', name: 'height', description: 'height of the image in pixels', required: false, min_value: 256, max_value: 1024 },
-      {type: '4', name: 'steps', description: 'how many steps to render for', required: false, min_value: 5, max_value: 250 },
+      {type: '4', name: 'width', description: 'width of the image in pixels (250-~1024)', required: false, min_value: 256, max_value: 1024 },
+      {type: '4', name: 'height', description: 'height of the image in pixels (250-~1024)', required: false, min_value: 256, max_value: 1024 },
+      {type: '4', name: 'steps', description: 'how many steps to render for (10-250)', required: false, min_value: 5, max_value: 250 },
       {type: '4', name: 'seed', description: 'seed (initial noise pattern)', required: false},
       {type: '10', name: 'strength', description: 'how much noise to add to your template image (0.1-0.9)', required: false, min_value:0.1, max_value:0.99},
-      {type: '10', name: 'scale', description: 'how important is the prompt', required: false, min_value:1, max_value:30},
-      {type: '4', name: 'number', description: 'how many would you like', required: false, min_value: 1, max_value: 10},
+      {type: '10', name: 'scale', description: 'how important is the prompt (1-30)', required: false, min_value:1, max_value:30},
+      {type: '4', name: 'number', description: 'how many would you like (1-10)', required: false, min_value: 1, max_value: 10},
       {type: '5', name: 'seamless', description: 'Seamlessly tiling textures', required: false},
       {type: '3', name: 'sampler', description: 'which sampler to use (default is k_lms)', required: false, choices: [{name: 'ddim', value: 'ddim'},{name: 'plms', value: 'plms'},{name: 'k_lms', value: 'k_lms'},{name: 'k_dpm_2', value: 'k_dpm_2'},{name: 'k_dpm_2_a', value: 'k_dpm_2_a'},{name: 'k_euler', value: 'k_euler'},{name: 'k_euler_a', value: 'k_euler_a'},{name: 'k_heun', value: 'k_heun'}]},
       {type: '11', name: 'attachment', description: 'use template image', required: false},
-      {type: '10', name: 'gfpgan_strength', description: 'GFPGan strength (low= more face correction, high= more accuracy)', required: false, min_value: 0, max_value: 1},
+      {type: '10', name: 'gfpgan_strength', description: 'GFPGan strength (0-1)(low= more face correction, high= more accuracy)', required: false, min_value: 0, max_value: 1},
       {type: '3', name: 'upscale_level', description: 'upscale amount', required: false, choices: [{name: 'none', value: '0'},{name: '2x', value: '2'},{name: '4x', value: '4'}]},
-      {type: '10', name: 'upscale_strength', description: 'upscale strength (smoothing/detail loss)', required: false, min_value: 0, max_value: 1},
-      {type: '10', name: 'variation_amount', description: 'how much variation from the original image (need seed+not k_euler_a sampler)', required: false, min_value:0.01, max_value:1},
+      {type: '10', name: 'upscale_strength', description: 'upscale strength (0-1)(smoothing/detail loss)', required: false, min_value: 0, max_value: 1},
+      {type: '10', name: 'variation_amount', description: 'how much variation from the original image (0-1)(need seed+not k_euler_a sampler)', required: false, min_value:0.01, max_value:1},
       {type: '3', name: 'with_variations', description: 'Advanced variant control, provide seed(s)+weight eg "seed:weight,seed:weight"', required: false, min_length:4,max_length:100},
-      {type: '10', name: 'threshold', description: 'Advanced threshold control', required: false, min_value:0, max_value:40},
-      {type: '10', name: 'perlin', description: 'Add perlin noise to your image', required: false, min_value:0, max_value:1},
+      {type: '10', name: 'threshold', description: 'Advanced threshold control (0-10)', required: false, min_value:0, max_value:40},
+      {type: '10', name: 'perlin', description: 'Add perlin noise to your image (0-1)', required: false, min_value:0, max_value:1},
       {type: '5', name: 'hires_fix', description: 'High resolution fix (re-renders twice using template)', required: false},
     ],
     cooldown: 500,
@@ -226,6 +226,17 @@ bot.on("interactionCreate", async (interaction) => {
         console.error('template request failed')
         return interaction.editParent({components:[]}).catch((e) => {console.error(e)})
       }
+    } else if (interaction.data.custom_id.startsWith('editRandom-')) {
+      id=interaction.data.custom_id.split('-')[1]
+      var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
+      if (newJob) {
+        newJob.number = 1
+        if (newJob.webhook){delete newJob.webhook}
+        return interaction.createModal({custom_id:'refreshEdit-'+newJob.id,title:'Edit the random prompt?',components:[{type:1,components:[{type:4,custom_id:'prompt',label:'Prompt',style:2,value:getRandom('prompt'),required:true}]}]}).then((r)=>{}).catch((e)=>{console.error(e)})
+      } else {
+        console.error('edit request failed')
+        return interaction.editParent({components:[]}).catch((e) => {console.error(e)})
+      }
     } else if (interaction.data.custom_id.startsWith('edit-')) {
       id=interaction.data.custom_id.split('-')[1]
       var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
@@ -245,7 +256,7 @@ bot.on("interactionCreate", async (interaction) => {
         newJob.number = 1
         if (newJob.webhook){delete newJob.webhook}
         var tweakResponse=          {
-            content:'',
+            content:':test_tube: **Tweak Menu**',
             flags:64,
             components:[
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
@@ -271,9 +282,15 @@ bot.on("interactionCreate", async (interaction) => {
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "5% variant", custom_id: "twkvariant5-"+id+'-'+rn, emoji: { name: '🧬', id: null}, disabled: false },
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "10% variant", custom_id: "twkvariant10-"+id+'-'+rn, emoji: { name: '🧬', id: null}, disabled: false },
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "25% variant", custom_id: "twkvariant25-"+id+'-'+rn, emoji: { name: '🧬', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "50% variant", custom_id: "twkvariant50-"+id+'-'+rn, emoji: { name: '🧬', id: null}, disabled: false },
-              ]}
-            ]
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "50% variant", custom_id: "twkvariant50-"+id+'-'+rn, emoji: { name: '🧬', id: null}, disabled: false }
+              ]},
+              {type:Constants.ComponentTypes.ACTION_ROW,components:[
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Default settings", custom_id: "twkdefault-"+id+'-'+rn, emoji: { name: '☢️', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Fast settings", custom_id: "twkfast-"+id+'-'+rn, emoji: { name: '⏩', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Slow settings", custom_id: "twkslow-"+id+'-'+rn, emoji: { name: '⏳', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Batch of 5", custom_id: "twkbatch5-"+id+'-'+rn, emoji: { name: '🖐️', id: null}, disabled: false }
+              ]},
+            ]// TODO add select/dropdown menu for samplers, remove currently chosen sampler from menu
           }
           // Disable buttons depending on the current parameters
           if (newJob.width===512&&newJob.height===704){tweakResponse.components[0].components[0].disabled=true}
@@ -284,6 +301,7 @@ bot.on("interactionCreate", async (interaction) => {
           if (newJob.scale>=30){tweakResponse.components[1].components[1].disabled=true}
           if (newJob.steps<=5){tweakResponse.components[1].components[2].disabled=true}
           if (newJob.steps>=145){tweakResponse.components[1].components[3].disabled=true}
+          if (newJob.upscale_level!==0){tweakResponse.components[2].components[0].disabled=true;tweakResponse.components[2].components[1].disabled=true}
           if (newJob.gfpgan_strength!==0){tweakResponse.components[2].components[2].disabled=true}
           if (newJob.hires_fix===true||(newJob.width*newJob.height)<300000){tweakResponse.components[2].components[3].disabled=true}
           if (newJob.variation_amount===0.01||newJob.sampler==='k_euler_a'){tweakResponse.components[3].components[0].disabled=true}
@@ -306,11 +324,13 @@ bot.on("interactionCreate", async (interaction) => {
       var result=newJob.results[resultNumber-1] // The full settings output from api for previous result, ready for postprocessing
       var postProcess=false
       newJob.results=[] // wipe results from old job
+      newJob.number=1 // Reset to single images
+      var newCmd=''
       switch(interaction.data.custom_id.split('-')[0].replace('twk','')){
         case 'scalePlus': newJob.scale=newJob.scale+1;break
         case 'scaleMinus': newJob.scale=newJob.scale-1;break
-        case 'stepsPlus': newJob.scale=newJob.steps+5;break
-        case 'stepsMinus': newJob.scale=newJob.steps-5;break
+        case 'stepsPlus': newJob.steps=newJob.steps+5;break
+        case 'stepsMinus': newJob.steps=newJob.steps-5;break
         case 'aspectPortrait': newJob.height=704;newJob.width=512;break
         case 'aspectLandscape': newJob.width=704;newJob.height=512;break
         case 'aspectSquare': newJob.width=defaultSize;newJob.height=defaultSize;break
@@ -325,18 +345,23 @@ bot.on("interactionCreate", async (interaction) => {
         case 'hiresfix': newJob.hires_fix=true;break
         case 'upscale2': newJob.upscale_level=2;break // All of these should be migrated to the postProcess function once working, faster/cheaper
         case 'upscale4': newJob.upscale_level=4;break //
-        case 'gfpgan': newJob.gfpgan_strength=0.5;break //
+        case 'gfpgan': newJob.gfpgan_strength=0.8;break //
+        case 'default': newCmd=newJob.prompt;break
+        case 'fast': newJob.sampler='k_euler_a';newJob.steps=20;break
+        case 'slow': newJob.sampler='k_euler_a';newJob.steps=100;break
+        case 'batch5': newJob.seed=getRandomSeed();newJob.number=5;break
       }
       if (postProcess){ // submit as postProcess request
         //todo
       } else { // submit as new job with changes
+      if(newCmd===''){newCmd=getCmd(newJob)}
       if (interaction.member) {
-        request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
+        request({cmd: newCmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
       } else if (interaction.user){
-        request({cmd: getCmd(newJob), userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, attachments: []})
+        request({cmd: newCmd, userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, attachments: []})
       }
       }
-      return interaction.editParent({content:':hourglass:'+interaction.data.custom_id.split('-')[0].replace('twk','')+' selected',components:[]}).catch((e) => {console.error(e)})
+      return interaction.editParent({content:':test_tube: **'+interaction.data.custom_id.split('-')[0].replace('twk','')+'** selected',components:[]}).catch((e) => {console.error(e)})
     }
   }
   if (!authorised(interaction,interaction.channel.id,interaction.guildID)) {
@@ -377,7 +402,7 @@ bot.on("messageReactionAdd", (msg,emoji,reactor) => {
 })
 
 //bot.on("messageReactionRemoved", (msg,emoji,userid) => {log('message reaction removed');log(msg,emoji,userid)})
-bot.on("warn", (msg,id) => {if (msg!=='Error: Unknown guild text channel type: 15'){log('warn'.bgRed);log(msg,id)}})
+//bot.on("warn", (msg,id) => {if (msg!=={Error: 'Unknown guild text channel type: 15'}){log('warn'.bgRed);log(msg,id)}})
 //bot.on("debug", (msg,id) => {log(msg,id)})
 bot.on("disconnect", () => {log('disconnected'.bgRed)})
 bot.on("error", (err,id) => {log('error'.bgRed); log(err,id)})
@@ -430,7 +455,8 @@ bot.on("messageCreate", (msg) => {
       case '!richlist':{getRichList();break}
       case '!checkpayments':{checkNewPayments();break}
       case '!restart':{log('Admin restarted bot'.bgRed.white);exit(0)}
-      case '!credit':{creditRecharge(msg.content.split(' ')[1], 'manual', msg.content.split(' ')[2]);break} // creditRecharge(credits,txid,userid,amount,from)
+      case '!credit':{if (msg.mentions.length>0){var creditsToAdd=msg.content.split(' ')[1];if (Number.isInteger(creditsToAdd)){msg.mentions.forEach((m)=>{creditRecharge(creditsToAdd,'manual',m)})};bot.createMessage(msg.channel.id,(msg.mentions.length)+' users received a manual `'+creditsToAdd+'` :coin: topup')};break
+      }
       case '!guilds':{bot.guilds.forEach((g)=>{log({id: g.id, name: g.name, ownerID: g.ownerID, description: g.description, memberCount: g.memberCount})});break}
       case '!updateslashcommands':{bot.getCommands().then(cmds=>{bot.commands = new Collection();for (const c of slashCommands) {bot.commands.set(c.name, c);bot.createCommand({name: c.name,description: c.description,options: c.options ?? [],type: Constants.ApplicationCommandTypes.CHAT_INPUT})}});break}
     }
@@ -786,6 +812,7 @@ function checkNewPayments(){
     } else {console.error('error fetching account history (results not array)')}
   })
 }
+checkNewPayments=debounce(checkNewPayments,30000,true) // at least 30 seconds between checks
 function sendWebhook(job){ // TODO eris has its own internal webhook method, investigate and maybe replace this
   let embeds = [ { color: getRandomColorDec(), footer: { text: job.prompt }, image: { url: job.webhook.imgurl } } ]
   axios({method: "POST",url: job.webhook.url,headers: { "Content-Type": "application/json" },data: JSON.stringify({embeds})})
@@ -942,7 +969,8 @@ async function postRender (render) {
       newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Edit Prompt", custom_id: "edit-"+job.id, emoji: { name: '✏️', id: null}, disabled: false })
       newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Tweak", custom_id: "tweak-"+job.id+'-'+render.resultNumber, emoji: { name: '🧪', id: null}, disabled: false })
       if (newMessage.components[0].components.length<5){
-        newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Random", custom_id: "random", emoji: { name: '🔀', id: null}, disabled: false })
+        //newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Random", custom_id: "random", emoji: { name: '🔀', id: null}, disabled: false })
+        newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Random", custom_id: "editRandom-"+job.id, emoji: { name: '🔀', id: null}, disabled: false })
       }
       if (newMessage.components[0].components.length===0){delete newMessage.components} // If no components are used there will be a discord api error so remove it
       var filesize = fs.statSync(render.filename).size
@@ -1005,7 +1033,7 @@ function processQueue () {
       if(config.hivePaymentAddress.length>0){
         rechargePrompt(nextJob.userid,nextJob.channel)
       } else {
-        chat('An admin can manually top up your credit with\n`!credit '+ nextJob.userid +' 1`')
+        chat('An admin can manually top up your credit with\n`!credit 1 <@'+ nextJob.userid +'>')
       }
       processQueue()
     }
@@ -1059,7 +1087,7 @@ function lexicaSearch(query,channel){
     .catch((error) => console.error(error))
 }
 lexicaSearch=debounce(lexicaSearch,1000,true)
-function shuffle(array) {for (let i = array.length - 1; i > 0; i--) {let j = Math.floor(Math.random() * (i + 1));[array[i], array[j]] = [array[j], array[i]]}} // fisher-yates shuffle
+
 async function meme(prompt,urls,userid,channel){
   params = prompt.split(' ')
   cmd = prompt.split(' ')[0]
@@ -1112,9 +1140,11 @@ async function meme(prompt,urls,userid,channel){
   }
 }
 meme=debounce(meme,1000,true)
+function shuffle(array) {for (let i = array.length - 1; i > 0; i--) {let j = Math.floor(Math.random() * (i + 1));[array[i], array[j]] = [array[j], array[i]]}} // fisher-yates shuffle
 const unique = (value, index, self) => { return self.indexOf(value) === index }
 function getRandomColorDec(){return Math.floor(Math.random()*16777215)}
 function timeDiff (date1,date2) { return date2.diff(date1, 'seconds') }
+
 var randoms = ['prompt','artist','city','genre','medium','emoji','subject','madeof','style','animal','bodypart','gerund','verb','adverb','adjective','star','fruit','country','gender']
 function getRandom(what) { if (randoms.includes(what)) { try { var lines = fs.readFileSync('txt\\' + what + '.txt', 'utf-8').split(/r?\n/); return lines[Math.floor(Math.random()*lines.length)] } catch (err) { console.error(err)} } else { return what } }
 function replaceRandoms (input) {
