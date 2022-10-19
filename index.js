@@ -152,7 +152,7 @@ bot.on("ready", async () => {
 })
 
 bot.on("interactionCreate", async (interaction) => {
-  log(interaction.data)
+  //log(interaction.data)
   if(interaction instanceof Eris.CommandInteraction && authorised(interaction,interaction.channel.id,interaction.guildID)) {//&& interaction.channel.id === config.channelID
     if (!bot.commands.has(interaction.data.name)) return interaction.createMessage({content:'Command does not exist', flags:64}).catch((e) => {log('command does not exist'.bgRed);log(e)})
     try {
@@ -481,7 +481,11 @@ function request(request){
   if (request.cmd.includes('{')) { request.cmd = replaceRandoms(request.cmd) } // swap randomizers
   var args = parseArgs(request.cmd.split(' '),{string: ['template','init_img','sampler'],boolean: ['seamless','hires_fix']}) // parse arguments //
   // messy code below contains defaults values, check numbers are actually numbers and within acceptable ranges etc
-  if (!args.width||!Number.isInteger(args.width)||args.width<256){args.width=defaultSize }
+  // let sanitize all the numbers first
+  for (n in [args.width,args.height,args.steps,args.seed,args.strength,args.scale,args.number,args.threshold,args.perlin]){
+    n=n.replace(/[^０-９\.]/g, '')
+  }
+  if (!args.width||!Number.isInteger(args.width)||args.width<256){args.width=defaultSize}
   if (!args.height||!Number.isInteger(args.height)||args.height<256){args.height=defaultSize}
   if ((args.width*args.height)>config.pixelLimit) { // too big, try to compromise, find aspect ratio and use max resolution of same ratio
     if (args.width===args.height){
@@ -581,7 +585,7 @@ function queueStatus() { // todo report status to the relevant channel where the
     if (next.steps>50){statusMsg+=':recycle:'}
     if (next.seamless===true){statusMsg+=':knot:'}
     if (next.hires_fix===true){statusMsg+=':telescope:'}
-    if (next.width!==next.height){statusMsg+=':straight_ruler:'}
+    if ((next.width!==next.height)||(next.width>defaultSize)){statusMsg+=':straight_ruler:'}
     statusMsg+=' :brain: **'+next.username+'**#'+next.discriminator+' :coin:`'+costCalculator(next)+'` :fire:`'+renderGps+'`'
   }
   if (next&&next.channel!=='webhook'){var chan=next.channel} else {var chan=config.channelID}
@@ -651,9 +655,9 @@ function costCalculator(job) {                 // Pass in a render, get a cost i
   cost=(pixels/pixelBase)*cost                 // premium or discount for resolution relative to default
   cost=(job.steps/50)*cost                     // premium or discount for step count relative to default
   if (job.gfpgan_strength!==0){cost=cost*1.05} // 5% charge for gfpgan face fixing (minor increased processing time)
-  if (job.upscale_level===2){cost=cost*2}      // 2x charge for upscale 2x (increased processing+storage+bandwidth)
-  if (job.upscale_level===4){cost=cost*4}      // 4x charge for upscale 4x 
-  if (job.hires_fix===true){cost=cost*2}       // 2x charge for hires_fix (renders at least twice, needs more experimentation)
+  if (job.upscale_level===2){cost=cost*1.5}    // 1.5x charge for upscale 2x (increased processing+storage+bandwidth)
+  if (job.upscale_level===4){cost=cost*2}      // 2x charge for upscale 4x 
+  if (job.hires_fix===true){cost=cost*1.5}     // 1.5x charge for hires_fix (renders once at half resolution, then again at full)
   if (job.channel!==config.channelID){cost=cost*1.1} // 10% charge for renders outside of home channel
   cost=cost*job.number                         // Multiply by image count
   return cost.toFixed(2)                       // Return cost to 2 decimal places
@@ -966,7 +970,7 @@ async function postRender (render) {
       chargeCredits(job.userid,(costCalculator(job))/job.number) // only charge successful renders
       if (job.cost){msg+=':coin:`'+(job.cost/job.number).toFixed(2).replace(/[.,]00$/, "")+'/'+ creditsRemaining(job.userid) +'`'}
       var newMessage = { content: msg, embeds: [{description: job.prompt, color: getRandomColorDec()}], components: [ { type: Constants.ComponentTypes.ACTION_ROW, components: [ ] } ] }
-      newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Refresh", custom_id: "refresh-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })
+      newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "ReDream", custom_id: "refresh-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })
       if (job.upscale_level==='') {
         if (!job.attachments.length>0&&job.sampler!=='k_euler_a'){
           if (job.variation_amount===0){ // not already a variant
@@ -998,18 +1002,30 @@ async function postRender (render) {
         catch (err) {console.error(err)}
       } else {
         if (imgurEnabled() && filesize < 10000000) {
-          bot.createMessage(job.channel,'<@' + job.userid + '> your file was too big for discord, uploading to imgur now..')
+          bot.createMessage(job.channel,'<@' + job.userid + '> your image was too big for discord, uploading to imgur now..')
           try { imgurupload(render.filename).then(upload => { bot.createMessage(job.channel,{ content: msg, embeds: [{image: {url: upload.link}, description:job.prompt}]}) }) }
           catch (err) { console.error(err); bot.createMessage(job.channel,'Sorry <@' + job.userid + '> imgur uploading failed, contact an admin for your image `' + filename + '.png`') }
-        } else if (imgbbEnabled() && filesize < 32000000) {
+        /*} else if (imgbbEnabled() && filesize < 32000000) {
           chat('<@' + job.userid + '> your file was too big for discord, uploading to imgbb now..')
           try { imgbbupload(render.filename).then(upload => { log(upload); bot.createMessage(job.channel,{ content: msg, embeds: [{image: {url: upload.url}, description:job.prompt}]}) }) }
-          catch (err) { console.error(err); bot.createMessage(job.channel,'Sorry <@' + job.userid + '> imgbb uploading failed, contact an admin for your image `' + filename + '.png`') }
+          catch (err) { console.error(err); bot.createMessage(job.channel,'Sorry <@' + job.userid + '> imgbb uploading failed, contact an admin for your image `' + filename + '.png`') }*/
         } else {
-          try {oshiupload(render.filename).then(upload=>{log(upload); bot.createMessage(job.channel,{ content: msg+'\nLarge image uploaded to oshi.at : '+upload}) })}
-          catch (err) {
+          try {
+            bot.createMessage(job.channel,'<@' + job.userid + '> your image was too big for discord and imgur, uploading to oshi.at now..')
+            log('uploading via oshi.at api')
+            log(render.filename)
+            let form = new FormData()
+            const fileStream = fs.createReadStream(render.filename)
+            form.append("file", fileStream)
+            axios({method:'post',url:'https://oshi.at/',data:form,'maxContentLength': Infinity,'maxBodyLength': Infinity,headers:{...form.getHeaders()}})
+            .then((response)=>{
+              var oshiimg=response.data.split('DL: ')[1]
+              bot.createMessage(job.channel,{ content: msg+'\n '+(filesize/1000000).toFixed(2)+'MB image uploaded to oshi.at : '+oshiimg, embeds: [{description:job.prompt, color: getRandomColorDec()}]})
+            })
+            .catch((error) => console.error(error))
+          } catch (err) {
             console.error(err)
-            bot.createMessage(job.channel,'Sorry <@' + job.userid + '> but your file was too big for discord, contact an admin for your image `' + filename + '.png`')
+            bot.createMessage(job.channel,'Sorry <@' + job.userid + '> but your image was too big for all available image hosts, contact an admin for your image `' + filename + '.png`')
           }
         }
       }
@@ -1030,7 +1046,6 @@ function processQueue () {
     var nextJob = queue[queue.findIndex(x => x.status === 'new')]
   }
   if (nextJob&&!rendering) {
-    //log('nextJob&&!rendering')
     if (userCreditCheck(nextJob.userid,costCalculator(nextJob))) {
       bot.editStatus('online')
       rendering=true
@@ -1041,7 +1056,6 @@ function processQueue () {
       log('cost: '+costCalculator(nextJob))
       log('credits remaining: '+creditsRemaining(nextJob.userid))
       nextJob.status='failed';dbWrite()
-      //chat('sorry <@'+nextJob.userid+'> you don\'t have enough credits for that render (cost '+ costCalculator(nextJob) +').')
       if(config.hivePaymentAddress.length>0){
         rechargePrompt(nextJob.userid,nextJob.channel)
       } else {
@@ -1067,7 +1081,7 @@ function processQueue () {
 function lexicaSearch(query,channel){
   // Quick and dirty lexica search api, needs docs to make it more efficient (query limit etc)
   var api = 'https://lexica.art/api/v1/search?q='+query
-  var link = 'https://lexica.art/?q='+query
+  var link = 'https://lexica.art/?q='+require('querystring').escape(query)
   var reply = {content:'Query: `'+query+'`\nTop 10 results from lexica.art api:\n**More:** '+link, embeds:[], components:[]}
   axios.get(api)
     .then((r)=>{
@@ -1087,7 +1101,6 @@ function lexicaSearch(query,channel){
           footer:{text:i.prompt}
         })
       })
-      //directMessageUser()
       bot.createMessage(channel, reply)
     })
     .catch((error) => console.error(error))
@@ -1186,19 +1199,12 @@ async function oshiupload(file) {
   log(file)
   let form = new FormData()
   let shortname = file.split('\\')[file.split('\\').length-1]
-  //form.append('type','image')
-  //form.append('media',data,shortname)
   const fileStream = fs.createReadStream(file)
   form.append("file", fileStream)//shortname
   //axios.post('https://oshi.at/',form, {headers:{'maxContentLength': Infinity,'maxBodyLength': Infinity,...form.getHeaders()}})
-  axios({method:'post',url:'https://oshi.at/',data:form,'maxContentLength': Infinity,'maxBodyLength': Infinity,headers:{...form.getHeaders()}})
-  .then((response)=>{log(response.data); return response.data.DL})
+  await axios({method:'post',url:'https://oshi.at/',data:form,'maxContentLength': Infinity,'maxBodyLength': Infinity,headers:{...form.getHeaders()}})
+  .then((response)=>{log('oshiUpload .then callback.. response.data:');log(response.data); return response.data.DL})
   .catch((error) => console.error(error))
-  //log(file)
-  /*imgbb(config.imgbbClientID, file)
-    .then((response) => {log(response); return response})
-    .catch((error) => console.error(error))
-    */
 }
 
 // Monitor new files entering watchFolder, post image with filename.
