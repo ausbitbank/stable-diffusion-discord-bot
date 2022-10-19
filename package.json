@@ -28,11 +28,15 @@
         "dotenv": "^16.0.2",
         "eris": "DonovanDMC/eris#ed41313d9df5ff7c31bc955e0888f9c6f732c963",
         "forever": "^4.0.3",
+        "form-data": "^4.0.0",
+        "global": "^4.4.0",
         "imgbb-uploader": "^1.5.0",
         "imgur": "^2.2.0",
         "minimist": "^1.2.6",
         "moment": "^2.29.4",
         "node-cron": "^3.0.2",
+        "socket.io": "^4.5.2",
+        "socket.io-client": "^4.5.2",
         "tslib": "^2.4.0",
         "ws": "^8.8.1"
     }
