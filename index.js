@@ -29,7 +29,7 @@ var cron = require('node-cron')
 const hive = require('@hiveio/hive-js')
 const { exit } = require('process')
 if (config.hivePaymentAddress.length>0){
-  hive.config.set('alternative_api_endpoints',['https://api.hive.blog','https://rpc.ausbit.dev','https://api.openhive.network'])
+  hive.config.set('alternative_api_endpoints',['https://rpc.ausbit.dev','https://api.openhive.network']) // 'https://api.hive.blog'
   var hiveUsd = 0.5
   getPrices()
   cron.schedule('0,15,30,45 * * * *', () => { log('Checking account history every 15 minutes'.grey); checkNewPayments() })
@@ -275,6 +275,7 @@ bot.on("interactionCreate", async (interaction) => {
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Upscale 2x", custom_id: "twkupscale2-"+id+'-'+rn, emoji: { name: '🔍', id: null}, disabled: false },
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Upscale 4x", custom_id: "twkupscale4-"+id+'-'+rn, emoji: { name: '🔎', id: null}, disabled: false },
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Face Fix GfpGAN", custom_id: "twkgfpgan-"+id+'-'+rn, emoji: { name: '💄', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Face Fix CodeFormer", custom_id: "twkcodeformer-"+id+'-'+rn, emoji: { name: '💄', id: null}, disabled: false },
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "High Resolution Fix", custom_id: "twkhiresfix-"+id+'-'+rn, emoji: { name: '🔭', id: null}, disabled: false }
               ]},
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
@@ -303,7 +304,8 @@ bot.on("interactionCreate", async (interaction) => {
           if (newJob.steps>=145){tweakResponse.components[1].components[3].disabled=true}
           if (newJob.upscale_level!==0){tweakResponse.components[2].components[0].disabled=true;tweakResponse.components[2].components[1].disabled=true}
           if (newJob.gfpgan_strength!==0){tweakResponse.components[2].components[2].disabled=true}
-          if (newJob.hires_fix===true||(newJob.width*newJob.height)<300000){tweakResponse.components[2].components[3].disabled=true}
+          if (newJob.codeformer_strength!==0){tweakResponse.components[2].components[3].disabled=true}
+          if (newJob.hires_fix===true||(newJob.width*newJob.height)<300000){tweakResponse.components[2].components[4].disabled=true}
           if (newJob.variation_amount===0.01||newJob.sampler==='k_euler_a'){tweakResponse.components[3].components[0].disabled=true}
           if (newJob.variation_amount===0.05||newJob.sampler==='k_euler_a'){tweakResponse.components[3].components[1].disabled=true}
           if (newJob.variation_amount===0.1||newJob.sampler==='k_euler_a'){tweakResponse.components[3].components[2].disabled=true}
@@ -346,6 +348,7 @@ bot.on("interactionCreate", async (interaction) => {
         case 'upscale2': newJob.upscale_level=2;break // All of these should be migrated to the postProcess function once working, faster/cheaper
         case 'upscale4': newJob.upscale_level=4;break //
         case 'gfpgan': newJob.gfpgan_strength=0.8;break //
+        case 'codeformer': newJob.codeformer_strength=0.8;break //
         case 'default': newCmd=newJob.prompt;break
         case 'fast': newJob.sampler='k_euler_a';newJob.steps=25;break
         case 'slow': newJob.sampler='k_euler_a';newJob.steps=100;break
@@ -421,6 +424,36 @@ bot.on("guildMemberRemove", (guild,member) => {var m='User '+member.username+'#'
 
 bot.on("messageCreate", (msg) => {
   if (!msg.author.bot){log(msg.author.username.bgBlue.red.bold+':'+msg.content.bgBlack)} // an irc like view of non bot messages in allowed channels. Creepy but convenient
+  if(msg.mentions.length>0){
+    msg.mentions.forEach((m)=>{
+      if (m.id===bot.application.id){
+        if (msg.referencedMessage===null){ // not a reply
+          log('arty mention replaced with !dream')
+          msg.content = msg.content.replace('<@'+m.id+'>','').replace('!dream','')
+          msg.content='!dream '+msg.content
+        } else if (msg.referencedMessage.author.id===bot.application.id&&msg.referencedMessage.components[0].components[0].custom_id.startsWith('refresh-')) { // just a response to a message from arty, confirm before render
+          var jobid = msg.referencedMessage.components[0].components[0].custom_id.split('-')[1]
+          var newJob=JSON.parse(JSON.stringify(queue[jobid-1]))
+          msg.content=msg.content.replace('<@'+m.id+'>','').replace('!dream','')
+          if (msg.content.startsWith('+')){
+            msg.content='!dream '+msg.content.substring(1,msg.content.length)+' '+newJob.prompt
+          } else if (msg.content.startsWith('..')){
+            msg.content='!dream '+newJob.prompt+' '+msg.content.substring(2,msg.content.length)
+          } else if (msg.content.startsWith('*')){
+            var newnum = parseInt(msg.content.substring(1,2))
+            msg.content='!dream '+newJob.prompt+' --number ' +newnum
+          } else if (msg.content.startsWith('-')){
+            newJob.prompt.replace(msg.content.substring(1,msg.content.length),'')
+            msg.content='!dream '+newJob.prompt
+          }
+          //var newMessage={content:msg,embeds:[{description:newPrompt,color:getRandomColorDec()}], components: [ { type: Constants.ComponentTypes.ACTION_ROW, components: [{ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "ReDream", custom_id: "refresh-" + job.id, emoji: { name: '🎲', id: null}, disabled: false } ] } ] }
+          //bot.createMessage(msg.channel.id,newMessage)
+          //log('referencedMessage')
+          //log(msg.referencedMessage)
+        }
+      }
+    })
+  }
   var c=msg.content.split(' ')[0]
   if (msg.author.id!==bot.id&&authorised(msg,msg.channel.id,msg.guildID,)){ // Work anywhere its authorized // (msg.channel.id===config.channelID||!msg.guildID) // interaction.member,interaction.channel.id,interaction.guildID
     switch(c){
@@ -504,7 +537,7 @@ function request(request){
   if (!args.steps||!Number.isInteger(args.steps)||args.steps>250){args.steps=50} // max 250 steps, default 50
   if (!args.seed||!Number.isInteger(args.seed)||args.seed<1||args.seed>4294967295){args.seed=getRandomSeed()}
   if (!args.strength||args.strength>=1||args.strength<=0){args.strength=0.75}
-  if (!args.scale||args.scale>30||args.scale<0){args.scale=7.5}
+  if (!args.scale||args.scale>200||args.scale<0){args.scale=7.5}
   if (!args.sampler){args.sampler='k_lms'}
   if (args.n){args.number=args.n}
   if (!args.number||!Number.isInteger(args.number)||args.number>10||args.number<1){args.number=1}
@@ -515,6 +548,7 @@ function request(request){
     catch (err) {console.error(err);args.template=undefined}
   } else { args.template = undefined }
   if (!args.gfpgan_strength){args.gfpgan_strength=0}
+  if (!args.codeformer_strength){args.codeformer_strength=0}
   if (!args.upscale_level){args.upscale_level=''}
   if (!args.upscale_strength){args.upscale_strength=0.75}
   if (!args.variation_amount||args.variation_amount>1||args.variation_amount<0){args.variation_amount=0}
@@ -548,6 +582,7 @@ function request(request){
     perlin: args.perlin,
     template: args.template,
     gfpgan_strength: args.gfpgan_strength,
+    codeformer_strength: args.codeformer_strength,
     upscale_level: args.upscale_level,
     upscale_strength: args.upscale_strength,
     variation_amount: args.variation_amount,
@@ -581,10 +616,12 @@ function queueStatus() { // todo report status to the relevant channel where the
     if (next.number!==1){statusMsg+='x'+next.number}
     if (next.upscale_level!==''){statusMsg+=':mag:'}
     if (next.gfpgan_strength!==0){statusMsg+=':lipstick:'}
+    if (next.codeformer_strength!==0){statusMsg+=':lipstick:'}
     if (next.variation_amount!==0){statusMsg+=':microbe:'}
     if (next.steps>50){statusMsg+=':recycle:'}
     if (next.seamless===true){statusMsg+=':knot:'}
     if (next.hires_fix===true){statusMsg+=':telescope:'}
+    //if (next.init_img!==''){statusMsg+=':paperclip:'}
     if ((next.width!==next.height)||(next.width>defaultSize)){statusMsg+=':straight_ruler:'}
     statusMsg+=' :brain: **'+next.username+'**#'+next.discriminator+' :coin:`'+costCalculator(next)+'` :fire:`'+renderGps+'`'
   }
@@ -598,7 +635,7 @@ function closestRes(n){ // diffusion needs a resolution as a multiple of 64 pixe
     q=n/m
     n1=m*q
     if ((n*m)>0){n2=m*(q+1)}else{n2=m*(q-1)}
-    if (Math.abs(n-n1)<Math.abs(n-n2)){return n1.toFixed(0)}        
+    if (Math.abs(n-n1)<Math.abs(n-n2)){return n1.toFixed(0)}
     return n2.toFixed(0)
 }
 function prepSlashCmd(options) { // Turn partial options into full command for slash commands, hate the redundant code here
@@ -655,6 +692,7 @@ function costCalculator(job) {                 // Pass in a render, get a cost i
   cost=(pixels/pixelBase)*cost                 // premium or discount for resolution relative to default
   cost=(job.steps/50)*cost                     // premium or discount for step count relative to default
   if (job.gfpgan_strength!==0){cost=cost*1.05} // 5% charge for gfpgan face fixing (minor increased processing time)
+  if (job.codeformer_strength!==0){cost=cost*1.05} // 5% charge for gfpgan face fixing (minor increased processing time)
   if (job.upscale_level===2){cost=cost*1.5}    // 1.5x charge for upscale 2x (increased processing+storage+bandwidth)
   if (job.upscale_level===4){cost=cost*2}      // 2x charge for upscale 4x 
   if (job.hires_fix===true){cost=cost*1.5}     // 1.5x charge for hires_fix (renders once at half resolution, then again at full)
@@ -801,7 +839,7 @@ function checkNewPayments(){
   // TODO there has to be a more efficient method, revisit below
   // TODO add support for recurring transfers / subscriptions
   hive.api.getAccountHistory(config.hivePaymentAddress, -1, 1000, ...bitmask, function(err, result) {
-    if(err){console.error(err)}
+    if(err){log(err.bgRed)}
     if(Array.isArray(result)) {
       result.forEach(r=>{
         var tx = r[1]
@@ -812,6 +850,7 @@ function checkNewPayments(){
           var accountId=op.memo.replace(config.hivePaymentPrefix,'')
           var pastPayment = payments.find(x=>x.txid===tx.trx_id)
           if (pastPayment!==undefined){
+            // already processed this payment
           } else {
             coin=op.amount.split(' ')[1]
             amount=parseFloat(op.amount.split(' ')[0])
@@ -825,7 +864,7 @@ function checkNewPayments(){
           }
         }
       })
-    } else {console.error('error fetching account history (results not array)')}
+    } else {log('error fetching account history'.bgRed)}
   })
 }
 checkNewPayments=debounce(checkNewPayments,30000,true) // at least 30 seconds between checks
@@ -854,7 +893,7 @@ function postprocessingResult(data){ // TODO unfinished, untested
 
 function generationResult(data){
   var url=data.url
-  //log(data.metadata.image)
+  log(data.metadata.image)
   url=config.basePath+data.url.split('/')[data.url.split('/').length-1]
   var job = queue[queue.findIndex(j=>j.status==='rendering')]
   if (job){
@@ -915,7 +954,9 @@ async function emitRenderApi(job){
   if(job.hires_fix&&job.hires_fix===true){postObject.hires_fix=true}
   var upscale = false
   var facefix = false
-  if(job.gfpgan_strength!==0){facefix={strength:job.gfpgan_strength}}
+  if(job.gfpgan_strength!==0){facefix={type:'gfpgan',strength:job.gfpgan_strength}}
+  if(job.codeformer_strength!==0){facefix={type:'codeformer',strength:job.codeformer_strength,codeformer_fidelity:1}}
+  //if(job.gfpgan_strength!==0){facefix={strength:job.gfpgan_strength}} // working before update
   if(job.upscale_level!==''){upscale={level:job.upscale_level,strength:job.upscale_strength}}
   if(job.init_img){postObject.init_img=job.init_img}
   //log('emitRenderApi sending')
@@ -957,12 +998,16 @@ async function postRender (render) {
       msg+= ':straight_ruler:`' + render.width + 'x' + render.height + '`'
       if (job.upscale_level!=='') { msg+= ':mag:**`Upscaledx' + job.upscale_level + ' to '+(parseFloat(job.width)*parseFloat(job.upscale_level))+'x'+(parseFloat(job.height)*parseFloat(job.upscale_level))+' (' + job.upscale_strength + ')`**'}
       if (job.gfpgan_strength!==0) { msg+= ':magic_wand:`gfpgan face fix(' + job.gfpgan_strength + ')`'}
+      if (job.codeformer_strength!==0) { msg+= ':magic_wand:`codeformer face fix(' + job.codeformer_strength + ')`'}
       if (job.seamless===true) { msg+= ':knot:**`Seamless Tiling`**'}
       if (job.hires_fix===true) { msg+= ':telescope:**`High Resolution Fix`**'}
       if (job.template) { msg+= ':frame_photo:`' + job.template + '`:muscle:`' + job.strength + '`'}
       if (job.attachments.length>0) { msg+= ':paperclip:` attached template`:muscle:`' + job.strength + '`'}
       if (job.variation_amount!==0) { msg+= ':microbe:**`Variation ' + job.variation_amount + '`**'}
-      if (job.with_variations.length>0) { msg+= ':linked_paperclips:with variants `' + job.with_variations + '`'}
+      log(render)
+      //var jobResult = job.renders[render.resultNumber]
+      //logjobResult.variations
+      if (render.variations) { msg+= ':linked_paperclips:with variants `' + render.variations + '`'}
       msg+= ':seedling:`' + render.seed + '`:scales:`' + job.scale + '`:recycle:`' + job.steps + '`'
       msg+= ':stopwatch:`' + timeDiff(job.timestampRequested, moment()) + 's`'
       msg+= ':file_cabinet:`' + filename + '`:eye:`' + job.sampler + '`'
@@ -1194,6 +1239,7 @@ async function imgbbupload(file) {
     .catch((error) => console.error(error))
 }
 const FormData = require('form-data')
+const hiveBroadcast = require('@hiveio/hive-js/lib/broadcast')
 async function oshiupload(file) {
   log('uploading via oshi.at api')
   log(file)
