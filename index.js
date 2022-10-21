@@ -68,6 +68,7 @@ var slashCommands = [
       {type: '3', name: 'sampler', description: 'which sampler to use (default is k_lms)', required: false, choices: [{name: 'ddim', value: 'ddim'},{name: 'plms', value: 'plms'},{name: 'k_lms', value: 'k_lms'},{name: 'k_dpm_2', value: 'k_dpm_2'},{name: 'k_dpm_2_a', value: 'k_dpm_2_a'},{name: 'k_euler', value: 'k_euler'},{name: 'k_euler_a', value: 'k_euler_a'},{name: 'k_heun', value: 'k_heun'}]},
       {type: '11', name: 'attachment', description: 'use template image', required: false},
       {type: '10', name: 'gfpgan_strength', description: 'GFPGan strength (0-1)(low= more face correction, high= more accuracy)', required: false, min_value: 0, max_value: 1},
+      {type: '10', name: 'codeformer_strength', description: 'Codeformer strength (0-1)(low= more face correction, high= more accuracy)', required: false, min_value: 0, max_value: 1},
       {type: '3', name: 'upscale_level', description: 'upscale amount', required: false, choices: [{name: 'none', value: '0'},{name: '2x', value: '2'},{name: '4x', value: '4'}]},
       {type: '10', name: 'upscale_strength', description: 'upscale strength (0-1)(smoothing/detail loss)', required: false, min_value: 0, max_value: 1},
       {type: '10', name: 'variation_amount', description: 'how much variation from the original image (0-1)(need seed+not k_euler_a sampler)', required: false, min_value:0.01, max_value:1},
@@ -178,7 +179,6 @@ bot.on("interactionCreate", async (interaction) => {
       if (queue.length>=(id-1)){var newJob=JSON.parse(JSON.stringify(queue[id-1]))} // parse/stringify to deep copy and make sure we dont edit the original}
       if (newJob) {
         newJob.number = 1
-        if (interaction.data.custom_id.startsWith('refreshEdit-')){ newJob.prompt = interaction.data.components[0].components[0].value }
         if (newJob.webhook){delete newJob.webhook}
         if (interaction.data.custom_id.startsWith('refreshVariants')&&newJob.sampler!=='k_euler_a') { // variants do not work with k_euler_a sampler
           newJob.variation_amount=0.1
@@ -197,22 +197,28 @@ bot.on("interactionCreate", async (interaction) => {
           newJob.variation_amount=0
           newJob.seed=getRandomSeed()
         }
+        if (interaction.data.custom_id.startsWith('refreshEdit-')){ newJob.prompt = interaction.data.components[0].components[0].value }
         var cmd = getCmd(newJob)
         var attach = []
-        if (!interaction.data.custom_id.startsWith('refreshNoTemplate')) {
-          if (newJob.template){ cmd+= ' --template ' + newJob.template }
+        /*if (!interaction.data.custom_id.startsWith('refreshNoTemplate')) {
+          //if (newJob.init_img){ cmd+= ' --template ' + newJob.template }
           if (newJob.attachments.length>0){attach=newJob.attachments} // transfer attachments to new jobs unless specifically asked not to
         } else {
           log('refreshNoTemplate')
-        }
+        }*/
         var finalReq = {cmd: cmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: attach}
         request(finalReq)
-        return interaction.editParent({}).catch((e)=>{console.error(e)})
+        if (interaction.data.custom_id.startsWith('refreshEdit-')){
+          // ack modal dialog
+          return interaction.editParent({}).catch((e)=>{console.error(e)})
+        } else {
+          return interaction.editParent({}).catch((e)=>{console.error(e)})
+        }
       } else {
         console.error('unable to refresh render'.red)
         return interaction.editParent({components:[]}).catch((e) => {console.error(e)})
       }
-    } else if (interaction.data.custom_id.startsWith('template')) {
+    /*} else if (interaction.data.custom_id.startsWith('template')) {
       id=interaction.data.custom_id.split('-')[1]
       var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
       if (newJob) {
@@ -225,7 +231,7 @@ bot.on("interactionCreate", async (interaction) => {
       } else {
         console.error('template request failed')
         return interaction.editParent({components:[]}).catch((e) => {console.error(e)})
-      }
+      }*/
     } else if (interaction.data.custom_id.startsWith('editRandom-')) {
       id=interaction.data.custom_id.split('-')[1]
       var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
@@ -542,11 +548,11 @@ function request(request){
   if (args.n){args.number=args.n}
   if (!args.number||!Number.isInteger(args.number)||args.number>10||args.number<1){args.number=1}
   if (!args.renderer||['localApi'].includes(args.renderer)){args.renderer='localApi'}
-  if (args.template) {
+  /*if (args.template) {
     args.template = sanitize(args.template)
     try { if (!fs.existsSync(config.basePath+args.template+'.png')){args.template=undefined} }
     catch (err) {console.error(err);args.template=undefined}
-  } else { args.template = undefined }
+  } else { args.template = undefined }*/
   if (!args.gfpgan_strength){args.gfpgan_strength=0}
   if (!args.codeformer_strength){args.codeformer_strength=0}
   if (!args.upscale_level){args.upscale_level=''}
@@ -580,7 +586,7 @@ function request(request){
     strength: args.strength,
     threshold: args.threshold,
     perlin: args.perlin,
-    template: args.template,
+    // template: args.template,
     gfpgan_strength: args.gfpgan_strength,
     codeformer_strength: args.codeformer_strength,
     upscale_level: args.upscale_level,
@@ -775,8 +781,16 @@ function scheduleInit(){
     cron.schedule(s.cron, () => {
       log('Running scheduled job: '.grey+s.name)
       var randomPrompt = s.prompts[Math.floor(Math.random()*s.prompts.length)].prompt
-      var newRequest = {cmd: randomPrompt, userid: s.admins[0].id, username: s.admins[0].username, discriminator: s.admins[0].discriminator, bot: 'False', channelid: 'webhook', attachments: [], webhook: {url: s.webhook, alias: s.alias, destination: s.name}}
-      request(newRequest)
+      var newRequest = {cmd: randomPrompt, userid: s.admins[0].id, username: s.admins[0].username, discriminator: s.admins[0].discriminator, bot: 'False', channelid: s.channel, attachments: []}
+      if (s.onlyOnIdle==="True"){
+        if (queue.filter((q)=>q.status==='new').length>0){
+          log('Ignoring scheduled job due to renders')
+        } else {
+          request(newRequest)
+        }
+      } else {
+        request(newRequest)
+      }
     })
   })
 }
@@ -839,7 +853,7 @@ function checkNewPayments(){
   // TODO there has to be a more efficient method, revisit below
   // TODO add support for recurring transfers / subscriptions
   hive.api.getAccountHistory(config.hivePaymentAddress, -1, 1000, ...bitmask, function(err, result) {
-    if(err){log(err.bgRed)}
+    if(err){log(err)}
     if(Array.isArray(result)) {
       result.forEach(r=>{
         var tx = r[1]
@@ -961,18 +975,27 @@ async function emitRenderApi(job){
   if(job.init_img){postObject.init_img=job.init_img}
   //log('emitRenderApi sending')
   //log(postObject)
+  [postObject,upscale,facefix,job].forEach((o)=>{
+    var key = getObjKey(o,undefined)
+    if (key!==undefined){ // not undefined in this context means there is a key that IS undefined, confusing
+      log('Missing property for '+key)
+      if (key==='codeformer_strength'){upscale.strength=0}
+    }
+  })
   socket.emit('generateImage',postObject,upscale,facefix)
 }
-
+function getObjKey(obj, value) {
+  return Object.keys(obj).find(key => obj[key] === value)
+}
 async function addRenderApi (id) {
   var job = queue[queue.findIndex(x=>x.id===id)] 
   var initimg = null
   job.status = 'rendering'
   queueStatus()
-  if (job.template !== undefined) {
+  /*if (job.template !== undefined) {
     try { initimg = 'data:image/png;base64,' + base64Encode(basePath + job.template + '.png') }
     catch (err) { console.error(err); initimg = null; job.template = '' }
-  }
+  }*/
   if (job.attachments[0] && job.attachments[0].content_type && job.attachments[0].content_type.startsWith('image')) {
     log('fetching attachment from '.bgRed + job.attachments[0].proxy_url)
     await axios.get(job.attachments[0].proxy_url, {responseType: 'arraybuffer'})
@@ -1001,7 +1024,7 @@ async function postRender (render) {
       if (job.codeformer_strength!==0) { msg+= ':magic_wand:`codeformer face fix(' + job.codeformer_strength + ')`'}
       if (job.seamless===true) { msg+= ':knot:**`Seamless Tiling`**'}
       if (job.hires_fix===true) { msg+= ':telescope:**`High Resolution Fix`**'}
-      if (job.template) { msg+= ':frame_photo:`' + job.template + '`:muscle:`' + job.strength + '`'}
+      //if (job.template) { msg+= ':frame_photo:`' + job.template + '`:muscle:`' + job.strength + '`'}
       if (job.attachments.length>0) { msg+= ':paperclip:` attached template`:muscle:`' + job.strength + '`'}
       if (job.variation_amount!==0) { msg+= ':microbe:**`Variation ' + job.variation_amount + '`**'}
       log(render)
@@ -1015,6 +1038,7 @@ async function postRender (render) {
       chargeCredits(job.userid,(costCalculator(job))/job.number) // only charge successful renders
       if (job.cost){msg+=':coin:`'+(job.cost/job.number).toFixed(2).replace(/[.,]00$/, "")+'/'+ creditsRemaining(job.userid) +'`'}
       var newMessage = { content: msg, embeds: [{description: job.prompt, color: getRandomColorDec()}], components: [ { type: Constants.ComponentTypes.ACTION_ROW, components: [ ] } ] }
+      if (job.prompt.replace(' ','').length===0){newMessage.embeds=[]}
       newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "ReDream", custom_id: "refresh-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })
       if (job.upscale_level==='') {
         if (!job.attachments.length>0&&job.sampler!=='k_euler_a'){
@@ -1025,7 +1049,7 @@ async function postRender (render) {
           }
         }
         // newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Template", custom_id: "template-" + job.id + '-' + filename, emoji: { name: '📷', id: null}, disabled: false })
-        if (job.template){ newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Remove template", custom_id: "refreshNoTemplate-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })}
+        // if (job.template){ newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Remove template", custom_id: "refreshNoTemplate-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })}
       }
       newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Edit Prompt", custom_id: "edit-"+job.id, emoji: { name: '✏️', id: null}, disabled: false })
       newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Tweak", custom_id: "tweak-"+job.id+'-'+render.resultNumber, emoji: { name: '🧪', id: null}, disabled: false })
@@ -1038,10 +1062,10 @@ async function postRender (render) {
       if (filesize < 8000000) { // Within discord 8mb filesize limit
         try {
           bot.createMessage(job.channel, newMessage, {file: data, name: filename + '.png'}).then(m=>{
-            if (job.channel==='webhook'&&job.webhook) {
+            /*if (job.channel==='webhook'&&job.webhook) {
               job.webhook.imgurl=m.attachments[0].url
               sendWebhook(job)
-            }
+            }*/
           }).catch((err)=>{log('caught error posting to discord'.bgRed);log(err)})
         }
         catch (err) {console.error(err)}
