@@ -4,11 +4,12 @@
       "admins": [
         {"id": "1234567890","username":"adminusername","discriminator":"1234"}
       ],
-      "webhook": "https://google.com/q=find a discord webhook url",
+      "channel": "1234567",
+      "onlyOnIdle": "False",
       "cron": "20 4,16 * * *",
       "alias": "botname",
       "prompts":[
-        {"prompt": "an array of prompt that get randomised, trending on artstation, 8k"}
+        {"prompt": "an array of prompts that get randomised, trending on artstation, 8k"}
       ],
       "enabled": "False"
     }
