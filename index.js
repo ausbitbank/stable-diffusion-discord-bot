@@ -259,6 +259,7 @@ bot.on("interactionCreate", async (interaction) => {
       rn=interaction.data.custom_id.split('-')[2]
       var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
       if (newJob) {
+        log(newJob)
         newJob.number = 1
         if (newJob.webhook){delete newJob.webhook}
         var tweakResponse=          {
@@ -308,7 +309,7 @@ bot.on("interactionCreate", async (interaction) => {
           if (newJob.scale>=30){tweakResponse.components[1].components[1].disabled=true}
           if (newJob.steps<=5){tweakResponse.components[1].components[2].disabled=true}
           if (newJob.steps>=145){tweakResponse.components[1].components[3].disabled=true}
-          if (newJob.upscale_level!==0){tweakResponse.components[2].components[0].disabled=true;tweakResponse.components[2].components[1].disabled=true}
+          if (newJob.upscale_level!==0&&newJob.upscale_level!==''){tweakResponse.components[2].components[0].disabled=true;tweakResponse.components[2].components[1].disabled=true}
           if (newJob.gfpgan_strength!==0){tweakResponse.components[2].components[2].disabled=true}
           if (newJob.codeformer_strength!==0){tweakResponse.components[2].components[3].disabled=true}
           if (newJob.hires_fix===true||(newJob.width*newJob.height)<300000){tweakResponse.components[2].components[4].disabled=true}
@@ -489,6 +490,7 @@ bot.on("messageCreate", (msg) => {
       case '!dothething':{log(bot.users.get(msg.author.id).username);break}
       case '!wipequeue':{rendering=false;queue=[];dbWrite();log('admin wiped queue');break}
       case '!queue':{queueStatus();break}
+      case '!cancel':{cancelRenders();break}
       case '!pause':{chat(':pause_button: Bot is paused, requests will still be accepted and queued for when I return');rendering=true;break}
       case '!resume':{rendering=false;chat(':play_pause: Bot is back online');processQueue();break}
       case '!richlist':{getRichList();break}
@@ -632,7 +634,7 @@ function queueStatus() { // todo report status to the relevant channel where the
     statusMsg+=' :brain: **'+next.username+'**#'+next.discriminator+' :coin:`'+costCalculator(next)+'` :fire:`'+renderGps+'`'
   }
   if (next&&next.channel!=='webhook'){var chan=next.channel} else {var chan=config.channelID}
-  log(statusMsg)
+  //log(statusMsg)
   bot.createMessage(chan,statusMsg).then(x=>{dialogs.queue=x}).catch((err)=>console.error(err))
 }
 queueStatus=debounce(queueStatus,2000,true)
@@ -905,9 +907,16 @@ function postprocessingResult(data){ // TODO unfinished, untested
   //postRender(postRenderObject)
 }
 
+function cancelRenders(){
+  log('Cancelling current render'.bgRed)
+  socket.emit('cancel')
+  queue[queue.findIndex((q)=>q.status==='rendering')-1].status='cancelled'
+  rendering=false
+}
+
 function generationResult(data){
   var url=data.url
-  log(data.metadata.image)
+  //log('seed',data.metadata.image.seed)
   url=config.basePath+data.url.split('/')[data.url.split('/').length-1]
   var job = queue[queue.findIndex(j=>j.status==='rendering')]
   if (job){
@@ -960,10 +969,10 @@ async function emitRenderApi(job){
       "seed": job.seed,
       "progress_images": false,
       "variation_amount": job.variation_amount,
-      "with_variations": job.with_variations,
       "strength": job.strength,
       "fit": true
   }
+  if(job.with_variations.length>0){postObject.with_variations=job.with_variations} 
   if(job.seamless&&job.seamless===true){postObject.seamless=true}
   if(job.hires_fix&&job.hires_fix===true){postObject.hires_fix=true}
   var upscale = false
@@ -983,6 +992,7 @@ async function emitRenderApi(job){
     }
   })
   socket.emit('generateImage',postObject,upscale,facefix)
+  //log('sent request',postObject,upscale,facefix)
 }
 function getObjKey(obj, value) {
   return Object.keys(obj).find(key => obj[key] === value)
@@ -1027,7 +1037,6 @@ async function postRender (render) {
       //if (job.template) { msg+= ':frame_photo:`' + job.template + '`:muscle:`' + job.strength + '`'}
       if (job.attachments.length>0) { msg+= ':paperclip:` attached template`:muscle:`' + job.strength + '`'}
       if (job.variation_amount!==0) { msg+= ':microbe:**`Variation ' + job.variation_amount + '`**'}
-      log(render)
       //var jobResult = job.renders[render.resultNumber]
       //logjobResult.variations
       if (render.variations) { msg+= ':linked_paperclips:with variants `' + render.variations + '`'}
@@ -1233,7 +1242,7 @@ const unique = (value, index, self) => { return self.indexOf(value) === index }
 function getRandomColorDec(){return Math.floor(Math.random()*16777215)}
 function timeDiff (date1,date2) { return date2.diff(date1, 'seconds') }
 
-var randoms = ['prompt','artist','city','genre','medium','emoji','subject','madeof','style','animal','bodypart','gerund','verb','adverb','adjective','star','fruit','country','gender']
+var randoms = ['prompt','artist','city','genre','medium','emoji','subject','madeof','style','animal','bodypart','gerund','verb','adverb','adjective','star','fruit','country','gender','familyfriendly','quality','gtav','photo','render','lighting','cute'] // 
 function getRandom(what) { if (randoms.includes(what)) { try { var lines = fs.readFileSync('txt\\' + what + '.txt', 'utf-8').split(/r?\n/); return lines[Math.floor(Math.random()*lines.length)] } catch (err) { console.error(err)} } else { return what } }
 function replaceRandoms (input) {
   var output=input
