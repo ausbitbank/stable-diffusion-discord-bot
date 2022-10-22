@@ -29,7 +29,7 @@ var cron = require('node-cron')
 const hive = require('@hiveio/hive-js')
 const { exit } = require('process')
 if (config.hivePaymentAddress.length>0){
-  hive.config.set('alternative_api_endpoints',['https://rpc.ausbit.dev','https://api.openhive.network']) // 'https://api.hive.blog'
+  hive.config.set('alternative_api_endpoints',['https://rpc.ausbit.dev','https://api.deathwing.me','https://api.c0ff33a.uk','https://hived.emre.sh']) 
   var hiveUsd = 0.5
   getPrices()
   cron.schedule('0,15,30,45 * * * *', () => { log('Checking account history every 15 minutes'.grey); checkNewPayments() })
@@ -850,11 +850,11 @@ function rechargePrompt(userid,channel){
   log('ID '+userid+' asked for recharge link')
 }
 function checkNewPayments(){
-  var bitmask = ['4',null] // transfers only
+  //var bitmask = ['4',null] // transfers only
+  var bitmask = ['4','524288'] // transfers and fill_recurrent_transfer only
   log('Checking recent payments for '.grey+config.hivePaymentAddress.grey)
   // TODO there has to be a more efficient method, revisit below
-  // TODO add support for recurring transfers / subscriptions
-  hive.api.getAccountHistory(config.hivePaymentAddress, -1, 1000, ...bitmask, function(err, result) {
+  hive.api.getAccountHistory(config.hivePaymentAddress, -1, 100, ...bitmask, function(err, result) {
     if(err){log(err)}
     if(Array.isArray(result)) {
       result.forEach(r=>{
@@ -995,7 +995,8 @@ async function emitRenderApi(job){
       "strength": job.strength,
       "fit": true
   }
-  if(job.with_variations!==[]){log('adding with variations');postObject.with_variations=job.with_variations;log(postObject.with_variations)} 
+  log(job.with_variations)
+  if(job.with_variations.length>0){log('adding with variations');postObject.with_variations=job.with_variations;log(postObject.with_variations)} 
   if(job.seamless&&job.seamless===true){postObject.seamless=true}
   if(job.hires_fix&&job.hires_fix===true){postObject.hires_fix=true}
   var upscale = false
@@ -1057,6 +1058,8 @@ async function postRender (render) {
       if (job.codeformer_strength!==0) { msg+= ':magic_wand:`codeformer face fix(' + job.codeformer_strength + ')`'}
       if (job.seamless===true) { msg+= ':knot:**`Seamless Tiling`**'}
       if (job.hires_fix===true) { msg+= ':telescope:**`High Resolution Fix`**'}
+      if (job.perlin!==0) { msg+= ':oyster:**`Perlin '+job.perlin+'`**'}
+      if (job.threshold!==0) { msg+= ':door:**`Threshold '+job.threshold+'`**'}
       //if (job.template) { msg+= ':frame_photo:`' + job.template + '`:muscle:`' + job.strength + '`'}
       if (job.attachments.length>0) { msg+= ':paperclip:` attached template`:muscle:`' + job.strength + '`'}
       if (job.variation_amount!==0) { msg+= ':microbe:**`Variation ' + job.variation_amount + '`**'}
