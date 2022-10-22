@@ -560,7 +560,7 @@ function request(request){
   if (!args.upscale_level){args.upscale_level=''}
   if (!args.upscale_strength){args.upscale_strength=0.75}
   if (!args.variation_amount||args.variation_amount>1||args.variation_amount<0){args.variation_amount=0}
-  if (!args.with_variations){args.with_variations=[]}//; args.with_variations=args.with_variations.toString()
+  if (!args.with_variations){args.with_variations=[]}else{log(args.with_variations)}//; args.with_variations=args.with_variations.toString()
   if (!args.threshold){args.threshold=0}
   if (!args.perlin||args.perlin>1||args.perlin<0){args.perlin=0}
   args.timestamp=moment()
@@ -895,7 +895,30 @@ function sendWebhook(job){ // TODO eris has its own internal webhook method, inv
 socket.on("generationResult", (data) => {generationResult(data)})
 socket.on("postprocessingResult", (data) => {postprocessingResult(data)})
 socket.on("initialImageUploaded", (data) => {initialImageUploaded(data)})
-socket.on("progressUpdate", (data) => {if(data.isProcessing===false){rendering=false}else{rendering=true}})
+var socketStatus={
+  currentStatus: null,
+  currentStep: null,
+  currentIteration: null,
+  totalIterations: null,
+  isProcessing: null,
+  currentStatusHasSteps: null,
+  hasError: null
+}
+socket.on("progressUpdate", (data) => {
+  /*log(data.currentStatus)
+  ['currentStatus','currentStep','currentIteration','totalIterations','isProcessing','currentStatusHasSteps','hasError'].forEach((x)=>{
+    log(x)
+    if (typeof data[x] !== 'undefined') {
+      if (data[x]!==socketStatus[x]){ // changed since last update?
+        socketStatus[x]=data[x] // update it
+        if (x!=='currentStep'){ // currentStep is too noisy, log everything else that changes
+          log(x+':'+data[x])
+        }
+      }
+    }
+  })*/
+  if(data.isProcessing===false){rendering=false}else{rendering=true}
+})
 socket.on('error', (error) => {log('Api socket error'.bgRed);log(error)})
 
 function postprocessingResult(data){ // TODO unfinished, untested
@@ -972,7 +995,7 @@ async function emitRenderApi(job){
       "strength": job.strength,
       "fit": true
   }
-  if(job.with_variations.length>0){postObject.with_variations=job.with_variations} 
+  if(job.with_variations!==[]){log('adding with variations');postObject.with_variations=job.with_variations;log(postObject.with_variations)} 
   if(job.seamless&&job.seamless===true){postObject.seamless=true}
   if(job.hires_fix&&job.hires_fix===true){postObject.hires_fix=true}
   var upscale = false
@@ -992,7 +1015,7 @@ async function emitRenderApi(job){
     }
   })
   socket.emit('generateImage',postObject,upscale,facefix)
-  //log('sent request',postObject,upscale,facefix)
+  log('sent request',postObject,upscale,facefix)
 }
 function getObjKey(obj, value) {
   return Object.keys(obj).find(key => obj[key] === value)
