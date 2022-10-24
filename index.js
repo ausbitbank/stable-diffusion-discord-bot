@@ -111,6 +111,19 @@ var slashCommands = [
       }
     }
   },
+  /*{
+    name: 'background',
+    description: 'Remove the background from an image',
+    options: [{type: '11', name: 'attachment', description: 'Select an image', required: true}],
+    cooldown: 1000,
+    execute: (i) => {
+      // get attachments
+      if (i.data.resolved && i.data.resolved.attachments && i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))){
+        var attachmentOrig=i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))
+        var attachment=[{width:attachmentOrig.width,height:attachmentOrig.height,size:attachmentOrig.size,proxy_url:attachmentOrig.proxyUrl,content_type:attachmentOrig.contentType,filename:attachmentOrig.filename,id:attachmentOrig.id}]
+      }
+    }
+  },*/
   {
     name: 'lexica',
     description: 'Search lexica.art with keywords or an image url',
@@ -452,6 +465,9 @@ bot.on("messageCreate", (msg) => {
           } else if (msg.content.startsWith('-')){
             newJob.prompt.replace(msg.content.substring(1,msg.content.length),'')
             msg.content='!dream '+newJob.prompt
+          } else if (msg.content.startsWith('background')){
+            msg.content='!background'
+            msg.attachments=msg.referencedMessage.attachments
           }
           //var newMessage={content:msg,embeds:[{description:newPrompt,color:getRandomColorDec()}], components: [ { type: Constants.ComponentTypes.ACTION_ROW, components: [{ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "ReDream", custom_id: "refresh-" + job.id, emoji: { name: '🎲', id: null}, disabled: false } ] } ] }
           //bot.createMessage(msg.channel.id,newMessage)
@@ -482,6 +498,14 @@ bot.on("messageCreate", (msg) => {
       case '!lexica':lexicaSearch(msg.content.substr(8, msg.content.length),msg.channel.id);break
       case '!meme':{if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){meme(msg.content.substr(6, msg.content.length),msg.attachments.map((u)=>{return u.proxy_url}),msg.author.id,msg.channel.id)} else if (msg.content.startsWith('!meme lisapresentation')){meme(msg.content.substr(6, msg.content.length),urls,msg.author.id,msg.channel.id)};break}
       case '!avatar':{var avatars='';msg.mentions.forEach((m)=>{avatars+=m.avatarURL.replace('size=128','size=512')+'\n'});bot.createMessage(msg.channel.id,avatars);break}
+      case '!background':{ // requires docker run -p 127.0.0.01:5000:5000 danielgatis/rembg s
+        if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){
+          axios.get('http://127.0.0.1:5000?url='+encodeURIComponent(msg.attachments.map((u)=>{return u.proxy_url})),{responseType: 'arraybuffer'})
+            .then((response)=>{bot.createMessage(msg.channel.id, 'Background has been removed from your image <@'+msg.author.id+'>', {file: Buffer.from(response.data), name: 'bgremoved.png'})})
+            .catch((error) => console.error(error))
+        }
+        break
+      }
     }
   }
   if (msg.author.id===config.adminID) { // admins only
@@ -545,7 +569,7 @@ function request(request){
   if (!args.steps||!Number.isInteger(args.steps)||args.steps>250){args.steps=50} // max 250 steps, default 50
   if (!args.seed||!Number.isInteger(args.seed)||args.seed<1||args.seed>4294967295){args.seed=getRandomSeed()}
   if (!args.strength||args.strength>=1||args.strength<=0){args.strength=0.75}
-  if (!args.scale||args.scale>200||args.scale<0){args.scale=7.5}
+  if (!args.scale||args.scale>200||args.scale<1){args.scale=7.5}
   if (!args.sampler){args.sampler='k_lms'}
   if (args.n){args.number=args.n}
   if (!args.number||!Number.isInteger(args.number)||args.number>10||args.number<1){args.number=1}
@@ -655,7 +679,7 @@ function prepSlashCmd(options) { // Turn partial options into full command for s
   //log('prepSlashCmd output');log(job)
   return job
 }
-function getCmd(newJob){ return newJob.prompt+' --width ' + newJob.width + ' --height ' + newJob.height + ' --seed ' + newJob.seed + ' --scale ' + newJob.scale + ' --sampler ' + newJob.sampler + ' --steps ' + newJob.steps + ' --strength ' + newJob.strength + ' --n ' + newJob.number + ' --gfpgan_strength ' + newJob.gfpgan_strength + ' --codeformer_strength ' + newJob.codeformer_strength + ' --upscale_level ' + newJob.upscale_level + ' --upscale_strength ' + newJob.upscale_strength + ' --seamless ' + newJob.seamless + ' --hires_fix ' + newJob.hires_fix + ' --variation_amount ' + newJob.variation_amount + ' --with_variations ' + newJob.with_variations}
+function getCmd(newJob){ return newJob.prompt+' --width ' + newJob.width + ' --height ' + newJob.height + ' --seed ' + newJob.seed + ' --scale ' + newJob.scale + ' --sampler ' + newJob.sampler + ' --steps ' + newJob.steps + ' --strength ' + newJob.strength + ' --n ' + newJob.number + ' --gfpgan_strength ' + newJob.gfpgan_strength + ' --codeformer_strength ' + newJob.codeformer_strength + ' --upscale_level ' + newJob.upscale_level + ' --upscale_strength ' + newJob.upscale_strength + ' --threshold ' + newJob.threshold + ' --perlin ' + newJob.perlin + ' --seamless ' + newJob.seamless + ' --hires_fix ' + newJob.hires_fix + ' --variation_amount ' + newJob.variation_amount + ' --with_variations ' + newJob.with_variations}
 function getRandomSeed() {return Math.floor(Math.random() * 4294967295)}
 function chat(msg) {if (msg !== null && msg !== ''){bot.createMessage(config.channelID, msg)}}
 function sanitize (prompt) {
@@ -1002,6 +1026,7 @@ async function emitRenderApi(job){
   var upscale = false
   var facefix = false
   if(job.gfpgan_strength!==0){facefix={type:'gfpgan',strength:job.gfpgan_strength}}
+  if (job.codeformer_strength===undefined){job.codeformer_strength=0}
   if(job.codeformer_strength!==0){facefix={type:'codeformer',strength:job.codeformer_strength,codeformer_fidelity:1}}
   //if(job.gfpgan_strength!==0){facefix={strength:job.gfpgan_strength}} // working before update
   if(job.upscale_level!==''){upscale={level:job.upscale_level,strength:job.upscale_strength}}
