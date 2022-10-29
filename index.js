@@ -272,7 +272,7 @@ bot.on("interactionCreate", async (interaction) => {
       rn=interaction.data.custom_id.split('-')[2]
       var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
       if (newJob) {
-        log(newJob)
+        //log(newJob)
         newJob.number = 1
         if (newJob.webhook){delete newJob.webhook}
         var tweakResponse=          {
@@ -294,8 +294,8 @@ bot.on("interactionCreate", async (interaction) => {
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Upscale 2x", custom_id: "twkupscale2-"+id+'-'+rn, emoji: { name: '🔍', id: null}, disabled: false },
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Upscale 4x", custom_id: "twkupscale4-"+id+'-'+rn, emoji: { name: '🔎', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Face Fix GfpGAN", custom_id: "twkgfpgan-"+id+'-'+rn, emoji: { name: '💄', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Face Fix CodeFormer", custom_id: "twkcodeformer-"+id+'-'+rn, emoji: { name: '💄', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Face Fix GfpGAN", custom_id: "twkgfpgan-"+id+'-'+rn, emoji: { name: '💄', id: null}, disabled: true },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Face Fix CodeFormer", custom_id: "twkcodeformer-"+id+'-'+rn, emoji: { name: '💄', id: null}, disabled: true },
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "High Resolution Fix", custom_id: "twkhiresfix-"+id+'-'+rn, emoji: { name: '🔭', id: null}, disabled: false }
               ]},
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
@@ -338,9 +338,9 @@ bot.on("interactionCreate", async (interaction) => {
         return interaction.editParent({components:[]}).catch((e) => {console.error(e)})
       }
     } else if (interaction.data.custom_id.startsWith('twk')) {
-      log(interaction.data)
+      //log(interaction.data)
       var jobId=interaction.data.custom_id.split('-')[1]
-      log(queue[jobId-1])
+      //log(queue[jobId-1])
       var newJob=JSON.parse(JSON.stringify(queue[jobId-1])) //copy job
       var resultNumber=interaction.data.custom_id.split('-')[2]
       var result=newJob.results[resultNumber-1] // The full settings output from api for previous result, ready for postprocessing
@@ -367,8 +367,8 @@ bot.on("interactionCreate", async (interaction) => {
         case 'hiresfix': newJob.hires_fix=true;break
         case 'upscale2': newJob.upscale_level=2;break // All of these should be migrated to the postProcess function once working, faster/cheaper
         case 'upscale4': newJob.upscale_level=4;break //
-        case 'gfpgan': newJob.gfpgan_strength=0.8;break //
-        case 'codeformer': newJob.codeformer_strength=0.8;break //
+        case 'gfpgan': newJob.gfpgan_strength=0.8;newJob.codeformer_strength=0;break //
+        case 'codeformer': newJob.codeformer_strength=0.8;newJob.gfpgan_strength=0;break //
         case 'default': newCmd=newJob.prompt;break
         case 'fast': newJob.sampler='k_euler_a';newJob.steps=25;break
         case 'slow': newJob.sampler='k_euler_a';newJob.steps=100;break
@@ -441,9 +441,20 @@ bot.on("guildMemberRemove", (guild,member) => {var m='User '+member.username+'#'
 //bot.on("guildMemberUpdate", (guild,member,oldMember,communicationDisabledUntil) => {log('user updated'.bgRed); log(member)}) // todo fires on user edits, want to reward users that start boosting HQ server, oldMember.premiumSince=Timestamp since boosting guild
 //bot.on("channelRecipientAdd", (channel,user) => {log(channel,user)})
 //bot.on("channelRecipientRemove", (channel,user) => {log(channel,user)})
-
+var lastMsgChan=null
 bot.on("messageCreate", (msg) => {
-  if (!msg.author.bot){log(msg.author.username.bgBlue.red.bold+':'+msg.content.bgBlack)} // an irc like view of non bot messages in allowed channels. Creepy but convenient
+  // an irc like view of non bot messages in allowed channels. Creepy but convenient
+  if (config.showChat){
+    if(lastMsgChan!==msg.channel.id&&msg.channel.name&&msg.channel.guild){
+      log('#'.bgBlue+msg.channel.name.bgBlue+'-'+msg.channel.id.bgWhite.black+'-'+msg.channel.guild.name.bgBlue+'')
+      lastMsgChan=msg.channel.id // Track last channel so messages can be grouped with channel headers
+    }
+    log(msg.author.username.bgBlue.red.bold+':'+msg.content.bgBlack)
+    msg.attachments.map((u)=>{return u.proxy_url}).forEach((a)=>{log(a)})
+    msg.embeds.map((e)=>{return e}).forEach((e)=>{log(e)})
+    msg.components.map((c)=>{return c}).forEach((c)=>{log(c)})
+  }
+  // end irc view
   if(msg.mentions.length>0){
     msg.mentions.forEach((m)=>{
       if (m.id===bot.application.id){
@@ -457,8 +468,10 @@ bot.on("messageCreate", (msg) => {
           msg.content=msg.content.replace('<@'+m.id+'>','').replace('!dream','')
           if (msg.content.startsWith('+')){
             msg.content='!dream '+msg.content.substring(1,msg.content.length)+' '+newJob.prompt
+            //msg.attachments=msg.referencedMessage.attachments
           } else if (msg.content.startsWith('..')){
             msg.content='!dream '+newJob.prompt+' '+msg.content.substring(2,msg.content.length)
+            //msg.attachments=msg.referencedMessage.attachments
           } else if (msg.content.startsWith('*')){
             var newnum = parseInt(msg.content.substring(1,2))
             msg.content='!dream '+newJob.prompt+' --number ' +newnum
@@ -482,14 +495,6 @@ bot.on("messageCreate", (msg) => {
     switch(c){
       case '!dream':{
         request({cmd: msg.content.substr(7, msg.content.length), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments});
-        /*var queuelength=queue.filter((q)=>q.status==='new').length
-        if (queuelength===0){msg.addReaction('⏭️')}
-        if (queuelength===1){msg.addReaction('1️')}
-        if (queuelength===2){msg.addReaction('2️')}
-        if (queuelength===3){msg.addReaction('3️')}
-        if (queuelength===4){msg.addReaction('4️')}
-        if (queuelength===5){msg.addReaction('5️')}
-        if (queuelength>5){msg.addReaction('🦥')}*/
         break
       }
       case '!prompt':
@@ -500,9 +505,16 @@ bot.on("messageCreate", (msg) => {
       case '!avatar':{var avatars='';msg.mentions.forEach((m)=>{avatars+=m.avatarURL.replace('size=128','size=512')+'\n'});bot.createMessage(msg.channel.id,avatars);break}
       case '!background':{ // requires docker run -p 127.0.0.01:5000:5000 danielgatis/rembg s
         if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){
-          axios.get('http://127.0.0.1:5000?url='+encodeURIComponent(msg.attachments.map((u)=>{return u.proxy_url})),{responseType: 'arraybuffer'})
-            .then((response)=>{bot.createMessage(msg.channel.id, 'Background has been removed from your image <@'+msg.author.id+'>', {file: Buffer.from(response.data), name: 'bgremoved.png'})})
-            .catch((error) => console.error(error))
+          var attachmentsUrls = msg.attachments.map((u)=>{return u.proxy_url})
+          attachmentsUrls.forEach((url)=>{
+            log('Removing background from '+url)
+            axios.get('http://127.0.0.1:5000?url='+encodeURIComponent(url),{responseType: 'arraybuffer'})//axios.get('http://127.0.0.1:5000?url='+encodeURIComponent(msg.attachments.map((u)=>{return u.proxy_url})),{responseType: 'arraybuffer'})
+              .then((response)=>{
+                chargeCredits(msg.author.id,0.05)
+                bot.createMessage(msg.channel.id, '<@'+msg.author.id+'> used `!background`, it cost :coin:`0.05`/`'+creditsRemaining(msg.author.id)+'`', {file: Buffer.from(response.data), name: 'bgremoved.png'})
+              })
+              .catch((error) => log(error.bgRed))
+            })
         }
         break
       }
@@ -534,6 +546,16 @@ bot.on("messageCreate", (msg) => {
         }
         break
       }
+      case '!say':{
+        var sayChan=msg.content.split(' ')[1]
+        var sayMsg=msg.content.substr((Math.ceil(Math.log10(sayChan+1)))+(msg.content.indexOf(msg.content.split(' ')[1]))+1)
+        if(Number.isInteger(parseInt(sayChan))&&sayMsg.length>0){
+          log('sending message as arty to '+sayChan+':'+sayMsg)
+          try{chatChan(sayChan,sayMsg)}
+          catch(err){log('failed to !say with error:'.bgRed);log(err)}
+        }
+        break
+      }
       case '!guilds':{bot.guilds.forEach((g)=>{log({id: g.id, name: g.name, ownerID: g.ownerID, description: g.description, memberCount: g.memberCount})});break}
       case '!updateslashcommands':{bot.getCommands().then(cmds=>{bot.commands = new Collection();for (const c of slashCommands) {bot.commands.set(c.name, c);bot.createCommand({name: c.name,description: c.description,options: c.options ?? [],type: Constants.ApplicationCommandTypes.CHAT_INPUT})}});break}
     }
@@ -547,8 +569,13 @@ function request(request){
   var args = parseArgs(request.cmd.split(' '),{string: ['template','init_img','sampler'],boolean: ['seamless','hires_fix']}) // parse arguments //
   // messy code below contains defaults values, check numbers are actually numbers and within acceptable ranges etc
   // let sanitize all the numbers first
+  log(args)
+  /*args.forEach((p,i)=>{
+    logs('p:'+p)
+    logs('i:'+i)
+  })*/
   for (n in [args.width,args.height,args.steps,args.seed,args.strength,args.scale,args.number,args.threshold,args.perlin]){
-    n=n.replace(/[^０-９\.]/g, '')
+    n=n.replace(/[^０-９\.]/g, '') // not affecting the actual args
   }
   if (!args.width||!Number.isInteger(args.width)||args.width<256){args.width=defaultSize}
   if (!args.height||!Number.isInteger(args.height)||args.height<256){args.height=defaultSize}
@@ -579,14 +606,15 @@ function request(request){
     try { if (!fs.existsSync(config.basePath+args.template+'.png')){args.template=undefined} }
     catch (err) {console.error(err);args.template=undefined}
   } else { args.template = undefined }*/
-  if (!args.gfpgan_strength){args.gfpgan_strength=0}
-  if (!args.codeformer_strength){args.codeformer_strength=0}
+  args.gfpgan_strength=0;//tmp disable//if (!args.gfpgan_strength){args.gfpgan_strength=0}
+  args.codeformer_strength=0;//tmp disable//if (!args.codeformer_strength){args.codeformer_strength=0}
   if (!args.upscale_level){args.upscale_level=''}
   if (!args.upscale_strength){args.upscale_strength=0.75}
   if (!args.variation_amount||args.variation_amount>1||args.variation_amount<0){args.variation_amount=0}
   if (!args.with_variations){args.with_variations=[]}else{log(args.with_variations)}//; args.with_variations=args.with_variations.toString()
   if (!args.threshold){args.threshold=0}
   if (!args.perlin||args.perlin>1||args.perlin<0){args.perlin=0}
+  if (!args.model||args.model===undefined){args.model='stable-diffusion-1.5'}
   args.timestamp=moment()
   args.prompt=sanitize(args._.join(' '))
   if (args.prompt.length===0){args.prompt=getRandom('prompt');log('empty prompt found, adding random')} 
@@ -619,7 +647,8 @@ function request(request){
     upscale_strength: args.upscale_strength,
     variation_amount: args.variation_amount,
     with_variations: args.with_variations,
-    results: []
+    results: [],
+    model: args.model
   }
   if(args.seamless===true||args.seamless==='True'){newJob.seamless=true}else{newJob.seamless=false}
   if(args.hires_fix===true||args.hires_fix==='True'){newJob.hires_fix=true}else{newJob.hires_fix=false}
@@ -653,7 +682,7 @@ function queueStatus() { // todo report status to the relevant channel where the
     if (next.steps>50){statusMsg+=':recycle:'}
     if (next.seamless===true){statusMsg+=':knot:'}
     if (next.hires_fix===true){statusMsg+=':telescope:'}
-    //if (next.init_img!==''){statusMsg+=':paperclip:'}
+    if (next.init_img && next.init_img!==''){statusMsg+=':paperclip:'}
     if ((next.width!==next.height)||(next.width>defaultSize)){statusMsg+=':straight_ruler:'}
     statusMsg+=' :brain: **'+next.username+'**#'+next.discriminator+' :coin:`'+costCalculator(next)+'` :fire:`'+renderGps+'`'
   }
@@ -674,17 +703,23 @@ function prepSlashCmd(options) { // Turn partial options into full command for s
   var job = {}
   //log('prepSlashCmd input')
   //log(options)
-  var defaults = [{ name: 'prompt', value: ''},{name: 'width', value: defaultSize},{name:'height',value:defaultSize},{name:'steps',value:50},{name:'scale',value:7.5},{name:'sampler',value:'k_lms'},{name:'seed', value: getRandomSeed()},{name:'strength',value:0.75},{name:'number',value:1},{name:'gfpgan_strength',value:0},{name:'codeformer_strength',value:0},{name:'upscale_strength',value:0.75},{name:'upscale_level',value:''},{name:'seamless',value:false},{name:'variation_amount',value:0},{name:'with_variations',value:[]},{name:'threshold',value:0},{name:'perlin',value:0},{name:'hires_fix',value:false}]
+  var defaults = [{ name: 'prompt', value: ''},{name: 'width', value: defaultSize},{name:'height',value:defaultSize},{name:'steps',value:50},{name:'scale',value:7.5},{name:'sampler',value:'k_lms'},{name:'seed', value: getRandomSeed()},{name:'strength',value:0.75},{name:'number',value:1},{name:'gfpgan_strength',value:0},{name:'codeformer_strength',value:0},{name:'upscale_strength',value:0.75},{name:'upscale_level',value:''},{name:'seamless',value:false},{name:'variation_amount',value:0},{name:'with_variations',value:[]},{name:'threshold',value:0},{name:'perlin',value:0},{name:'hires_fix',value:false},{name:'model',value:'stable-diffusion-1.5'}]
   defaults.forEach(d=>{ if (options.find(o=>{ if (o.name===d.name) { return true } else { return false } })) { job[d.name] = options.find(o=>{ if (o.name===d.name) { return true } else { return false } }).value } else { job[d.name] = d.value } })
   //log('prepSlashCmd output');log(job)
   return job
 }
-function getCmd(newJob){ return newJob.prompt+' --width ' + newJob.width + ' --height ' + newJob.height + ' --seed ' + newJob.seed + ' --scale ' + newJob.scale + ' --sampler ' + newJob.sampler + ' --steps ' + newJob.steps + ' --strength ' + newJob.strength + ' --n ' + newJob.number + ' --gfpgan_strength ' + newJob.gfpgan_strength + ' --codeformer_strength ' + newJob.codeformer_strength + ' --upscale_level ' + newJob.upscale_level + ' --upscale_strength ' + newJob.upscale_strength + ' --threshold ' + newJob.threshold + ' --perlin ' + newJob.perlin + ' --seamless ' + newJob.seamless + ' --hires_fix ' + newJob.hires_fix + ' --variation_amount ' + newJob.variation_amount + ' --with_variations ' + newJob.with_variations}
+function getCmd(newJob){ return newJob.prompt+' --width ' + newJob.width + ' --height ' + newJob.height + ' --seed ' + newJob.seed + ' --scale ' + newJob.scale + ' --sampler ' + newJob.sampler + ' --steps ' + newJob.steps + ' --strength ' + newJob.strength + ' --n ' + newJob.number + ' --gfpgan_strength ' + newJob.gfpgan_strength + ' --codeformer_strength ' + newJob.codeformer_strength + ' --upscale_level ' + newJob.upscale_level + ' --upscale_strength ' + newJob.upscale_strength + ' --threshold ' + newJob.threshold + ' --perlin ' + newJob.perlin + ' --seamless ' + newJob.seamless + ' --hires_fix ' + newJob.hires_fix + ' --variation_amount ' + newJob.variation_amount + ' --with_variations ' + newJob.with_variations + ' --model ' + newJob.model}
 function getRandomSeed() {return Math.floor(Math.random() * 4294967295)}
 function chat(msg) {if (msg !== null && msg !== ''){bot.createMessage(config.channelID, msg)}}
+function chatChan(channel,msg) {
+  if (msg !== null && msg !== ''){
+    try{bot.createMessage(channel, msg)}
+    catch(err){log('Failed to send with error:'.bgRed);log(err)}
+  }
+}
 function sanitize (prompt) {
   if (config.bannedWords.length>0) { config.bannedWords.split(',').forEach((bannedWord, index) => { prompt = prompt.replace(bannedWord,'') }) }
-  return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()!\&\*\[\] ,.\:]/g, '').replace('`','') // (/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '')
+  return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()!\&\*\[\]\\\/\- ,.\:]/g, '').replace('`','') // (/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '')
 }
 function base64Encode(file) { var body = fs.readFileSync(file); return body.toString('base64') }
 function authorised(who,channel,guild) {
@@ -723,12 +758,12 @@ function costCalculator(job) {                 // Pass in a render, get a cost i
   var pixels=job.width*job.height              // How many pixels does this render use?
   cost=(pixels/pixelBase)*cost                 // premium or discount for resolution relative to default
   cost=(job.steps/50)*cost                     // premium or discount for step count relative to default
-  if (job.gfpgan_strength!==0){cost=cost*1.05} // 5% charge for gfpgan face fixing (minor increased processing time)
-  if (job.codeformer_strength!==0){cost=cost*1.05} // 5% charge for gfpgan face fixing (minor increased processing time)
+  //tmp disable//if (job.gfpgan_strength!==0){cost=cost*1.05} // 5% charge for gfpgan face fixing (minor increased processing time)
+  //tmp disable//if (job.codeformer_strength!==0){cost=cost*1.05} // 5% charge for gfpgan face fixing (minor increased processing time)
   if (job.upscale_level===2){cost=cost*1.5}    // 1.5x charge for upscale 2x (increased processing+storage+bandwidth)
   if (job.upscale_level===4){cost=cost*2}      // 2x charge for upscale 4x 
   if (job.hires_fix===true){cost=cost*1.5}     // 1.5x charge for hires_fix (renders once at half resolution, then again at full)
-  if (job.channel!==config.channelID){cost=cost*1.1} // 10% charge for renders outside of home channel
+  if (job.channel!==config.channelID){cost=cost*1.1}// 10% charge for renders outside of home channel
   cost=cost*job.number                         // Multiply by image count
   return cost.toFixed(2)                       // Return cost to 2 decimal places
 }
@@ -915,10 +950,14 @@ function sendWebhook(job){ // TODO eris has its own internal webhook method, inv
     .catch((error) => {console.error(error)})
 }
 
-//socket.on("connect", (socket) => {log(socket)})
+socket.on("connect", (socket) => {log(socket)})
 socket.on("generationResult", (data) => {generationResult(data)})
 socket.on("postprocessingResult", (data) => {postprocessingResult(data)})
 socket.on("initialImageUploaded", (data) => {initialImageUploaded(data)})
+var currentModel='stable-diffusion-1.5'
+var models=null
+socket.on("systemConfig", (data) => {log('systemConfig received');log(data);currentModel=data.model_id})
+socket.on("modelChanged", (data) => {currentModel=data.model_name;models=data.model_list;log('modelChanged to '+currentModel);log(models)})
 var socketStatus={
   currentStatus: null,
   currentStep: null,
@@ -954,6 +993,11 @@ function postprocessingResult(data){ // TODO unfinished, untested
   //postRender(postRenderObject)
 }
 
+function requestModelChange(newmodel){
+  log('Requesting model change to '+newmodel)
+  socket.emit('requestModelChange',newmodel)
+}
+
 function cancelRenders(){
   log('Cancelling current render'.bgRed)
   socket.emit('cancel')
@@ -963,15 +1007,14 @@ function cancelRenders(){
 
 function generationResult(data){
   var url=data.url
-  //log('seed',data.metadata.image.seed)
   url=config.basePath+data.url.split('/')[data.url.split('/').length-1]
-  var job = queue[queue.findIndex(j=>j.status==='rendering')]
+  var job = queue[queue.findIndex(j=>j.status==='rendering')] // TODO there has to be a better way to know if this is a job from the web interface or the discord bot.
   if (job){
     job.results.push(data)
     var postRenderObject = {id:job.id,filename: url, seed: data.metadata.image.seed, resultNumber:job.results.length-1, width:data.metadata.image.width,height:data.metadata.image.height}
     postRender(postRenderObject)
   }else{rendering=false}
-  if (job.results.length>=job.number){
+  if (job&&job.results.length>=job.number){
     job.status='done'
     rendering=false // is this needed anymore now we have socket updates?
     processQueue()
@@ -1019,12 +1062,13 @@ async function emitRenderApi(job){
       "strength": job.strength,
       "fit": true
   }
-  log(job.with_variations)
+  //log(job.with_variations)
   if(job.with_variations.length>0){log('adding with variations');postObject.with_variations=job.with_variations;log(postObject.with_variations)} 
   if(job.seamless&&job.seamless===true){postObject.seamless=true}
   if(job.hires_fix&&job.hires_fix===true){postObject.hires_fix=true}
   var upscale = false
   var facefix = false
+  job.gfpgan_strength=0;job.codeformer_strength=0//tmp disable broken gfpgan/codeformer
   if(job.gfpgan_strength!==0){facefix={type:'gfpgan',strength:job.gfpgan_strength}}
   if (job.codeformer_strength===undefined){job.codeformer_strength=0}
   if(job.codeformer_strength!==0){facefix={type:'codeformer',strength:job.codeformer_strength,codeformer_fidelity:1}}
@@ -1033,6 +1077,7 @@ async function emitRenderApi(job){
   if(job.init_img){postObject.init_img=job.init_img}
   //log('emitRenderApi sending')
   //log(postObject)
+  if(job.model&&currentModel&&job.model!==currentModel){log('job.model is different to currentModel, switching');requestModelChange(job.model)}
   [postObject,upscale,facefix,job].forEach((o)=>{
     var key = getObjKey(o,undefined)
     if (key!==undefined){ // not undefined in this context means there is a key that IS undefined, confusing
@@ -1091,9 +1136,11 @@ async function postRender (render) {
       //var jobResult = job.renders[render.resultNumber]
       //logjobResult.variations
       if (render.variations) { msg+= ':linked_paperclips:with variants `' + render.variations + '`'}
+      //if (job.model!=='stable-diffusion-1.5'){}
       msg+= ':seedling:`' + render.seed + '`:scales:`' + job.scale + '`:recycle:`' + job.steps + '`'
       msg+= ':stopwatch:`' + timeDiff(job.timestampRequested, moment()) + 's`'
       msg+= ':file_cabinet:`' + filename + '`:eye:`' + job.sampler + '`'
+      msg+= ':floppy_disk:`'+job.model+'`'
       if (job.webhook){msg+='\n:calendar:Scheduled render sent to `'+job.webhook.destination+'` discord'}
       chargeCredits(job.userid,(costCalculator(job))/job.number) // only charge successful renders
       if (job.cost){msg+=':coin:`'+(job.cost/job.number).toFixed(2).replace(/[.,]00$/, "")+'/'+ creditsRemaining(job.userid) +'`'}
@@ -1126,7 +1173,20 @@ async function postRender (render) {
               job.webhook.imgurl=m.attachments[0].url
               sendWebhook(job)
             }*/
-          }).catch((err)=>{log('caught error posting to discord'.bgRed);log(err)})
+          }).catch((err)=>{
+            log('caught error posting to discord'.bgRed);log(err)
+            /*if (err){
+              setTimeout(function(){
+                try {bot.createMessage(job.channel, newMessage, {file: data, name: filename + '.png'})}
+                catch(err) {
+                  log('Failed to post image twice due to discord gateway timeout'.bgRed)
+                  log(err)
+                  // TODO We should record a job status that causes this to be re-attempted later
+                  job.status='failedPostingDiscord-'+render.resultNumber // this would get overwritten by the next image in a multi-image batch, rethink
+                }
+              }, 5000) // Wait 5 seconds and try one more time
+            }*/
+          })
         }
         catch (err) {console.error(err)}
       } else {
@@ -1293,16 +1353,31 @@ const unique = (value, index, self) => { return self.indexOf(value) === index }
 function getRandomColorDec(){return Math.floor(Math.random()*16777215)}
 function timeDiff (date1,date2) { return date2.diff(date1, 'seconds') }
 
-var randoms = ['prompt','artist','city','genre','medium','emoji','subject','madeof','style','animal','bodypart','gerund','verb','adverb','adjective','star','fruit','country','gender','familyfriendly','quality','gtav','photo','render','lighting','cute'] // 
-function getRandom(what) { if (randoms.includes(what)) { try { var lines = fs.readFileSync('txt\\' + what + '.txt', 'utf-8').split(/r?\n/); return lines[Math.floor(Math.random()*lines.length)] } catch (err) { console.error(err)} } else { return what } }
+var randoms = ['prompt','artist','city','genre','medium','emoji','subject','madeof','style','animal','bodypart','gerund','verb','adverb','adjective','star','fruit','country','gender','familyfriendly','quality','gtav','photo','render','lighting','cute','colour'] // 
+function getRandom(what) { if (randoms.includes(what)) { try { var lines = fs.readFileSync('txt/' + what + '.txt', 'utf-8').split(/r?\n/); return lines[Math.floor(Math.random()*lines.length)] } catch (err) { console.error(err)} } else { return what } }
 function replaceRandoms (input) {
   var output=input
   randoms.forEach(x=>{
     var wordToReplace = '{'+x+'}'
+    var before=''
+    var after=''
+    var replacement=''
     var wordToReplaceLength = wordToReplace.length
-    for (let i=0;i<input.split(wordToReplace).length-1;i++){
-      var wordToReplacePosition = output.indexOf(wordToReplace)
-      output = output.substr(0,wordToReplacePosition)+getRandom(x)+output.substr(wordToReplacePosition+wordToReplaceLength)
+    var howManyReplacements = output.split(wordToReplace).length-1
+    if (howManyReplacements>0){log(howManyReplacements+' replacements for {'+x+'} in input of:',output)}
+    for (let i=0;i<howManyReplacements;i++){ // to support multiple {x} of the same type in the same prompt
+      var wordToReplacePosition = output.indexOf(wordToReplace) // where the first {x} starts (does this need +1?)
+      var wordToReplacePositionEnd = wordToReplacePosition+wordToReplaceLength
+      before=output.substr(0,wordToReplacePosition)
+      replacement=getRandom(x)
+      after=output.substr(wordToReplacePositionEnd)
+      output=before+replacement+after
+      /*log('BEFORE: ' + before.bgCyan)
+      log('REPLACEMENT: ' + replacement.bgYellow)
+      log('AFTER: ' + after.bgBlue)
+      log('OUTPUT: ' + output.bgRed)
+      log(before.bgCyan+replacement.bgYellow+after.bgWhite.black)
+      log('loop '+i+' end')*/
     }
   })
   return output
@@ -1324,6 +1399,7 @@ async function imgbbupload(file) {
 }
 const FormData = require('form-data')
 const hiveBroadcast = require('@hiveio/hive-js/lib/broadcast')
+const { logs } = require('forever/lib/forever/cli')
 async function oshiupload(file) {
   log('uploading via oshi.at api')
   log(file)
