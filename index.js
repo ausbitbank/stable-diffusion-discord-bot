@@ -558,6 +558,21 @@ bot.on("messageCreate", (msg) => {
       }
       case '!guilds':{bot.guilds.forEach((g)=>{log({id: g.id, name: g.name, ownerID: g.ownerID, description: g.description, memberCount: g.memberCount})});break}
       case '!updateslashcommands':{bot.getCommands().then(cmds=>{bot.commands = new Collection();for (const c of slashCommands) {bot.commands.set(c.name, c);bot.createCommand({name: c.name,description: c.description,options: c.options ?? [],type: Constants.ApplicationCommandTypes.CHAT_INPUT})}});break}
+      case '!models':{
+        if(!models){socket.emit('requestSystemConfig')}
+        var newMsg='**These models currently available to arty via the `--model` parameter**\n:green_circle: =loaded :orange_circle: =cached in ram :red_circle: = unloaded\nIf description has a dash, the following keywords are recommended for best results\n**Example:**`anonymous in modern disney style --model modern-disney`\n'
+        if(models){Object.keys(models).forEach((m)=>{
+          switch(models[m].status){
+            case 'not loaded':{newMsg+=':red_circle:';break}
+            case 'cached':{newMsg+=':orange_circle:';break}
+            case 'active':{newMsg+=':green_circle:';break}
+          }
+          newMsg+='`'+m+'`'
+          newMsg+=models[m].description+'\n'
+        })}
+        if(newMsg!==''){try{chatChan(msg.channel.id,newMsg)}catch(err){log(err)}}
+        break
+      }
     }
   }
 })
@@ -950,14 +965,14 @@ function sendWebhook(job){ // TODO eris has its own internal webhook method, inv
     .catch((error) => {console.error(error)})
 }
 
-socket.on("connect", (socket) => {log(socket)})
+//socket.on("connect", (socket) => {log(socket)})
 socket.on("generationResult", (data) => {generationResult(data)})
 socket.on("postprocessingResult", (data) => {postprocessingResult(data)})
 socket.on("initialImageUploaded", (data) => {initialImageUploaded(data)})
-var currentModel='stable-diffusion-1.5'
+var currentModel='invalid'
 var models=null
-socket.on("systemConfig", (data) => {log('systemConfig received');log(data);currentModel=data.model_id})
-socket.on("modelChanged", (data) => {currentModel=data.model_name;models=data.model_list;log('modelChanged to '+currentModel);log(models)})
+socket.on("systemConfig", (data) => {log('systemConfig received');currentModel=data.model_id;models=data.model_list})
+socket.on("modelChanged", (data) => {currentModel=data.model_name;models=data.model_list;log('modelChanged to '+currentModel)})
 var socketStatus={
   currentStatus: null,
   currentStep: null,
