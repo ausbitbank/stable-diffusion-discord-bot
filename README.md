@@ -1,14 +1,14 @@
 # stable-diffusion-discord-bot
 
-A discord bot built to interface with the webserver api built into the invoke-ai fork of stable-diffusion.
+A discord bot built to interface with the [InvokeAI](https://github.com/invoke-ai/InvokeAI) fork of stable-diffusion.
 
 ## Current features:
-- Most features from the lstein fork are available via bot
+- Most features from InvokeAI are available via bot
 - Simple buttons for refresh and using templates/init-images
 - Attach an image with your chat message to use as template/init-image
 - Basic FIFO queue system
 - Watch folder for new files, autopost to discord with filename/info if available
-- Prompt and keyword randomisation from txt files
+- Supports loading prompt, keywords and settings from txt files with randomisation
 - RealESRGAN face fixing and upscaling
 - Slash commands
 - Per user credit tracking system
@@ -19,11 +19,27 @@ A discord bot built to interface with the webserver api built into the invoke-ai
 - Upload to imgbb api (optional)
 - Remixing/meming and animating images using [discord-image-generation](https://www.npmjs.com/package/discord-image-generation?activeTab=readme)
 - Render prompt(s) by multiple schedules and deliver via webhooks
+- Tweak menu for altering advanced settings on past renders
+- Remove backgrounds from images automagically, export as transparent PNG
+- Supports custom model/checkpoint files, and selecting what model to use per render
+
 
 ## WIP/future features:
 - Alternative render path via dreamstudio api for paying users
 
 ## Screenshots:
+
+Tweak menu with advanced controls
+
+![](https://media.discordapp.net/attachments/1023961603319808110/1036083691270713354/unknown.png)
+
+Automagic background removal
+
+![](https://media.discordapp.net/attachments/1023961603319808110/1036083691627216916/unknown.png)
+
+Model/Checkpoint switching
+
+![](https://media.discordapp.net/attachments/1023961603319808110/1036083691971154030/unknown.png)
 
 Slash commands with available parameters
 
@@ -108,6 +124,16 @@ Rename `.env.example` to `.env` and enter your own details:
 Run with `npm start` or `yarn start`
 
 Invite to your server with `https://discord.com/oauth2/authorize?client_id= APPLICATION ID HERE &scope=bot&permissions=124992` (these ᴛᴇxᴛ ᴘᴇʀᴍɪssɪᴏɴs are required for the bot to function!)
+
+If you get a `disallowed intents specified` error on first launch, make sure you have these priveledged intents enabled in your bots settings here 
+
+https://discord.com/developers/applications/
+
+![image](https://media.discordapp.net/attachments/902380838187040789/1026761264631906304/unknown.png?width=741&height=716)
+
+The background removal feature requires you to run a "rembg" server bound to localhost port 5000
+You can start it as a docker container with this command
+`docker run -p 127.0.0.1:5000:5000 danielgatis/rembg s`
 
 Patches/Pull request are greatly appreciated!
 -----------------------
