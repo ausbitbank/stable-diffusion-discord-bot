@@ -76,6 +76,7 @@ var slashCommands = [
       {type: '10', name: 'threshold', description: 'Advanced threshold control (0-10)', required: false, min_value:0, max_value:40},
       {type: '10', name: 'perlin', description: 'Add perlin noise to your image (0-1)', required: false, min_value:0, max_value:1},
       {type: '5', name: 'hires_fix', description: 'High resolution fix (re-renders twice using template)', required: false},
+      {type: '3', name: 'model', description: 'Change the model/checkpoint - see !models for more info', required: false,   min_length: 3, max_length:40},
     ],
     cooldown: 500,
     execute: (i) => {
@@ -560,8 +561,10 @@ bot.on("messageCreate", (msg) => {
       case '!updateslashcommands':{bot.getCommands().then(cmds=>{bot.commands = new Collection();for (const c of slashCommands) {bot.commands.set(c.name, c);bot.createCommand({name: c.name,description: c.description,options: c.options ?? [],type: Constants.ApplicationCommandTypes.CHAT_INPUT})}});break}
       case '!models':{
         if(!models){socket.emit('requestSystemConfig')}
-        var newMsg='**These models currently available to arty via the `--model` parameter**\n:green_circle: =loaded :orange_circle: =cached in ram :red_circle: = unloaded\nIf description has a dash, the following keywords are recommended for best results\n**Example:**`anonymous in modern disney style --model modern-disney`\n'
-        if(models){Object.keys(models).forEach((m)=>{
+        var newMsg=''
+        if(models){
+          newMsg='**'+Object.keys(models).length+' models currently available to via the `--model` parameter**\n:green_circle: =loaded in VRAM :orange_circle: =cached in RAM :red_circle: = unloaded\nIf description has a dash, the following keywords are recommended for best results\n**Example:**`anonymous in modern disney style --model modern-disney`\n'
+          Object.keys(models).forEach((m)=>{
           switch(models[m].status){
             case 'not loaded':{newMsg+=':red_circle:';break}
             case 'cached':{newMsg+=':orange_circle:';break}
@@ -995,7 +998,7 @@ socket.on("progressUpdate", (data) => {
       }
     }
   })*/
-  if(data.isProcessing===false){rendering=false}else{rendering=true}
+  //if(data.isProcessing===false){rendering=false}else{rendering=true}
 })
 socket.on('error', (error) => {log('Api socket error'.bgRed);log(error)})
 
