@@ -12,6 +12,7 @@ const imgur = new ImgurClient({ clientId: config.imgurClientID})
 const imgbb = require("imgbb-uploader")
 const DIG = require("discord-image-generation")
 const log = console.log.bind(console)
+function debugLog(m){if(config.showDebug){log(m)}}
 const dJSON = require('dirty-json')
 var colors = require('colors')
 const debounce = require('debounce')
@@ -281,10 +282,11 @@ bot.on("interactionCreate", async (interaction) => {
             flags:64,
             components:[
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Portrait aspect ratio", custom_id: "twkaspectPortrait-"+id+'-'+rn, emoji: { name: '↕️', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Square aspect ratio", custom_id: "twkaspectSquare-"+id+'-'+rn, emoji: { name: '🔳', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Landscape aspect ratio", custom_id: "twkaspectLandscape-"+id+'-'+rn, emoji: { name: '↔️', id: null}, disabled: false },
-                //{type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "4k wallpaper", custom_id: "twkaspect4k-"+id+'-'+rn, emoji: { name: '↔️', id: null}, disabled: false }
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Portrait", custom_id: "twkaspectPortrait-"+id+'-'+rn, emoji: { name: '↕️', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Square", custom_id: "twkaspectSquare-"+id+'-'+rn, emoji: { name: '🔳', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Landscape", custom_id: "twkaspectLandscape-"+id+'-'+rn, emoji: { name: '↔️', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Model", custom_id: "chooseModel-"+id+'-'+rn, emoji: { name: '💾', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Sampler", custom_id: "chooseSampler-"+id+'-'+rn, emoji: { name: '👁️', id: null}, disabled: false }
               ]},
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Scale - 1", custom_id: "twkscaleMinus-"+id+'-'+rn, emoji: { name: '⚖️', id: null}, disabled: false },
@@ -311,9 +313,21 @@ bot.on("interactionCreate", async (interaction) => {
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Fast settings", custom_id: "twkfast-"+id+'-'+rn, emoji: { name: '⏩', id: null}, disabled: false },
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Slow settings", custom_id: "twkslow-"+id+'-'+rn, emoji: { name: '⏳', id: null}, disabled: false },
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Batch of 5", custom_id: "twkbatch5-"+id+'-'+rn, emoji: { name: '🖐️', id: null}, disabled: false }
-              ]},
-            ]// TODO add select/dropdown menu for samplers, remove currently chosen sampler from menu
+              ]}
+            ]
           }
+          // Add models to action row, tweak menu is currently full
+          /*
+          {type:Constants.ComponentTypes.ACTION_ROW,components:[
+            {type: 3,custom_id:'model_select',placeholder:'Choose a model/checkpoint',min_values:1,max_values:1,options:[
+              {label: "Rogue",value: "rogue",description: "Sneak n stab",emoji:{name: "rogue",id: "625891304148303894"}},
+            ],
+            }
+          ]}
+          log('models:')
+          log(models)
+          */
+          // TODO add select/dropdown menu for samplers, remove currently chosen sampler from menu
           // Disable buttons depending on the current parameters
           if (newJob.width===512&&newJob.height===704){tweakResponse.components[0].components[0].disabled=true}
           if (newJob.width===newJob.height){tweakResponse.components[0].components[1].disabled=true}
@@ -386,6 +400,68 @@ bot.on("interactionCreate", async (interaction) => {
       }
       }
       return interaction.editParent({content:':test_tube: **'+interaction.data.custom_id.split('-')[0].replace('twk','')+'** selected',components:[]}).catch((e) => {console.error(e)})
+    } else if (interaction.data.custom_id.startsWith('chooseModel')) {
+      id=interaction.data.custom_id.split('-')[1]
+      rn=interaction.data.custom_id.split('-')[2]
+      var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
+      if(newJob&&models){
+        var changeModelResponse={
+            content:':floppy_disk: **Model Menu**\nUse this menu to change the model/checkpoint being used, to give your image a specific style',
+            flags:64,
+            components:[{type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'changeModel-'+id+'-'+rn,placeholder:'Choose a model/checkpoint',min_values:1,max_values:1,options:[]}]}]
+        }
+        Object.keys(models).forEach((m)=>{changeModelResponse.components[0].components[0].options.push({label: m,value: m,description: models[m].description})})
+        return interaction.editParent(changeModelResponse).then((r)=>{}).catch((e)=>{console.error(e)})
+      }
+    } else if (interaction.data.custom_id.startsWith('changeModel')) {
+      id=interaction.data.custom_id.split('-')[1]
+      rn=interaction.data.custom_id.split('-')[2]
+      var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
+      var newModel=interaction.data.values[0]
+      var newModelDescription=models[newModel].description
+      var newModelKeywords=newModelDescription.split('##')[1]
+      var oldModel=newJob.model
+      var oldModelDescription=models[oldModel].description
+      var oldModelKeywords=oldModelDescription.split('##')[1]
+      if(newJob&&newModel){
+        newJob.model=newModel // set the new model
+        if(newModelKeywords&&!newJob.prompt.includes(newModelKeywords)){ //new model needs keywords not currently in the prompt
+          if(newJob.prompt.includes(oldModelKeywords)){ // old model needed keywords that are still in the prompt
+            newJob.prompt=newJob.prompt.replace(oldModelKeywords,newModelKeywords) // swap new for old
+          }else{newJob.prompt+=','+newModelKeywords}// otherwise, just add new keywords
+        }
+        if (newJob.prompt.includes(oldModelKeywords)&&!newModelKeywords){newJob.prompt=newJob.prompt.replace(oldModelKeywords,'')}//Remove old keywords, even if we dont have new ones to replace
+        if(interaction.member){
+          request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
+        } else if (interaction.user){
+          request({cmd: getCmd(newJob), userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, attachments: []})
+        }
+        return interaction.editParent({content:':floppy_disk: ** Model '+interaction.data.values[0]+'** selected',components:[]}).catch((e) => {console.error(e)})
+      }
+    } else if (interaction.data.custom_id.startsWith('chooseSampler')) {
+      id=interaction.data.custom_id.split('-')[1]
+      rn=interaction.data.custom_id.split('-')[2]
+      var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
+      if(newJob&&models){
+        var changeSamplerResponse={content:':eye: **Sampler Menu**\nUse this menu to change the sampler being used',flags:64,components:[{type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'changeSampler-'+id+'-'+rn,placeholder:'Choose a sampler',min_values:1,max_values:1,options:[]}]}]}
+        var samplers=['ddim','plms','k_lms','k_dpm_2','k_dpm_2_a','k_euler','k_euler_a','k_heun']
+        samplers.forEach((s)=>{changeSamplerResponse.components[0].components[0].options.push({label: s,value: s})})
+        return interaction.editParent(changeSamplerResponse).then((r)=>{}).catch((e)=>{console.error(e)})
+      }
+    } else if (interaction.data.custom_id.startsWith('changeSampler')) {
+      id=interaction.data.custom_id.split('-')[1]
+      rn=interaction.data.custom_id.split('-')[2]
+      var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
+      var newSampler=interaction.data.values[0]
+      if(newJob&&newSampler){
+        newJob.sampler=newSampler // set the new model
+        if(interaction.member){
+          request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
+        } else if (interaction.user){
+          request({cmd: getCmd(newJob), userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, attachments: []})
+        }
+        return interaction.editParent({content:':eye: ** Sampler '+interaction.data.values[0]+'** selected',components:[]}).catch((e) => {console.error(e)})
+      }
     }
   }
   if (!authorised(interaction,interaction.channel.id,interaction.guildID)) {
@@ -445,7 +521,7 @@ bot.on("guildMemberRemove", (guild,member) => {var m='User '+member.username+'#'
 var lastMsgChan=null
 bot.on("messageCreate", (msg) => {
   // an irc like view of non bot messages in allowed channels. Creepy but convenient
-  if (config.showChat){
+  if (config.showChat&&!msg.author.bot){
     if(lastMsgChan!==msg.channel.id&&msg.channel.name&&msg.channel.guild){
       log('#'.bgBlue+msg.channel.name.bgBlue+'-'+msg.channel.id.bgWhite.black+'-'+msg.channel.guild.name.bgBlue+'')
       lastMsgChan=msg.channel.id // Track last channel so messages can be grouped with channel headers
@@ -563,7 +639,8 @@ bot.on("messageCreate", (msg) => {
         if(!models){socket.emit('requestSystemConfig')}
         var newMsg=''
         if(models){
-          newMsg='**'+Object.keys(models).length+' models currently available to via the `--model` parameter**\n:green_circle: =loaded in VRAM :orange_circle: =cached in RAM :red_circle: = unloaded\nIf description has a dash, the following keywords are recommended for best results\n**Example:**`anonymous in modern disney style --model modern-disney`\n'
+          log(models)
+          newMsg='**'+Object.keys(models).length+' models currently available via the `--model` parameter**\n:green_circle: =loaded in VRAM :orange_circle: =cached in RAM :red_circle: = unloaded\nIf description has a dash, the following keywords are recommended for best results\n**Example:**`anonymous in modern disney style --model modern-disney`\n'
           Object.keys(models).forEach((m)=>{
           switch(models[m].status){
             case 'not loaded':{newMsg+=':red_circle:';break}
@@ -579,8 +656,6 @@ bot.on("messageCreate", (msg) => {
     }
   }
 })
-
-bot.connect()
 function request(request){
   // request = { cmd: string, userid: int, username: string, discriminator: int, bot: false, channelid: int, attachments: {}, }
   if (request.cmd.includes('{')) { request.cmd = replaceRandoms(request.cmd) } // swap randomizers
@@ -737,7 +812,7 @@ function chatChan(channel,msg) {
 }
 function sanitize (prompt) {
   if (config.bannedWords.length>0) { config.bannedWords.split(',').forEach((bannedWord, index) => { prompt = prompt.replace(bannedWord,'') }) }
-  return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()!\&\*\[\]\\\/\- ,.\:]/g, '').replace('`','') // (/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '')
+  return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ+()=!\"\&\*\[\]\\\/\- ,.\:]/g, '').replace('`','') // (/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '')
 }
 function base64Encode(file) { var body = fs.readFileSync(file); return body.toString('base64') }
 function authorised(who,channel,guild) {
@@ -1000,7 +1075,15 @@ socket.on("progressUpdate", (data) => {
   })*/
   //if(data.isProcessing===false){rendering=false}else{rendering=true}
 })
-socket.on('error', (error) => {log('Api socket error'.bgRed);log(error)})
+socket.on('error', (error) => {
+  log('Api socket error'.bgRed);log(error)
+  var nowJob=queue[queue.findIndex((j)=>j.status==="rendering")]
+  if(nowJob){
+    log('Failing status for:');nowJob.status='failed';log(nowJob)
+    chatChan(nowJob.channel,':warning: <@'+nowJob.userid+'>, there was an error in your prompt: `'+nowJob.prompt+'`\n**Error:** `'+error.message+'`\n')
+  }
+  rendering=false
+})
 
 function postprocessingResult(data){ // TODO unfinished, untested
   log(data)
@@ -1013,6 +1096,7 @@ function postprocessingResult(data){ // TODO unfinished, untested
 
 function requestModelChange(newmodel){
   log('Requesting model change to '+newmodel)
+  if (newmodel===undefined||newmodel==='undefined'){newmodel='stable-diffusion-1.5'}
   socket.emit('requestModelChange',newmodel)
 }
 
@@ -1078,7 +1162,8 @@ async function emitRenderApi(job){
       "progress_images": false,
       "variation_amount": job.variation_amount,
       "strength": job.strength,
-      "fit": true
+      "fit": true,
+      "progress_latents": false // only needed in latest dev build
   }
   //log(job.with_variations)
   if(job.with_variations.length>0){log('adding with variations');postObject.with_variations=job.with_variations;log(postObject.with_variations)} 
@@ -1095,7 +1180,7 @@ async function emitRenderApi(job){
   if(job.init_img){postObject.init_img=job.init_img}
   //log('emitRenderApi sending')
   //log(postObject)
-  if(job.model&&currentModel&&job.model!==currentModel){log('job.model is different to currentModel, switching');requestModelChange(job.model)}
+  if(job&&job.model&&currentModel&&job.model!==currentModel){log('job.model is different to currentModel, switching');requestModelChange(job.model)}
   [postObject,upscale,facefix,job].forEach((o)=>{
     var key = getObjKey(o,undefined)
     if (key!==undefined){ // not undefined in this context means there is a key that IS undefined, confusing
@@ -1168,7 +1253,7 @@ async function postRender (render) {
       if (job.upscale_level==='') {
         if (!job.attachments.length>0&&job.sampler!=='k_euler_a'){
           if (job.variation_amount===0){ // not already a variant
-            newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "10% Variant", custom_id: "refreshVariants-" + job.id + '-' + render.seed, emoji: { name: '🧬', id: null}, disabled: false })
+            //newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "10% Variant", custom_id: "refreshVariants-" + job.id + '-' + render.seed, emoji: { name: '🧬', id: null}, disabled: false })
           } else { // job is a variant, we need the original seed + variant seed
             //newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "10% Variant", custom_id: "refreshVariants-" + job.id + '-' + job.seed + '-' + render.seed, emoji: { name: '🧬', id: null}, disabled: false })
           }
@@ -1257,7 +1342,8 @@ function processQueue () {
       bot.editStatus('online')
       rendering=true
       log(nextJob.username.bgWhite.red+':'+nextJob.cmd.replace('\r','').replace('\n').bgWhite.black)
-      addRenderApi(nextJob.id)
+      //pedoScan(nextJob.id) // Scan for pedo prompts,reject,alert OR render it
+      addRenderApi(nextJob.id) // Comment out line if enabling pedoscan above
     } else {
       log(nextJob.username+' cant afford this render, denying')
       log('cost: '+costCalculator(nextJob))
@@ -1314,6 +1400,58 @@ function lexicaSearch(query,channel){
 }
 lexicaSearch=debounce(lexicaSearch,1000,true)
 
+function pedoScan(jobid){
+  debugLog('start pedoscan')
+  // Call in between processQueue and render emit
+  // Detect likely p*do prompts, set job status to failed, reply with chris hansen behind spoiler, alert admin with user info, prompt with matching terms and discord ID to manually ban via .env
+  var chrisHansen='||https://media.discordapp.net/attachments/1024766656347652186/1036541751147638854/unknown.png *Why don\'t you take a seat right over here*...\n(**Prompt rejected**)||'
+  // Fuck discord id miami#7199 986810579991818261 ..
+  var job=queue[jobid-1]
+  if (job){
+    debugLog('pedoScan job found')
+    var prompt=job.prompt
+    var ageKeywords=['baby','toddler','infant','prepubescent','child','kid','young','TESTAGEKEYWORD'] // suss when combined with pornKeywords
+    var ageNumbers=['one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','TESTAGENUMBER'] // suss when combined with ageYearTerms AND pornKeywords
+    var ageYearTerms=['yr','year','yo','TESTAGEYEARTERM']
+    var pornKeywords=['nude','naked','sex','porn','fucking','fuck','gape','gangbang','cumshot','cum','lolita','rape','TESTPORNKEYWORD']
+    var promptMatches=[]
+    var possibleCombos=[]
+    if (['f111'].includes(job.model)){
+      if (ageKeywords.some(k=>prompt.includes(k))){ // no young keywords + porn models
+        promptMatches.push(job.model)
+        promptMatches.push(k) // BUGGED k is not defined)
+      }
+    }
+    if(pornKeywords.some(p=>prompt.includes(p))){// Matched a porn keyword in the prompt
+      if (ageKeywords.some(k=>prompt.includes(k))){// AND matched a child keyword
+        // BUGGED k is not defined
+        promptMatches.push(k);promptMatches.push(p)
+      }
+      if (ageNumbers.some(a=>prompt.includes(a))){ // Matching porn AND ageNumber
+        ageYearTerms.forEach((y)=>{ // Make sure ageNumber is neighbouring the ageYearTerm
+          // BUGGED a is not defined
+          possibleCombos.push(a+y);possibleCombos.push(a+' '+y)
+          if(possibleCombos.some(pc=>prompt.includes(pc))){promptMatches.push(pc);promptMatches.push(p)}
+          possibleCombos=[]
+        })
+      }
+    }
+    if(promptMatches.length>0){//any matches is too many, reject/alert
+      log('failed pedoScan')
+      job.status='rejected'
+      sayChan(job.channel,'<'+job.userid+'>'+chrisHansen)
+      var alertMsg='Flagged prompts by '+job.username+'#'+job.discriminator+' userid '+job.userid+' channelid '+job.channel+'\nMatching terms:'+promptMatches.join(',')+'\nFull prompt:'+job.prompt
+      log(alertMsg)
+      directMessageUser(config.adminID,alertMsg,config.channelID)
+      rendering=false;processQueue()
+    } else {
+      debugLog('passed pedoScan')
+      addRenderApi(jobid)
+    }
+  } else {
+    log('pedoScan job not found')
+  }
+}
 async function meme(prompt,urls,userid,channel){
   params = prompt.split(' ')
   cmd = prompt.split(' ')[0]
@@ -1450,3 +1588,7 @@ if(config.filewatcher==="true") {
   renders.on('add',file=>{process(file)})
 }
 function tidyNumber (x) {if (x) {var parts = x.toString().split('.');parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');return parts.join('.')}else{return null}}
+
+// Actual start of execution flow
+bot.connect()
+if(!models){socket.emit('requestSystemConfig')}
