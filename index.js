@@ -66,7 +66,7 @@ var slashCommands = [
       {type: '10', name: 'scale', description: 'how important is the prompt (1-30)', required: false, min_value:1, max_value:30},
       {type: '4', name: 'number', description: 'how many would you like (1-10)', required: false, min_value: 1, max_value: 10},
       {type: '5', name: 'seamless', description: 'Seamlessly tiling textures', required: false},
-      {type: '3', name: 'sampler', description: 'which sampler to use (default is k_lms)', required: false, choices: [{name: 'ddim', value: 'ddim'},{name: 'plms', value: 'plms'},{name: 'k_lms', value: 'k_lms'},{name: 'k_dpm_2', value: 'k_dpm_2'},{name: 'k_dpm_2_a', value: 'k_dpm_2_a'},{name: 'k_euler', value: 'k_euler'},{name: 'k_euler_a', value: 'k_euler_a'},{name: 'k_heun', value: 'k_heun'}]},
+      {type: '3', name: 'sampler', description: 'which sampler to use (default is ddim)', required: false, choices: [{name: 'ddim', value: 'ddim'},{name: 'plms', value: 'plms'},{name: 'k_lms', value: 'k_lms'},{name: 'k_dpm_2', value: 'k_dpm_2'},{name: 'k_dpm_2_a', value: 'k_dpm_2_a'},{name: 'k_euler', value: 'k_euler'},{name: 'k_euler_a', value: 'k_euler_a'},{name: 'k_heun', value: 'k_heun'}]},
       {type: '11', name: 'attachment', description: 'use template image', required: false},
       {type: '10', name: 'gfpgan_strength', description: 'GFPGan strength (0-1)(low= more face correction, high= more accuracy)', required: false, min_value: 0, max_value: 1},
       {type: '10', name: 'codeformer_strength', description: 'Codeformer strength (0-1)(low= more face correction, high= more accuracy)', required: false, min_value: 0, max_value: 1},
@@ -640,7 +640,7 @@ bot.on("messageCreate", (msg) => {
         var newMsg=''
         if(models){
           log(models)
-          newMsg='**'+Object.keys(models).length+' models currently available via the `--model` parameter**\n:green_circle: =loaded in VRAM :orange_circle: =cached in RAM :red_circle: = unloaded\nIf description has a dash, the following keywords are recommended for best results\n**Example:**`anonymous in modern disney style --model modern-disney`\n'
+          newMsg='**'+Object.keys(models).length+' models currently available via the `--model` parameter**\n:green_circle: =loaded in VRAM :orange_circle: =cached in RAM :red_circle: = unloaded\nIf description has `##`, the following keywords are recommended for best results\n**Example:**`anonymous in modern disney style --model modern-disney`\n'
           Object.keys(models).forEach((m)=>{
           switch(models[m].status){
             case 'not loaded':{newMsg+=':red_circle:';break}
@@ -690,7 +690,7 @@ function request(request){
   if (!args.seed||!Number.isInteger(args.seed)||args.seed<1||args.seed>4294967295){args.seed=getRandomSeed()}
   if (!args.strength||args.strength>=1||args.strength<=0){args.strength=0.75}
   if (!args.scale||args.scale>200||args.scale<1){args.scale=7.5}
-  if (!args.sampler){args.sampler='k_lms'}
+  if (!args.sampler){args.sampler='ddim'}
   if (args.n){args.number=args.n}
   if (!args.number||!Number.isInteger(args.number)||args.number>10||args.number<1){args.number=1}
   if (!args.renderer||['localApi'].includes(args.renderer)){args.renderer='localApi'}
@@ -707,7 +707,7 @@ function request(request){
   if (!args.with_variations){args.with_variations=[]}else{log(args.with_variations)}//; args.with_variations=args.with_variations.toString()
   if (!args.threshold){args.threshold=0}
   if (!args.perlin||args.perlin>1||args.perlin<0){args.perlin=0}
-  if (!args.model||args.model===undefined){args.model='stable-diffusion-1.5'}
+  if (!args.model||args.model===undefined){args.model='stable-diffusion-1.5'}else{args.model=args.model.toLowerCase()}
   args.timestamp=moment()
   args.prompt=sanitize(args._.join(' '))
   if (args.prompt.length===0){args.prompt=getRandom('prompt');log('empty prompt found, adding random')} 
@@ -796,7 +796,7 @@ function prepSlashCmd(options) { // Turn partial options into full command for s
   var job = {}
   //log('prepSlashCmd input')
   //log(options)
-  var defaults = [{ name: 'prompt', value: ''},{name: 'width', value: defaultSize},{name:'height',value:defaultSize},{name:'steps',value:50},{name:'scale',value:7.5},{name:'sampler',value:'k_lms'},{name:'seed', value: getRandomSeed()},{name:'strength',value:0.75},{name:'number',value:1},{name:'gfpgan_strength',value:0},{name:'codeformer_strength',value:0},{name:'upscale_strength',value:0.75},{name:'upscale_level',value:''},{name:'seamless',value:false},{name:'variation_amount',value:0},{name:'with_variations',value:[]},{name:'threshold',value:0},{name:'perlin',value:0},{name:'hires_fix',value:false},{name:'model',value:'stable-diffusion-1.5'}]
+  var defaults = [{ name: 'prompt', value: ''},{name: 'width', value: defaultSize},{name:'height',value:defaultSize},{name:'steps',value:50},{name:'scale',value:7.5},{name:'sampler',value:'ddim'},{name:'seed', value: getRandomSeed()},{name:'strength',value:0.75},{name:'number',value:1},{name:'gfpgan_strength',value:0},{name:'codeformer_strength',value:0},{name:'upscale_strength',value:0.75},{name:'upscale_level',value:''},{name:'seamless',value:false},{name:'variation_amount',value:0},{name:'with_variations',value:[]},{name:'threshold',value:0},{name:'perlin',value:0},{name:'hires_fix',value:false},{name:'model',value:'stable-diffusion-1.5'}]
   defaults.forEach(d=>{ if (options.find(o=>{ if (o.name===d.name) { return true } else { return false } })) { job[d.name] = options.find(o=>{ if (o.name===d.name) { return true } else { return false } }).value } else { job[d.name] = d.value } })
   //log('prepSlashCmd output');log(job)
   return job
@@ -1046,7 +1046,8 @@ function sendWebhook(job){ // TODO eris has its own internal webhook method, inv
 //socket.on("connect", (socket) => {log(socket)})
 socket.on("generationResult", (data) => {generationResult(data)})
 socket.on("postprocessingResult", (data) => {postprocessingResult(data)})
-socket.on("initialImageUploaded", (data) => {initialImageUploaded(data)})
+socket.on("initialImageUploaded", (data) => {log('got init image uploaded');initialImageUploaded(data)})
+socket.on("imageUploaded", (data) => {log('got image uploaded');initialImageUploaded(data)})
 var currentModel='invalid'
 var models=null
 socket.on("systemConfig", (data) => {log('systemConfig received');currentModel=data.model_id;models=data.model_list})
@@ -1124,6 +1125,7 @@ function generationResult(data){
 }
 
 function initialImageUploaded(data){
+  // response unparsed 42["imageUploaded",{"url":"outputs/init-images/002834.4241631408.postprocessed.40678651.png","mtime":1667534834.4564033,"width":1920,"height":1024,"category":"user","destination":"img2img"}]
   var url=data.url
   var filename=config.basePath+"/"+data.url.replace('outputs/','')//.replace('/','\\')
   var id=data.url.split('/')[data.url.split('/').length-1].split('.')[0]
@@ -1180,7 +1182,15 @@ async function emitRenderApi(job){
   if(job.init_img){postObject.init_img=job.init_img}
   //log('emitRenderApi sending')
   //log(postObject)
-  if(job&&job.model&&currentModel&&job.model!==currentModel){log('job.model is different to currentModel, switching');requestModelChange(job.model)}
+  log('Should we change model ?')
+  log(job.model,currentModel)
+  if(job&&job.model&&currentModel&&job.model!==currentModel){
+    log('job.model is different to currentModel, switching');requestModelChange(job.model)
+  } else {
+    log('not changing model')
+    log(job)
+    log(currentModel)
+  }
   [postObject,upscale,facefix,job].forEach((o)=>{
     var key = getObjKey(o,undefined)
     if (key!==undefined){ // not undefined in this context means there is a key that IS undefined, confusing
@@ -1213,7 +1223,8 @@ async function addRenderApi (id) {
       .catch(err => { console.error('unable to fetch url: ' + job.attachments[0].proxy_url); console.error(err) })
   }
   if (initimg!==null){
-    socket.emit('uploadInitialImage', initimg, job.id+'.png')
+    log('uploadInitialImage')
+    socket.emit('uploadImage', initimg, job.id+'.png','img2img')
   } else {
     emitRenderApi(job)
   }
