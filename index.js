@@ -16,6 +16,7 @@ function debugLog(m){if(config.showDebug){log(m)}}
 const dJSON = require('dirty-json')
 var colors = require('colors')
 const debounce = require('debounce')
+var jimp = require('jimp')
 const io = require("socket.io-client")
 const socket = io(config.apiUrl,{reconnect: true})
 var queue = []
@@ -57,27 +58,27 @@ var slashCommands = [
     name: 'dream',
     description: 'Create a new image from your prompt',
     options: [
-      {type: '3', name: 'prompt', description: 'what would you like to see ?', required: true, min_length: 1, max_length:75 },
-      {type: '4', name: 'width', description: 'width of the image in pixels (250-~1024)', required: false, min_value: 256, max_value: 1024 },
-      {type: '4', name: 'height', description: 'height of the image in pixels (250-~1024)', required: false, min_value: 256, max_value: 1024 },
-      {type: '4', name: 'steps', description: 'how many steps to render for (10-250)', required: false, min_value: 5, max_value: 250 },
-      {type: '4', name: 'seed', description: 'seed (initial noise pattern)', required: false},
-      {type: '10', name: 'strength', description: 'how much noise to add to your template image (0.1-0.9)', required: false, min_value:0.1, max_value:0.99},
-      {type: '10', name: 'scale', description: 'how important is the prompt (1-30)', required: false, min_value:1, max_value:30},
-      {type: '4', name: 'number', description: 'how many would you like (1-10)', required: false, min_value: 1, max_value: 10},
-      {type: '5', name: 'seamless', description: 'Seamlessly tiling textures', required: false},
-      {type: '3', name: 'sampler', description: 'which sampler to use (default is ddim)', required: false, choices: [{name: 'ddim', value: 'ddim'},{name: 'plms', value: 'plms'},{name: 'k_lms', value: 'k_lms'},{name: 'k_dpm_2', value: 'k_dpm_2'},{name: 'k_dpm_2_a', value: 'k_dpm_2_a'},{name: 'k_euler', value: 'k_euler'},{name: 'k_euler_a', value: 'k_euler_a'},{name: 'k_heun', value: 'k_heun'}]},
-      {type: '11', name: 'attachment', description: 'use template image', required: false},
-      {type: '10', name: 'gfpgan_strength', description: 'GFPGan strength (0-1)(low= more face correction, high= more accuracy)', required: false, min_value: 0, max_value: 1},
-      {type: '10', name: 'codeformer_strength', description: 'Codeformer strength (0-1)(low= more face correction, high= more accuracy)', required: false, min_value: 0, max_value: 1},
-      {type: '3', name: 'upscale_level', description: 'upscale amount', required: false, choices: [{name: 'none', value: '0'},{name: '2x', value: '2'},{name: '4x', value: '4'}]},
-      {type: '10', name: 'upscale_strength', description: 'upscale strength (0-1)(smoothing/detail loss)', required: false, min_value: 0, max_value: 1},
-      {type: '10', name: 'variation_amount', description: 'how much variation from the original image (0-1)(need seed+not k_euler_a sampler)', required: false, min_value:0.01, max_value:1},
-      {type: '3', name: 'with_variations', description: 'Advanced variant control, provide seed(s)+weight eg "seed:weight,seed:weight"', required: false, min_length:4,max_length:100},
-      {type: '10', name: 'threshold', description: 'Advanced threshold control (0-10)', required: false, min_value:0, max_value:40},
-      {type: '10', name: 'perlin', description: 'Add perlin noise to your image (0-1)', required: false, min_value:0, max_value:1},
-      {type: '5', name: 'hires_fix', description: 'High resolution fix (re-renders twice using template)', required: false},
-      {type: '3', name: 'model', description: 'Change the model/checkpoint - see !models for more info', required: false,   min_length: 3, max_length:40},
+      {type: 3, name: 'prompt', description: 'what would you like to see ?', required: true, min_length: 1, max_length:75 },
+      {type: 4, name: 'width', description: 'width of the image in pixels (250-~1024)', required: false, min_value: 256, max_value: 1024 },
+      {type: 4, name: 'height', description: 'height of the image in pixels (250-~1024)', required: false, min_value: 256, max_value: 1024 },
+      {type: 4, name: 'steps', description: 'how many steps to render for (10-250)', required: false, min_value: 5, max_value: 250 },
+      {type: 4, name: 'seed', description: 'seed (initial noise pattern)', required: false},
+      {type: 10, name: 'strength', description: 'how much noise to add to your template image (0.1-0.9)', required: false, min_value:0.1, max_value:0.99},
+      {type: 10, name: 'scale', description: 'how important is the prompt (1-30)', required: false, min_value:1, max_value:30},
+      {type: 4, name: 'number', description: 'how many would you like (1-10)', required: false, min_value: 1, max_value: 10},
+      {type: 5, name: 'seamless', description: 'Seamlessly tiling textures', required: false},
+      {type: 3, name: 'sampler', description: 'which sampler to use (default is ddim)', required: false, choices: [{name: 'ddim', value: 'ddim'},{name: 'plms', value: 'plms'},{name: 'k_lms', value: 'k_lms'},{name: 'k_dpm_2', value: 'k_dpm_2'},{name: 'k_dpm_2_a', value: 'k_dpm_2_a'},{name: 'k_euler', value: 'k_euler'},{name: 'k_euler_a', value: 'k_euler_a'},{name: 'k_heun', value: 'k_heun'}]},
+      {type: 11, name: 'attachment', description: 'use template image', required: false},
+      {type: 10, name: 'gfpgan_strength', description: 'GFPGan strength (0-1)(low= more face correction, high= more accuracy)', required: false, min_value: 0, max_value: 1},
+      {type: 10, name: 'codeformer_strength', description: 'Codeformer strength (0-1)(low= more face correction, high= more accuracy)', required: false, min_value: 0, max_value: 1},
+      {type: 3, name: 'upscale_level', description: 'upscale amount', required: false, choices: [{name: 'none', value: '0'},{name: '2x', value: '2'},{name: '4x', value: '4'}]},
+      {type: 10, name: 'upscale_strength', description: 'upscale strength (0-1)(smoothing/detail loss)', required: false, min_value: 0, max_value: 1},
+      {type: 10, name: 'variation_amount', description: 'how much variation from the original image (0-1)(need seed+not k_euler_a sampler)', required: false, min_value:0.01, max_value:1},
+      {type: 3, name: 'with_variations', description: 'Advanced variant control, provide seed(s)+weight eg "seed:weight,seed:weight"', required: false, min_length:4,max_length:100},
+      {type: 10, name: 'threshold', description: 'Advanced threshold control (0-10)', required: false, min_value:0, max_value:40},
+      {type: 10, name: 'perlin', description: 'Add perlin noise to your image (0-1)', required: false, min_value:0, max_value:1},
+      {type: 5, name: 'hires_fix', description: 'High resolution fix (re-renders twice using template)', required: false},
+      {type: 3, name: 'model', description: 'Change the model/checkpoint - see !models for more info', required: false,   min_length: 3, max_length:40},
     ],
     cooldown: 500,
     execute: (i) => {
@@ -99,7 +100,7 @@ var slashCommands = [
   {
     name: 'random',
     description: 'Show me a random prompt from the library',
-    options: [ {type: '3', name: 'prompt', description: 'Add these keywords to a random prompt', required: false} ],
+    options: [ {type: 3, name: 'prompt', description: 'Add these keywords to a random prompt', required: false} ],
     cooldown: 500,
     execute: (i) => {
       var prompt = ''
@@ -129,7 +130,7 @@ var slashCommands = [
   {
     name: 'lexica',
     description: 'Search lexica.art with keywords or an image url',
-    options: [ {type: '3', name: 'query', description: 'What are you looking for', required: true} ],
+    options: [ {type: 3, name: 'query', description: 'What are you looking for', required: true} ],
     cooldown: 500,
     execute: (i) => {
       var query = ''
@@ -249,7 +250,7 @@ bot.on("interactionCreate", async (interaction) => {
       }*/
     } else if (interaction.data.custom_id.startsWith('editRandom-')) {
       id=interaction.data.custom_id.split('-')[1]
-      var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
+      if (queue[id-1]){var newJob=JSON.parse(JSON.stringify(queue[id-1]))} // parse/stringify to deep copy and make sure we dont edit the original
       if (newJob) {
         newJob.number = 1
         if (newJob.webhook){delete newJob.webhook}
@@ -408,9 +409,18 @@ bot.on("interactionCreate", async (interaction) => {
         var changeModelResponse={
             content:':floppy_disk: **Model Menu**\nUse this menu to change the model/checkpoint being used, to give your image a specific style',
             flags:64,
-            components:[{type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'changeModel-'+id+'-'+rn,placeholder:'Choose a model/checkpoint',min_values:1,max_values:1,options:[]}]}]
+            components:[]
         }
-        Object.keys(models).forEach((m)=>{changeModelResponse.components[0].components[0].options.push({label: m,value: m,description: models[m].description})})
+        var allModelKeys=Object.keys(models)
+        var maxModelAmount=25 // maximum of 25 options in a discord dropdown menu
+        for(let i=0;i<allModelKeys.length;i+=maxModelAmount) {
+          var modelBatch=allModelKeys.slice(i,i+maxModelAmount)
+          changeModelResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'changeModel'+i+'-'+id+'-'+rn,placeholder:'Choose a model/checkpoint',min_values:1,max_values:1,options:[]}]})
+          modelBatch.forEach((m)=>{changeModelResponse.components[changeModelResponse.components.length-1].components[0].options.push({label: m,value: m,description: models[m].description})})
+        }
+        //changeModelResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'changeModel-'+id+'-'+rn,placeholder:'Choose a model/checkpoint',min_values:1,max_values:1,options:[]}]})
+        //Object.keys(models).forEach((m)=>{changeModelResponse.components[0].components[0].options.push({label: m,value: m,description: models[m].description})})
+        //if(changeModelResponse.components[0].components[0].options.length>25){changeModelResponse.components[0].components[0].options.length=25}
         return interaction.editParent(changeModelResponse).then((r)=>{}).catch((e)=>{console.error(e)})
       }
     } else if (interaction.data.custom_id.startsWith('changeModel')) {
@@ -539,24 +549,33 @@ bot.on("messageCreate", (msg) => {
           log('arty mention replaced with !dream')
           msg.content = msg.content.replace('<@'+m.id+'>','').replace('!dream','')
           msg.content='!dream '+msg.content
-        } else if (msg.referencedMessage.author.id===bot.application.id&&msg.referencedMessage.components[0].components[0].custom_id.startsWith('refresh-')) { // just a response to a message from arty, confirm before render
-          var jobid = msg.referencedMessage.components[0].components[0].custom_id.split('-')[1]
-          var newJob=JSON.parse(JSON.stringify(queue[jobid-1]))
-          msg.content=msg.content.replace('<@'+m.id+'>','').replace('!dream','')
-          if (msg.content.startsWith('+')){
-            msg.content='!dream '+msg.content.substring(1,msg.content.length)+' '+newJob.prompt
-            //msg.attachments=msg.referencedMessage.attachments
-          } else if (msg.content.startsWith('..')){
-            msg.content='!dream '+newJob.prompt+' '+msg.content.substring(2,msg.content.length)
-            //msg.attachments=msg.referencedMessage.attachments
-          } else if (msg.content.startsWith('*')){
-            var newnum = parseInt(msg.content.substring(1,2))
-            msg.content='!dream '+newJob.prompt+' --number ' +newnum
-          } else if (msg.content.startsWith('-')){
-            newJob.prompt.replace(msg.content.substring(1,msg.content.length),'')
-            msg.content='!dream '+newJob.prompt
-          } else if (msg.content.startsWith('background')){
+        } else if (msg.referencedMessage.author.id===bot.application.id) { // just a response to a message from arty, confirm before render
+          if(msg.referencedMessage.components&&msg.referencedMessage.components[0]&&msg.referencedMessage.components[0].components[0]&&msg.referencedMessage.components[0].components[0].custom_id.startsWith('refresh-')){// only works with normal renders
+            var jobid = msg.referencedMessage.components[0].components[0].custom_id.split('-')[1]
+            var newJob=JSON.parse(JSON.stringify(queue[jobid-1]))
+            msg.content=msg.content.replace('<@'+m.id+'>','').replace('!dream','')
+            if (msg.content.startsWith('+')){
+              msg.content='!dream '+msg.content.substring(1,msg.content.length)+' '+newJob.prompt
+              //msg.attachments=msg.referencedMessage.attachments
+            } else if (msg.content.startsWith('..')){
+              msg.content='!dream '+newJob.prompt+' '+msg.content.substring(2,msg.content.length)
+              //msg.attachments=msg.referencedMessage.attachments
+            } else if (msg.content.startsWith('*')){
+              var newnum = parseInt(msg.content.substring(1,2))
+              msg.content='!dream '+newJob.prompt+' --number ' +newnum
+            } else if (msg.content.startsWith('-')){
+              newJob.prompt.replace(msg.content.substring(1,msg.content.length),'')
+              msg.content='!dream '+newJob.prompt
+            }
+          }
+          if (msg.content.startsWith('background')||msg.content.startsWith('!background')){
             msg.content='!background'
+            msg.attachments=msg.referencedMessage.attachments
+          } else if (msg.content.startsWith('crop')||msg.content.startsWith('!crop')){
+            msg.content='!crop'
+            msg.attachments=msg.referencedMessage.attachments
+          } else if (msg.content.startsWith('text')||msg.content.startsWith('!text')){
+            //msg.content='!text'
             msg.attachments=msg.referencedMessage.attachments
           }
           //var newMessage={content:msg,embeds:[{description:newPrompt,color:getRandomColorDec()}], components: [ { type: Constants.ComponentTypes.ACTION_ROW, components: [{ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "ReDream", custom_id: "refresh-" + job.id, emoji: { name: '🎲', id: null}, disabled: false } ] } ] }
@@ -595,6 +614,57 @@ bot.on("messageCreate", (msg) => {
         }
         break
       }
+      case '!crop':{
+        if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){
+          var attachmentsUrls = msg.attachments.map((u)=>{return u.proxy_url})
+          attachmentsUrls.forEach((url)=>{
+            log('cropping '+url)
+            jimp.read(url,(err,img)=>{
+              if(err){log('Error during cropping'.bgRed);log(err)}
+              img.autocrop()
+              chargeCredits(msg.author.id,0.05)
+              img.getBuffer(jimp.MIME_PNG, (err,buffer)=>{
+                if(err){log(err)}
+                bot.createMessage(msg.channel.id, '<@'+msg.author.id+'> used `!crop`, it cost :coin:`0.05`/`'+creditsRemaining(msg.author.id)+'`', {file: buffer, name: 'cropped.png'})
+              })
+            })
+          })
+        }
+        break
+      }
+      case '!textTop':
+      case '!textBottom':
+      case '!textCenter':
+      case '!text':{
+        if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){
+          var attachmentsUrls = msg.attachments.map((u)=>{return u.proxy_url})
+          attachmentsUrls.forEach((url)=>{
+            var newTxt=msg.content.substr(c.length+1)
+            log('adding text: '+newTxt)
+            jimp.read(url,(err,img)=>{
+              if(err){log('Error during text addition'.bgRed);log(err)}
+              chargeCredits(msg.author.id,0.05)
+              jimp.loadFont(jimp.FONT_SANS_32_BLACK).then(font => {
+                //var newTxtWidth=jimp.measureText(jimp.FONT_SANS_32_BLACK, newTxt)
+                //var newTxtHeight=jimp.measureTextHeight(jimp.FONT_SANS_32_BLACK, newTxt, 100)
+                var txtObj={text:newTxt,alignmentX:jimp.HORIZONTAL_ALIGN_CENTER,alignmentY:jimp.VERTICAL_ALIGN_TOP}
+                switch(c){
+                  case '!text':
+                  case '!textCenter':{txtObj.alignmentY=jimp.VERTICAL_ALIGN_MIDDLE;break}
+                  case '!textTop':{txtObj.alignmentY=jimp.VERTICAL_ALIGN_TOP;break}
+                  case '!textBottom':{txtObj.alignmentY=jimp.VERTICAL_ALIGN_BOTTOM;break}
+                }
+                img.print(font, 0, 0, txtObj, img.bitmap.width, img.bitmap.height)
+                img.getBuffer(jimp.MIME_PNG, (err,buffer)=>{
+                  if(err){log(err)}
+                  bot.createMessage(msg.channel.id, '<@'+msg.author.id+'> used `!text`, it cost :coin:`0.05`/`'+creditsRemaining(msg.author.id)+'`', {file: buffer, name: 'text.png'})
+                })
+              })
+            })
+          })
+        }
+        break
+      }
     }
   }
   if (msg.author.id===config.adminID) { // admins only
@@ -625,7 +695,7 @@ bot.on("messageCreate", (msg) => {
       }
       case '!say':{
         var sayChan=msg.content.split(' ')[1]
-        var sayMsg=msg.content.substr((Math.ceil(Math.log10(sayChan+1)))+(msg.content.indexOf(msg.content.split(' ')[1]))+1)
+        var sayMsg=msg.content.substr((Math.ceil(Math.log10(sayChan+1)))+(msg.content.indexOf(msg.content.split(' ')[1])))//+1)
         if(Number.isInteger(parseInt(sayChan))&&sayMsg.length>0){
           log('sending message as arty to '+sayChan+':'+sayMsg)
           try{chatChan(sayChan,sayMsg)}
@@ -656,6 +726,7 @@ bot.on("messageCreate", (msg) => {
     }
   }
 })
+
 function request(request){
   // request = { cmd: string, userid: int, username: string, discriminator: int, bot: false, channelid: int, attachments: {}, }
   if (request.cmd.includes('{')) { request.cmd = replaceRandoms(request.cmd) } // swap randomizers
@@ -1182,14 +1253,14 @@ async function emitRenderApi(job){
   if(job.init_img){postObject.init_img=job.init_img}
   //log('emitRenderApi sending')
   //log(postObject)
-  log('Should we change model ?')
-  log(job.model,currentModel)
+  debugLog('Should we change model ?')
+  debugLog(job.model,currentModel)
   if(job&&job.model&&currentModel&&job.model!==currentModel){
-    log('job.model is different to currentModel, switching');requestModelChange(job.model)
+    debugLog('job.model is different to currentModel, switching');requestModelChange(job.model)
   } else {
-    log('not changing model')
-    log(job)
-    log(currentModel)
+    debugLog('not changing model')
+    debugLog(job)
+    debugLog(currentModel)
   }
   [postObject,upscale,facefix,job].forEach((o)=>{
     var key = getObjKey(o,undefined)
@@ -1199,7 +1270,7 @@ async function emitRenderApi(job){
     }
   })
   socket.emit('generateImage',postObject,upscale,facefix)
-  log('sent request',postObject,upscale,facefix)
+  debugLog('sent request',postObject,upscale,facefix)
 }
 function getObjKey(obj, value) {
   return Object.keys(obj).find(key => obj[key] === value)
@@ -1520,7 +1591,7 @@ const unique = (value, index, self) => { return self.indexOf(value) === index }
 function getRandomColorDec(){return Math.floor(Math.random()*16777215)}
 function timeDiff (date1,date2) { return date2.diff(date1, 'seconds') }
 
-var randoms = ['prompt','artist','city','genre','medium','emoji','subject','madeof','style','animal','bodypart','gerund','verb','adverb','adjective','star','fruit','country','gender','familyfriendly','quality','gtav','photo','render','lighting','cute','colour'] // 
+var randoms = ['prompt','artist','city','genre','medium','emoji','subject','madeof','style','animal','bodypart','gerund','verb','adverb','adjective','star','fruit','country','gender','familyfriendly','quality','gtav','photo','render','lighting','cute','colour','clothes','ethnicity','photographer','gemstone'] // 
 function getRandom(what) { if (randoms.includes(what)) { try { var lines = fs.readFileSync('txt/' + what + '.txt', 'utf-8').split(/r?\n/); return lines[Math.floor(Math.random()*lines.length)] } catch (err) { console.error(err)} } else { return what } }
 function replaceRandoms (input) {
   var output=input
@@ -1565,8 +1636,7 @@ async function imgbbupload(file) {
     .catch((error) => console.error(error))
 }
 const FormData = require('form-data')
-const hiveBroadcast = require('@hiveio/hive-js/lib/broadcast')
-const { logs } = require('forever/lib/forever/cli')
+
 async function oshiupload(file) {
   log('uploading via oshi.at api')
   log(file)
