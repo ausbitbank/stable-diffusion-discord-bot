@@ -1413,6 +1413,27 @@ bot.on("messageCreate", (msg) => {
         }
         break
       }
+      case '!models':{
+        if(!models){socket.emit('requestSystemConfig')}
+        var newMsg=''
+        if(models){
+          log(models)
+          newMsg='**'+Object.keys(models).length+' models available**\n:green_circle: =loaded in VRAM :orange_circle: =cached in RAM :red_circle: = unloaded\n'
+          Object.keys(models).forEach((m)=>{
+          switch(models[m].status){
+            case 'not loaded':{newMsg+=':red_circle:';break}
+            case 'cached':{newMsg+=':orange_circle:';break}
+            case 'active':{newMsg+=':green_circle:';break}
+          }
+          newMsg+='`'+m+'`'
+          newMsg+=models[m].description+'\n'
+        })}
+        if(newMsg!==''){
+          if(newMsg.length<=2000){newMsg.length=1999} //max discord msg length of 2k
+          try{chatChan(msg.channel.id,newMsg)}catch(err){log(err)}
+        }
+        break
+      }
     }
   }
   if (msg.author.id===config.adminID) { // admins only
@@ -1453,27 +1474,6 @@ bot.on("messageCreate", (msg) => {
       }
       case '!guilds':{bot.guilds.forEach((g)=>{log({id: g.id, name: g.name, ownerID: g.ownerID, description: g.description, memberCount: g.memberCount})});break}
       case '!updateslashcommands':{bot.getCommands().then(cmds=>{bot.commands = new Collection();for (const c of slashCommands) {bot.commands.set(c.name, c);bot.createCommand({name: c.name,description: c.description,options: c.options ?? [],type: Constants.ApplicationCommandTypes.CHAT_INPUT})}});break}
-      case '!models':{
-        if(!models){socket.emit('requestSystemConfig')}
-        var newMsg=''
-        if(models){
-          log(models)
-          newMsg='**'+Object.keys(models).length+' models available**\n:green_circle: =loaded in VRAM :orange_circle: =cached in RAM :red_circle: = unloaded\n'
-          Object.keys(models).forEach((m)=>{
-          switch(models[m].status){
-            case 'not loaded':{newMsg+=':red_circle:';break}
-            case 'cached':{newMsg+=':orange_circle:';break}
-            case 'active':{newMsg+=':green_circle:';break}
-          }
-          newMsg+='`'+m+'`'
-          newMsg+=models[m].description+'\n'
-        })}
-        if(newMsg!==''){
-          if(newMsg.length<=2000){newMsg.length=1999} //max discord msg length of 2k
-          try{chatChan(msg.channel.id,newMsg)}catch(err){log(err)}
-        }
-        break
-      }
       case '!randomisers':{
         var newMsg='**Currently loaded randomisers**\n'
         for (r in randoms){newMsg+='`{'+randoms[r]+'}`='+getRandom(randoms[r])+'\n'}
