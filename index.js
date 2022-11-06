@@ -49,8 +49,15 @@ const bot = new Eris.CommandClient(config.discordBotKey, {
 })
 const defaultSize = 512
 const basePath = config.basePath
-if (!config||!config.apiUrl||!config.basePath||!config.channelID||!config.adminID||!config.discordBotKey||!config.pixelLimit||!config.fileWatcher) { throw('Please re-read the setup instructions at https://github.com/ausbitbank/stable-diffusion-discord-bot , you are missing the required .env configuration file or options') }
-var apiUrl = config.apiUrl
+if (!config||!config.apiUrl||!config.basePath||!config.channelID||!config.adminID||!config.discordBotKey||!config.pixelLimit||!config.fileWatcher||!config.samplers) { throw('Please re-read the setup instructions at https://github.com/ausbitbank/stable-diffusion-discord-bot , you are missing the required .env configuration file or options') }
+// load samplers from config
+var samplers=config.samplers.split(',')
+var samplersSlash=[]
+samplers.forEach((s)=>{samplersSlash.push({name: s, value: s})})
+var defaultSampler=samplers[0]
+debugLog('Enabled samplers:')
+debugLog(samplers)
+debugLog('Default sampler:'+defaultSampler)
 var rendering = false
 var dialogs = {queue: null} // Track and replace our own messages to reduce spam
 var slashCommands = [
@@ -58,7 +65,7 @@ var slashCommands = [
     name: 'dream',
     description: 'Create a new image from your prompt',
     options: [
-      {type: 3, name: 'prompt', description: 'what would you like to see ?', required: true, min_length: 1, max_length:400 },
+      {type: 3, name: 'prompt', description: 'what would you like to see ?', required: true, min_length: 1, max_length:500 },
       {type: 4, name: 'width', description: 'width of the image in pixels (250-~1024)', required: false, min_value: 256, max_value: 1024 },
       {type: 4, name: 'height', description: 'height of the image in pixels (250-~1024)', required: false, min_value: 256, max_value: 1024 },
       {type: 4, name: 'steps', description: 'how many steps to render for (10-250)', required: false, min_value: 5, max_value: 250 },
@@ -67,7 +74,7 @@ var slashCommands = [
       {type: 10, name: 'scale', description: 'how important is the prompt (1-30)', required: false, min_value:1, max_value:30},
       {type: 4, name: 'number', description: 'how many would you like (1-10)', required: false, min_value: 1, max_value: 10},
       {type: 5, name: 'seamless', description: 'Seamlessly tiling textures', required: false},
-      {type: 3, name: 'sampler', description: 'which sampler to use (default is ddim)', required: false, choices: [{name: 'ddim', value: 'ddim'},{name: 'plms', value: 'plms'},{name: 'k_lms', value: 'k_lms'},{name: 'k_dpm_2', value: 'k_dpm_2'},{name: 'k_dpm_2_a', value: 'k_dpm_2_a'},{name: 'k_euler', value: 'k_euler'},{name: 'k_euler_a', value: 'k_euler_a'},{name: 'k_heun', value: 'k_heun'}]},
+      {type: 3, name: 'sampler', description: 'which sampler to use (default is '+defaultSampler+')', required: false, choices: samplersSlash},
       {type: 11, name: 'attachment', description: 'use template image', required: false},
       {type: 10, name: 'gfpgan_strength', description: 'GFPGan strength (0-1)(low= more face correction, high= more accuracy)', required: false, min_value: 0, max_value: 1},
       {type: 10, name: 'codeformer_strength', description: 'Codeformer strength (0-1)(low= more face correction, high= more accuracy)', required: false, min_value: 0, max_value: 1},
@@ -329,7 +336,6 @@ bot.on("interactionCreate", async (interaction) => {
           log('models:')
           log(models)
           */
-          // TODO add select/dropdown menu for samplers, remove currently chosen sampler from menu
           // Disable buttons depending on the current parameters
           if (newJob.width===512&&newJob.height===704){tweakResponse.components[0].components[0].disabled=true}
           if (newJob.width===newJob.height){tweakResponse.components[0].components[1].disabled=true}
@@ -457,7 +463,7 @@ bot.on("interactionCreate", async (interaction) => {
       var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
       if(newJob&&models){
         var changeSamplerResponse={content:':eye: **Sampler Menu**\nUse this menu to change the sampler being used',flags:64,components:[{type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'changeSampler-'+id+'-'+rn,placeholder:'Choose a sampler',min_values:1,max_values:1,options:[]}]}]}
-        var samplers=['ddim','plms','k_lms','k_dpm_2','k_dpm_2_a','k_euler','k_euler_a','k_heun']
+        //already declared from config //var samplers=['ddim','plms','k_lms','k_dpm_2','k_dpm_2_a','k_euler','k_euler_a','k_heun']
         samplers.forEach((s)=>{changeSamplerResponse.components[0].components[0].options.push({label: s,value: s})})
         return interaction.editParent(changeSamplerResponse).then((r)=>{}).catch((e)=>{console.error(e)})
       }
@@ -774,7 +780,7 @@ function request(request){
   if (!args.seed||!Number.isInteger(args.seed)||args.seed<1||args.seed>4294967295){args.seed=getRandomSeed()}
   if (!args.strength||args.strength>=1||args.strength<=0){args.strength=0.75}
   if (!args.scale||args.scale>200||args.scale<1){args.scale=7.5}
-  if (!args.sampler){args.sampler='ddim'}
+  if (!args.sampler){args.sampler=defaultSampler}
   if (args.n){args.number=args.n}
   if (!args.number||!Number.isInteger(args.number)||args.number>10||args.number<1){args.number=1}
   if (!args.renderer||['localApi'].includes(args.renderer)){args.renderer='localApi'}
@@ -880,7 +886,7 @@ function prepSlashCmd(options) { // Turn partial options into full command for s
   var job = {}
   //log('prepSlashCmd input')
   //log(options)
-  var defaults = [{ name: 'prompt', value: ''},{name: 'width', value: defaultSize},{name:'height',value:defaultSize},{name:'steps',value:50},{name:'scale',value:7.5},{name:'sampler',value:'ddim'},{name:'seed', value: getRandomSeed()},{name:'strength',value:0.75},{name:'number',value:1},{name:'gfpgan_strength',value:0},{name:'codeformer_strength',value:0},{name:'upscale_strength',value:0.75},{name:'upscale_level',value:''},{name:'seamless',value:false},{name:'variation_amount',value:0},{name:'with_variations',value:[]},{name:'threshold',value:0},{name:'perlin',value:0},{name:'hires_fix',value:false},{name:'model',value:'stable-diffusion-1.5'}]
+  var defaults = [{ name: 'prompt', value: ''},{name: 'width', value: defaultSize},{name:'height',value:defaultSize},{name:'steps',value:50},{name:'scale',value:7.5},{name:'sampler',value:defaultSampler},{name:'seed', value: getRandomSeed()},{name:'strength',value:0.75},{name:'number',value:1},{name:'gfpgan_strength',value:0},{name:'codeformer_strength',value:0},{name:'upscale_strength',value:0.75},{name:'upscale_level',value:''},{name:'seamless',value:false},{name:'variation_amount',value:0},{name:'with_variations',value:[]},{name:'threshold',value:0},{name:'perlin',value:0},{name:'hires_fix',value:false},{name:'model',value:'stable-diffusion-1.5'}]
   defaults.forEach(d=>{ if (options.find(o=>{ if (o.name===d.name) { return true } else { return false } })) { job[d.name] = options.find(o=>{ if (o.name===d.name) { return true } else { return false } }).value } else { job[d.name] = d.value } })
   //log('prepSlashCmd output');log(job)
   return job
