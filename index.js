@@ -58,7 +58,7 @@ var slashCommands = [
     name: 'dream',
     description: 'Create a new image from your prompt',
     options: [
-      {type: 3, name: 'prompt', description: 'what would you like to see ?', required: true, min_length: 1, max_length:75 },
+      {type: 3, name: 'prompt', description: 'what would you like to see ?', required: true, min_length: 1, max_length:400 },
       {type: 4, name: 'width', description: 'width of the image in pixels (250-~1024)', required: false, min_value: 256, max_value: 1024 },
       {type: 4, name: 'height', description: 'height of the image in pixels (250-~1024)', required: false, min_value: 256, max_value: 1024 },
       {type: 4, name: 'steps', description: 'how many steps to render for (10-250)', required: false, min_value: 5, max_value: 250 },
@@ -216,6 +216,7 @@ bot.on("interactionCreate", async (interaction) => {
         if (interaction.data.custom_id.startsWith('refreshEdit-')){ newJob.prompt = interaction.data.components[0].components[0].value }
         var cmd = getCmd(newJob)
         var attach = []
+        if (newJob.attachments.length>0){attach=newJob.attachments} // transfer attachments to new jobs
         /*if (!interaction.data.custom_id.startsWith('refreshNoTemplate')) {
           //if (newJob.init_img){ cmd+= ' --template ' + newJob.template }
           if (newJob.attachments.length>0){attach=newJob.attachments} // transfer attachments to new jobs unless specifically asked not to
@@ -438,13 +439,15 @@ bot.on("interactionCreate", async (interaction) => {
         if(newModelKeywords&&!newJob.prompt.includes(newModelKeywords)){ //new model needs keywords not currently in the prompt
           if(newJob.prompt.includes(oldModelKeywords)){ // old model needed keywords that are still in the prompt
             newJob.prompt=newJob.prompt.replace(oldModelKeywords,newModelKeywords) // swap new for old
-          }else{newJob.prompt+=','+newModelKeywords}// otherwise, just add new keywords
+          }else{newJob.prompt=newModelKeywords+','+newJob.prompt}// otherwise, just add new keywords
         }
         if (newJob.prompt.includes(oldModelKeywords)&&!newModelKeywords){newJob.prompt=newJob.prompt.replace(oldModelKeywords,'')}//Remove old keywords, even if we dont have new ones to replace
+        var attach=[]
+        if (newJob.attachments.length>0){attach=newJob.attachments}
         if(interaction.member){
-          request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
+          request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: attach})
         } else if (interaction.user){
-          request({cmd: getCmd(newJob), userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, attachments: []})
+          request({cmd: getCmd(newJob), userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, attachments: attach})
         }
         return interaction.editParent({content:':floppy_disk: ** Model '+interaction.data.values[0]+'** selected',components:[]}).catch((e) => {console.error(e)})
       }
@@ -465,10 +468,12 @@ bot.on("interactionCreate", async (interaction) => {
       var newSampler=interaction.data.values[0]
       if(newJob&&newSampler){
         newJob.sampler=newSampler // set the new model
+        var attach=[]
+        if (newJob.attachments.length>0){attach=newJob.attachments}        
         if(interaction.member){
-          request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
+          request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: attach})
         } else if (interaction.user){
-          request({cmd: getCmd(newJob), userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, attachments: []})
+          request({cmd: getCmd(newJob), userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, attachments: attach})
         }
         return interaction.editParent({content:':eye: ** Sampler '+interaction.data.values[0]+'** selected',components:[]}).catch((e) => {console.error(e)})
       }
@@ -568,7 +573,10 @@ bot.on("messageCreate", (msg) => {
               msg.content='!dream '+newJob.prompt
             }
           }
-          if (msg.content.startsWith('background')||msg.content.startsWith('!background')){
+          if (msg.content.startsWith('template')&&msg.referencedMessage.attachments){
+            msg.attachments=msg.referencedMessage.attachments
+            msg.content='!dream '+msg.content.substring(9)
+          } else if (msg.content.startsWith('background')||msg.content.startsWith('!background')){
             msg.content='!background'
             msg.attachments=msg.referencedMessage.attachments
           } else if (msg.content.startsWith('crop')||msg.content.startsWith('!crop')){
@@ -720,7 +728,12 @@ bot.on("messageCreate", (msg) => {
           newMsg+='`'+m+'`'
           newMsg+=models[m].description+'\n'
         })}
-        if(newMsg!==''&&newMsg.length<=2000){try{chatChan(msg.channel.id,newMsg)}catch(err){log(err)}} else {log('!models response is too big to send via discord message (>2000 characters)')}
+        if(newMsg!==''){
+          if(newMsg.length<=2000){//max discord msg length of 2k
+            newMsg.length=1999
+          }
+          try{chatChan(msg.channel.id,newMsg)}catch(err){log(err)}
+        }
         break
       }
     }
