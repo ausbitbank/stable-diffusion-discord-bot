@@ -298,8 +298,8 @@ bot.on("interactionCreate", async (interaction) => {
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Upscale 2x", custom_id: "twkupscale2-"+id+'-'+rn, emoji: { name: '🔍', id: null}, disabled: false },
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Upscale 4x", custom_id: "twkupscale4-"+id+'-'+rn, emoji: { name: '🔎', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Face Fix GfpGAN", custom_id: "twkgfpgan-"+id+'-'+rn, emoji: { name: '💄', id: null}, disabled: true },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Face Fix CodeFormer", custom_id: "twkcodeformer-"+id+'-'+rn, emoji: { name: '💄', id: null}, disabled: true },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Face Fix GfpGAN", custom_id: "twkgfpgan-"+id+'-'+rn, emoji: { name: '💄', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Face Fix CodeFormer", custom_id: "twkcodeformer-"+id+'-'+rn, emoji: { name: '💄', id: null}, disabled: false },
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "High Resolution Fix", custom_id: "twkhiresfix-"+id+'-'+rn, emoji: { name: '🔭', id: null}, disabled: false }
               ]},
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
@@ -710,7 +710,7 @@ bot.on("messageCreate", (msg) => {
         var newMsg=''
         if(models){
           log(models)
-          newMsg='**'+Object.keys(models).length+' models currently available via the `--model` parameter**\n:green_circle: =loaded in VRAM :orange_circle: =cached in RAM :red_circle: = unloaded\nIf description has `##`, the following keywords are recommended for best results\n**Example:**`anonymous in modern disney style --model modern-disney`\n'
+          newMsg='**'+Object.keys(models).length+' models available**\n:green_circle: =loaded in VRAM :orange_circle: =cached in RAM :red_circle: = unloaded\n'
           Object.keys(models).forEach((m)=>{
           switch(models[m].status){
             case 'not loaded':{newMsg+=':red_circle:';break}
@@ -720,7 +720,7 @@ bot.on("messageCreate", (msg) => {
           newMsg+='`'+m+'`'
           newMsg+=models[m].description+'\n'
         })}
-        if(newMsg!==''){try{chatChan(msg.channel.id,newMsg)}catch(err){log(err)}}
+        if(newMsg!==''&&newMsg.length<=2000){try{chatChan(msg.channel.id,newMsg)}catch(err){log(err)}} else {log('!models response is too big to send via discord message (>2000 characters)')}
         break
       }
     }
@@ -770,8 +770,8 @@ function request(request){
     try { if (!fs.existsSync(config.basePath+args.template+'.png')){args.template=undefined} }
     catch (err) {console.error(err);args.template=undefined}
   } else { args.template = undefined }*/
-  args.gfpgan_strength=0;//tmp disable//if (!args.gfpgan_strength){args.gfpgan_strength=0}
-  args.codeformer_strength=0;//tmp disable//if (!args.codeformer_strength){args.codeformer_strength=0}
+  if (!args.gfpgan_strength){args.gfpgan_strength=0}
+  if (!args.codeformer_strength){args.codeformer_strength=0}
   if (!args.upscale_level){args.upscale_level=''}
   if (!args.upscale_strength){args.upscale_strength=0.75}
   if (!args.variation_amount||args.variation_amount>1||args.variation_amount<0){args.variation_amount=0}
@@ -922,8 +922,8 @@ function costCalculator(job) {                 // Pass in a render, get a cost i
   var pixels=job.width*job.height              // How many pixels does this render use?
   cost=(pixels/pixelBase)*cost                 // premium or discount for resolution relative to default
   cost=(job.steps/50)*cost                     // premium or discount for step count relative to default
-  //tmp disable//if (job.gfpgan_strength!==0){cost=cost*1.05} // 5% charge for gfpgan face fixing (minor increased processing time)
-  //tmp disable//if (job.codeformer_strength!==0){cost=cost*1.05} // 5% charge for gfpgan face fixing (minor increased processing time)
+  if (job.gfpgan_strength!==0){cost=cost*1.05} // 5% charge for gfpgan face fixing (minor increased processing time)
+  if (job.codeformer_strength!==0){cost=cost*1.05} // 5% charge for gfpgan face fixing (minor increased processing time)
   if (job.upscale_level===2){cost=cost*1.5}    // 1.5x charge for upscale 2x (increased processing+storage+bandwidth)
   if (job.upscale_level===4){cost=cost*2}      // 2x charge for upscale 4x 
   if (job.hires_fix===true){cost=cost*1.5}     // 1.5x charge for hires_fix (renders once at half resolution, then again at full)
@@ -1244,7 +1244,7 @@ async function emitRenderApi(job){
   if(job.hires_fix&&job.hires_fix===true){postObject.hires_fix=true}
   var upscale = false
   var facefix = false
-  job.gfpgan_strength=0;job.codeformer_strength=0//tmp disable broken gfpgan/codeformer
+  //job.gfpgan_strength=0;job.codeformer_strength=0//tmp disable broken gfpgan/codeformer
   if(job.gfpgan_strength!==0){facefix={type:'gfpgan',strength:job.gfpgan_strength}}
   if (job.codeformer_strength===undefined){job.codeformer_strength=0}
   if(job.codeformer_strength!==0){facefix={type:'codeformer',strength:job.codeformer_strength,codeformer_fidelity:1}}
