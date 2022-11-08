@@ -84,7 +84,7 @@ var slashCommands = [
     name: 'dream',
     description: 'Create a new image from your prompt',
     options: [
-      {type: 3, name: 'prompt', description: 'what would you like to see ?', required: true, min_length: 1, max_length:500 },
+      {type: 3, name: 'prompt', description: 'what would you like to see ?', required: true, min_length: 1, max_length:750 },
       {type: 4, name: 'width', description: 'width of the image in pixels (250-~1024)', required: false, min_value: 256, max_value: 1024 },
       {type: 4, name: 'height', description: 'height of the image in pixels (250-~1024)', required: false, min_value: 256, max_value: 1024 },
       {type: 4, name: 'steps', description: 'how many steps to render for (10-250)', required: false, min_value: 5, max_value: 250 },
@@ -189,6 +189,7 @@ function request(request){
       args.height=closestRes(Math.sqrt(config.pixelLimit))
       args.width=closestRes(args.height*ratio)
     }
+    args.width=parseInt(args.width);args.height=parseInt(args.height)
     log('compromised resolution to '+args.width+'x'+args.height)
   }
   if (!args.steps||!Number.isInteger(args.steps)||args.steps>250){args.steps=defaultSteps} // max 250 steps, default 50
@@ -314,7 +315,7 @@ function chatChan(channel,msg) {
 }
 function sanitize (prompt) {
   if (config.bannedWords.length>0) { config.bannedWords.split(',').forEach((bannedWord, index) => { prompt = prompt.replace(bannedWord,'') }) }
-  return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ+()=!\"\&\*\[\]\\\/\- ,.\:]/g, '').replace('`','') // (/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '')
+  return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ+()=!\"\&\*\[\]<>\\\/\- ,.\:]/g, '').replace('`','') // (/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '')
 }
 function base64Encode(file) { var body = fs.readFileSync(file); return body.toString('base64') }
 function authorised(who,channel,guild) {
