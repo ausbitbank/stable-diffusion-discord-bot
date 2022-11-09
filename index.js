@@ -626,7 +626,6 @@ async function emitRenderApi(job){
   if(job.gfpgan_strength!==0){facefix={type:'gfpgan',strength:job.gfpgan_strength}}
   if (job.codeformer_strength===undefined){job.codeformer_strength=0}
   if(job.codeformer_strength!==0){facefix={type:'codeformer',strength:job.codeformer_strength,codeformer_fidelity:1}}
-  if(job.gfpgan_strength!==0){facefix={strength:job.gfpgan_strength}}
   if(job.upscale_level!==''){upscale={level:job.upscale_level,strength:job.upscale_strength}}
   if(job.init_img){postObject.init_img=job.init_img}
   if(job&&job.model&&currentModel&&job.model!==currentModel){debugLog('job.model is different to currentModel, switching');requestModelChange(job.model)}
@@ -770,7 +769,8 @@ function lexicaSearch(query,channel){
       var filteredResults = r.data.images.filter(i=>i.model==='stable-diffusion')// we only care about SD results
       filteredResults = filteredResults.filter((value, index, self) => {return self.findIndex(v => v.promptid === value.promptid) === index})// want only unique prompt ids
       log('Lexica search for :`'+query+'` gave '+r.data.images.length+' results, '+filteredResults.length+' after filtering')
-      shuffle(filteredResults).slice(0,10)// shuffle and trim to 10 results // todo make this an option once lexica writes api docs
+      shuffle(filteredResults)
+      filteredResults=filteredResults.slice(0,10)// shuffle and trim to 10 results // todo make this an option once lexica writes api docs
       filteredResults.forEach(i=>{reply.embeds.push({color: getRandomColorDec(),description: ':seedling:`'+i.seed+'` :straight_ruler:`'+i.width+'x'+i.height+'`',image:{url:i.srcSmall},footer:{text:i.prompt}})})
       bot.createMessage(channel, reply)
     })
@@ -1421,17 +1421,16 @@ bot.on("messageCreate", (msg) => {
           log(models)
           newMsg='**'+Object.keys(models).length+' models available**\n:green_circle: =loaded in VRAM :orange_circle: =cached in RAM :red_circle: = unloaded\n'
           Object.keys(models).forEach((m)=>{
-          switch(models[m].status){
-            case 'not loaded':{newMsg+=':red_circle:';break}
-            case 'cached':{newMsg+=':orange_circle:';break}
-            case 'active':{newMsg+=':green_circle:';break}
-          }
-          newMsg+='`'+m+'`'
-          newMsg+=models[m].description+'\n'
-        })}
-        if(newMsg!==''){
-          if(newMsg.length<=2000){newMsg.length=1999} //max discord msg length of 2k
-          try{chatChan(msg.channel.id,newMsg)}catch(err){log(err)}
+            switch(models[m].status){
+              case 'not loaded':{newMsg+=':red_circle:';break}
+              case 'cached':{newMsg+=':orange_circle:';break}
+              case 'active':{newMsg+=':green_circle:';break}
+            }
+            newMsg+='`'+m+'`'
+            newMsg+=models[m].description+'\n'
+            if(newMsg.length>=1500){try{chatChan(msg.channel.id,newMsg);newMsg=''}catch(err){log(err)}}
+          })
+          if(newMsg!==''){try{chatChan(msg.channel.id,newMsg)}catch(err){log(err)}}
         }
         break
       }
@@ -1475,6 +1474,7 @@ bot.on("messageCreate", (msg) => {
       }
       case '!guilds':{bot.guilds.forEach((g)=>{log({id: g.id, name: g.name, ownerID: g.ownerID, description: g.description, memberCount: g.memberCount})});break}
       case '!updateslashcommands':{bot.getCommands().then(cmds=>{bot.commands = new Collection();for (const c of slashCommands) {bot.commands.set(c.name, c);bot.createCommand({name: c.name,description: c.description,options: c.options ?? [],type: Constants.ApplicationCommandTypes.CHAT_INPUT})}});break}
+      case '!deleteslashcommands':{bot.bulkEditCommands([]);bot.getCommands().then(cmds=>{bot.commands = new Collection();for (const c of slashCommands) {bot.commands.set(c.name, c);bot.createCommand({name: c.name,description: c.description,options: c.options ?? [],type: Constants.ApplicationCommandTypes.CHAT_INPUT})}});break}
       case '!randomisers':{
         var newMsg='**Currently loaded randomisers**\n'
         for (r in randoms){newMsg+='`{'+randoms[r]+'}`='+getRandom(randoms[r])+'\n'}
