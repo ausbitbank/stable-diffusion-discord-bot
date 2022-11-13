@@ -20,8 +20,6 @@ const dJSON = require('dirty-json')
 var colors = require('colors')
 const debounce = require('debounce')
 var jimp = require('jimp')
-//const { Rembg } = require("rembg-node")
-//const sharp = require("sharp")
 const FormData = require('form-data')
 const io = require("socket.io-client")
 const socket = io(config.apiUrl,{reconnect: true})
@@ -39,7 +37,7 @@ const hive = require('@hiveio/hive-js')
 const { exit } = require('process')
 if (config.hivePaymentAddress.length>0){
   hive.config.set('alternative_api_endpoints',['https://rpc.ausbit.dev','https://api.deathwing.me','https://api.c0ff33a.uk','https://hived.emre.sh']) 
-  var hiveUsd = 0.5
+  var hiveUsd = 0.4
   getPrices()
   cron.schedule('0,15,30,45 * * * *', () => { log('Checking account history every 15 minutes'.grey); checkNewPayments() })
   cron.schedule('0,30 * * * *', () => { log('Updating hive price every 30 minutes'.grey); getPrices() })
@@ -56,6 +54,7 @@ const bot = new Eris.CommandClient(config.discordBotKey, {
 })
 const defaultSize = parseInt(config.defaultSize)||512
 const defaultSteps = parseInt(config.defaultSteps)||50
+const defaultMaxDiscordFileSize=parseInt(config.defaultMaxDiscordFileSize)||8000000  // TODO detect server boost status and increase this if boosted
 const basePath = config.basePath
 var currentModel='notInitializedYet'
 var models=null
@@ -200,11 +199,6 @@ function request(request){
   if (args.n){args.number=args.n}
   if (!args.number||!Number.isInteger(args.number)||args.number>10||args.number<1){args.number=1}
   if (!args.renderer||['localApi'].includes(args.renderer)){args.renderer='localApi'}
-  /*if (args.template) {
-    args.template = sanitize(args.template)
-    try { if (!fs.existsSync(config.basePath+args.template+'.png')){args.template=undefined} }
-    catch (err) {console.error(err);args.template=undefined}
-  } else { args.template = undefined }*/
   if (!args.gfpgan_strength){args.gfpgan_strength=0}
   if (!args.codeformer_strength){args.codeformer_strength=0}
   if (!args.upscale_level){args.upscale_level=''}
@@ -239,7 +233,6 @@ function request(request){
     strength: args.strength,
     threshold: args.threshold,
     perlin: args.perlin,
-    // template: args.template,
     gfpgan_strength: args.gfpgan_strength,
     codeformer_strength: args.codeformer_strength,
     upscale_level: args.upscale_level,
@@ -257,7 +250,7 @@ function request(request){
   dbWrite() // Push db write after each new addition
   processQueue()
 }
-function queueStatus() { // todo report status to the relevant channel where the current render was triggered
+function queueStatus() {
   if(dialogs.queue!==null){dialogs.queue.delete().catch((err)=>{console.error(err)})}
   var done=queue.filter((j)=>j.status==='done')
   var doneGps=tidyNumber((getPixelStepsTotal(done)/1000000).toFixed(0))
@@ -286,7 +279,6 @@ function queueStatus() { // todo report status to the relevant channel where the
     statusMsg+=' :brain: **'+next.username+'**#'+next.discriminator+' :coin:`'+costCalculator(next)+'` :fire:`'+renderGps+'`'
   }
   if (next&&next.channel!=='webhook'){var chan=next.channel} else {var chan=config.channelID}
-  //log(statusMsg)
   bot.createMessage(chan,statusMsg).then(x=>{dialogs.queue=x}).catch((err)=>console.error(err))
 }
 queueStatus=debounce(queueStatus,2000,true)
@@ -305,19 +297,14 @@ function prepSlashCmd(options) { // Turn partial options into full command for s
   return job
 }
 function getCmd(newJob){ return newJob.prompt+' --width ' + newJob.width + ' --height ' + newJob.height + ' --seed ' + newJob.seed + ' --scale ' + newJob.scale + ' --sampler ' + newJob.sampler + ' --steps ' + newJob.steps + ' --strength ' + newJob.strength + ' --n ' + newJob.number + ' --gfpgan_strength ' + newJob.gfpgan_strength + ' --codeformer_strength ' + newJob.codeformer_strength + ' --upscale_level ' + newJob.upscale_level + ' --upscale_strength ' + newJob.upscale_strength + ' --threshold ' + newJob.threshold + ' --perlin ' + newJob.perlin + ' --seamless ' + newJob.seamless + ' --hires_fix ' + newJob.hires_fix + ' --variation_amount ' + newJob.variation_amount + ' --with_variations ' + newJob.with_variations + ' --model ' + newJob.model}
-function getRandomSeed() {return Math.floor(Math.random() * 4294967295)}
-function chat(msg) {if (msg !== null && msg !== ''){bot.createMessage(config.channelID, msg)}}
-function chatChan(channel,msg) {
-  if (msg !== null && msg !== ''){
-    try{bot.createMessage(channel, msg)}
-    catch(err){log('Failed to send with error:'.bgRed);log(err)}
-  }
-}
-function sanitize (prompt) {
-  if (config.bannedWords.length>0) { config.bannedWords.split(',').forEach((bannedWord, index) => { prompt = prompt.replace(bannedWord,'') }) }
+function getRandomSeed(){return Math.floor(Math.random()*4294967295)}
+function chat(msg){if(msg!==null&&msg!==''){try{bot.createMessage(config.channelID, msg)}catch(err){log(err)}}}
+function chatChan(channel,msg){if(msg!==null&&msg!==''){try{bot.createMessage(channel, msg)}catch(err){log('Failed to send with error:'.bgRed);log(err)}}}
+function sanitize(prompt){
+  if(config.bannedWords.length>0){config.bannedWords.split(',').forEach((bannedWord,index)=>{prompt=prompt.replace(bannedWord,'')})}
   return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ+()=!\"\&\*\[\]<>\\\/\- ,.\:]/g, '').replace('`','') // (/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '')
 }
-function base64Encode(file) { var body = fs.readFileSync(file); return body.toString('base64') }
+function base64Encode(file){var body=fs.readFileSync(file);return body.toString('base64')}
 function authorised(who,channel,guild) {
   if (userid===config.adminID){return true} // always allow admin
   var bannedUsers=[];var allowedGuilds=[];var allowedChannels=[];var ignoredChannels=[];var userid=null;var username=null
@@ -338,15 +325,15 @@ function authorised(who,channel,guild) {
 }
 function createNewUser(id){
   log('createnewuser called with id',id)
-  if (id.id){id=id.id}
+  if(id.id){id=id.id}
   users.push({id:id, credits:100}) // 100 creds for new users
   dbWrite() // Sync after new user
   log('created new user with id '.bgBlue.black.bold + id)
 }
 function userCreditCheck(userID,amount) { // Check if a user can afford a specific amount of credits, create if not existing yet
-  var user = users.find(x=>x.id===String(userID))
-  if (!user){createNewUser(userID);user=users.find(x=>x.id===String(userID))}
-  if (parseFloat(user.credits)>=parseFloat(amount)){return true}else{return false}
+  var user=users.find(x=>x.id===String(userID))
+  if(!user){createNewUser(userID);user=users.find(x=>x.id===String(userID))}
+  if(parseFloat(user.credits)>=parseFloat(amount)){return true}else{return false}
 }
 function costCalculator(job) {                 // Pass in a render, get a cost in credits
   var cost=1                                   // a normal render base cost, 512x512 50 steps
@@ -368,16 +355,14 @@ function chargeCredits(userID,amount){
   var user=users.find(x=>x.id===userID)
   user.credits=(user.credits-amount).toFixed(2)
   dbWrite()
-  var z = 'charged id '+userID+' - '+amount+'/'
-  if (user.credits>90){z+=user.credits.bgBrightGreen.white}else if(user.credits>50){z+=user.credits.bgGreen.black}else if(user.credits>10){z+=user.credits.bgBlack.white}else{z+=user.credits.bgRed.black}
+  var z='charged id '+userID+' - '+amount+'/'
+  if(user.credits>90){z+=user.credits.bgBrightGreen.white}else if(user.credits>50){z+=user.credits.bgGreen.black}else if(user.credits>10){z+=user.credits.bgBlack.white}else{z+=user.credits.bgRed.black}
   log(z.dim.bold)
 }
 function creditRecharge(credits,txid,userid,amount,from){
   var user=users.find(x=>x.id===userid)
   if(!user){createNewUser(userid)}
-  if(user&&user.credits){
-    user.credits=(parseFloat(user.credits)+parseFloat(credits)).toFixed(2)
-  }
+  if(user&&user.credits){user.credits=(parseFloat(user.credits)+parseFloat(credits)).toFixed(2)}
   if(txid!=='manual'){
     payments.push({credits:credits,txid:txid,userid:userid,amount:amount})
     var paymentMessage = ':tada: <@'+userid+'> added :coin:`'+credits+'`, balance is now :coin:`'+user.credits+'`\n:heart_on_fire: Thanks `'+from+'` for the `'+amount+'` donation to the GPU fund.\n Type !recharge to get your own topup info'
@@ -385,13 +370,13 @@ function creditRecharge(credits,txid,userid,amount,from){
   }
   dbWrite()
 }
-function freeRecharge() {
+function freeRecharge(){
   // allow for regular topups of empty accounts
   // new users get 100 credits on first appearance, then freeRechargeAmount more every 12 hours IF their balance is less then freeRechargeMinBalance
-  var freeRechargeMinBalance = 10
-  var freeRechargeAmount = 10
-  var freeRechargeUsers = users.filter(u=>u.credits<freeRechargeMinBalance)
-  if (freeRechargeUsers.length>0){
+  var freeRechargeMinBalance=10
+  var freeRechargeAmount=10
+  var freeRechargeUsers=users.filter(u=>u.credits<freeRechargeMinBalance)
+  if(freeRechargeUsers.length>0){
     log(freeRechargeUsers.length+' users with balances below '+freeRechargeMinBalance+' getting a free '+freeRechargeAmount+' credit topup')
     freeRechargeUsers.forEach(u=>{
       u.credits = parseFloat(u.credits)+freeRechargeAmount // Incentivizes drain down to 9 for max free charge leaving balance at 19
@@ -400,21 +385,21 @@ function freeRecharge() {
     })
     chat(':fireworks:'+freeRechargeUsers.length+' users with a balance below `'+freeRechargeMinBalance+'`:coin: just received their free credit recharge')
     dbWrite()
-  } else {
+  }else{
     log('No users eligible for free credit recharge')
   }
 }
-function dbWrite() {
-  try {
-    fs.writeFileSync('dbQueue.json', JSON.stringify({ queue: queue }))
-    fs.writeFileSync('dbUsers.json', JSON.stringify({ users: users }))
-    fs.writeFileSync('dbPayments.json', JSON.stringify({ payments: payments }))
-  } catch(err) {log('Failed to write db files'.bgRed);log(err)}}
+function dbWrite(){
+  try{
+    fs.writeFileSync('dbQueue.json',JSON.stringify({queue:queue}))
+    fs.writeFileSync('dbUsers.json',JSON.stringify({users:users}))
+    fs.writeFileSync('dbPayments.json',JSON.stringify({payments:payments}))
+  }catch(err){log('Failed to write db files'.bgRed);log(err)}}
 function dbRead() {
   try{
-    queue = JSON.parse(fs.readFileSync('dbQueue.json')).queue
-    users = JSON.parse(fs.readFileSync('dbUsers.json')).users
-    payments = JSON.parse(fs.readFileSync('dbPayments.json')).payments
+    queue=JSON.parse(fs.readFileSync('dbQueue.json')).queue
+    users=JSON.parse(fs.readFileSync('dbUsers.json')).users
+    payments=JSON.parse(fs.readFileSync('dbPayments.json')).payments
   } catch (err){log('Failed to read db files'.bgRed);log(err)}
 }
 function dbScheduleRead(){
@@ -422,63 +407,48 @@ function dbScheduleRead(){
   try{
     fs.readFile(dbScheduleFile,function(err,data){
       if(err){console.error(err)}
-      var j = JSON.parse(data)
-      schedule = j.schedule
+      var j=JSON.parse(data)
+      schedule=j.schedule
       scheduleInit()
     })
   }
-  catch(err){console.error('failed to read schedule db'); console.error(err)}
+  catch(err){console.error('failed to read schedule db');console.error(err)}
 }
 function scheduleInit(){
   // cycle through the active schedule jobs, set up render jobs with cron
   log('init schedule'.grey)
   schedule.filter(s=>s.enabled==='True').forEach(s=>{
     log('Scheduling job: '.grey+s.name)
-    cron.schedule(s.cron, () => {
+    cron.schedule(s.cron,()=>{
       log('Running scheduled job: '.grey+s.name)
-      var randomPrompt = s.prompts[Math.floor(Math.random()*s.prompts.length)].prompt
-      var newRequest = {cmd: randomPrompt, userid: s.admins[0].id, username: s.admins[0].username, discriminator: s.admins[0].discriminator, bot: 'False', channelid: s.channel, attachments: []}
-      if (s.onlyOnIdle==="True"){
-        if (queue.filter((q)=>q.status==='new').length>0){
-          log('Ignoring scheduled job due to renders')
-        } else {
-          request(newRequest)
-        }
-      } else {
-        request(newRequest)
-      }
+      var randomPrompt=s.prompts[Math.floor(Math.random()*s.prompts.length)].prompt
+      var newRequest={cmd: randomPrompt, userid: s.admins[0].id, username: s.admins[0].username, discriminator: s.admins[0].discriminator, bot: 'False', channelid: s.channel, attachments: []}
+      if(s.onlyOnIdle==="True"){if(queue.filter((q)=>q.status==='new').length>0){log('Ignoring scheduled job due to renders')}else{request(newRequest)}}else{request(newRequest)}
     })
   })
 }
-function getUser(id){
-  var user=bot.users.get(id)
-  if (user){return user}else{return null}
-}
-function getUsername(id){
-  var user=getUser(id)
-  log(user)
-  if(user!==null&&user.username){return user.username}else{return null}
-}
-function getRichList () {
-  var u = users.filter(u=>u.credits>11).sort((a,b)=>b.credits-a.credits)
-  var richlistMsg = 'Rich List\n'
+function getUser(id){var user=bot.users.get(id);if(user){return user}else{return null}}
+function getUsername(id){var user=getUser(id);log(user);if(user!==null&&user.username){return user.username}else{return null}}
+function getRichList(){
+  var u=users.filter(u=>u.credits>11).sort((a,b)=>b.credits-a.credits)
+  var richlistMsg='Rich List\n'
   u.forEach(u=>{richlistMsg+=getUsername(u.id)+':coin:`'+u.credits+'`\n'})
   log(richlistMsg)
 }
 function getPrices () { // TODO fallback to getting costs from hive internal market
   var url='https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=hive&order=market_cap_asc&per_page=1&page=1&sparkline=false'
   axios.get(url)
-    .then((response) => { hiveUsd = response.data[0].current_price; log('HIVE: $'+hiveUsd) })
-    .catch(() => { log('Failed to load data from coingecko api'.red.bold); hiveUsd=0.5 })
+    .then((response)=>{hiveUsd=response.data[0].current_price;log('HIVE: $'+hiveUsd)})
+    .catch(()=>{log('Failed to load data from coingecko api'.red.bold);hiveUsd=0.5})
 }
 function getLightningInvoiceQr(memo){
-  var appname = config.hivePaymentAddress+'_discord' // TODO should this be an .env variable?
+  var appname=config.hivePaymentAddress+'_discord' // TODO should this be an .env variable?
   return 'https://api.v4v.app/v1/new_invoice_hive?hive_accname='+config.hivePaymentAddress+'&amount=1&currency=HBD&usd_hbd=false&app_name='+appname+'&expiry=300&message='+memo+'&qr_code=png'
 }
 function getPixelSteps(job){ // raw (width * height) * (steps * number). Does not account for postprocessing
-  var p = parseInt(job.width)*parseInt(job.height)
-  var s = parseInt(job.steps)*parseInt(job.number)
-  var ps= p*s
+  var p=parseInt(job.width)*parseInt(job.height)
+  var s= parseInt(job.steps)*parseInt(job.number)
+  var ps=p*s
   return ps
 }
 function getPixelStepsTotal(jobArray){
@@ -487,48 +457,39 @@ function getPixelStepsTotal(jobArray){
   return ps
 }
 function rechargePrompt(userid,channel){
-  // TODO add encrypted memo support by default to keep discord ids private
   userCreditCheck(userid,1) // make sure the account exists first
   checkNewPayments()
-  var paymentMemo = config.hivePaymentPrefix+userid
-  var paymentLinkHbd = 'https://hivesigner.com/sign/transfer?to='+config.hivePaymentAddress+'&amount=1.000%20HBD&memo='+paymentMemo
-  var paymentLinkHive = 'https://hivesigner.com/sign/transfer?to='+config.hivePaymentAddress+'&amount=1.000%20HIVE&memo='+paymentMemo
-  var lightningInvoiceQr = getLightningInvoiceQr(paymentMemo)
-  var paymentMsg = '<@'+ userid +'> has :coin:`'+ creditsRemaining(userid) +'` left\n\n*Recharging costs `1` usd per :coin:`100` *\nSend HBD or HIVE to `'+ config.hivePaymentAddress +'` with the memo `'+ paymentMemo +'`\n**Pay $1 with Hbd:** '+paymentLinkHbd+'\n**Pay $1 with Hive:** '+paymentLinkHive
-  var freeRechargeMsg = '..Or just wait for your free recharge of 10 credits twice a day'
-  var paymentMsgObject = {
-    content: paymentMsg,
-    embeds:[{description:'Pay $1 via btc lightning network', image:{url:lightningInvoiceQr}}]}
+  var paymentMemo=config.hivePaymentPrefix+userid
+  var paymentLinkHbd='https://hivesigner.com/sign/transfer?to='+config.hivePaymentAddress+'&amount=1.000%20HBD&memo='+paymentMemo
+  var paymentLinkHive='https://hivesigner.com/sign/transfer?to='+config.hivePaymentAddress+'&amount=1.000%20HIVE&memo='+paymentMemo
+  var lightningInvoiceQr=getLightningInvoiceQr(paymentMemo)
+  var paymentMsg='<@'+userid+'> has :coin:`'+creditsRemaining(userid)+'` left\n\n*Recharging costs `1` usd per :coin:`100` *\nSend HBD or HIVE to `'+config.hivePaymentAddress+'` with the memo `'+paymentMemo+'`\n**Pay $1 with Hbd:** '+paymentLinkHbd+'\n**Pay $1 with Hive:** '+paymentLinkHive
+  var freeRechargeMsg='..Or just wait for your free recharge of 10 credits twice a day'
+  var paymentMsgObject={content: paymentMsg,embeds:[{description:'Pay $1 via btc lightning network', image:{url:lightningInvoiceQr}}]}
   if (creditsRemaining(userid)<10){paymentMsgObject.embeds.push({footer:{text:freeRechargeMsg}})}
   directMessageUser(userid,paymentMsgObject,channel).catch((err)=>log(err))
   log('ID '+userid+' asked for recharge link')
 }
 function checkNewPayments(){
-  //var bitmask = ['4',null] // transfers only
-  var bitmask = ['4','524288'] // transfers and fill_recurrent_transfer only
+  var bitmask=['4','524288'] // transfers and fill_recurrent_transfer only
+  var accHistoryLength=config.accHistoryLength||100
   log('Checking recent payments for '.grey+config.hivePaymentAddress.grey)
   // TODO there has to be a more efficient method, revisit below
-  hive.api.getAccountHistory(config.hivePaymentAddress, -1, 100, ...bitmask, function(err, result) {
+  hive.api.getAccountHistory(config.hivePaymentAddress, -1, accHistoryLength, ...bitmask, function(err, result) {
     if(err){log(err)}
     if(Array.isArray(result)) {
       result.forEach(r=>{
-        var tx = r[1]
-        var txType = tx.op[0]
+        var tx=r[1]
+        var txType=tx.op[0]
         var op=tx.op[1]
-        if (txType==='transfer'&&op.to===config.hivePaymentAddress&&op.memo.startsWith(config.hivePaymentPrefix)){
+        if(txType==='transfer'&&op.to===config.hivePaymentAddress&&op.memo.startsWith(config.hivePaymentPrefix)){
           var amountCredit=0
           var accountId=op.memo.replace(config.hivePaymentPrefix,'')
-          var pastPayment = payments.find(x=>x.txid===tx.trx_id)
-          if (pastPayment!==undefined){
-            // already processed this payment
-          } else {
+          var pastPayment=payments.find(x=>x.txid===tx.trx_id)
+          if(pastPayment===undefined){
             coin=op.amount.split(' ')[1]
             amount=parseFloat(op.amount.split(' ')[0])
-            if (coin==='HBD'){
-              amountCredit = amount*100 // 1000 = 1 HBD, /10 = credit amount
-            } else if (coin==='HIVE'){
-              amountCredit = (amount*hiveUsd)*100
-            }
+            if(coin==='HBD'){amountCredit=amount*100}else if(coin==='HIVE'){amountCredit=(amount*hiveUsd)*100}
             log('New Payment: amount credit:'.bgBrightGreen.red+amountCredit+' , amount:'+op.amount)
             creditRecharge(amountCredit,tx.trx_id,accountId,op.amount,op.from)
           }
@@ -539,69 +500,44 @@ function checkNewPayments(){
 }
 checkNewPayments=debounce(checkNewPayments,30000,true) // at least 30 seconds between checks
 function sendWebhook(job){ // TODO eris has its own internal webhook method, investigate and maybe replace this
-  let embeds = [ { color: getRandomColorDec(), footer: { text: job.prompt }, image: { url: job.webhook.imgurl } } ]
-  axios({method: "POST",url: job.webhook.url,headers: { "Content-Type": "application/json" },data: JSON.stringify({embeds})})
+  let embeds=[{color:getRandomColorDec(),footer:{text:job.prompt},image:{url:job.webhook.imgurl}}]
+  axios({method:"POST",url:job.webhook.url,headers:{ "Content-Type": "application/json" },data:JSON.stringify({embeds})})
     .then((response) => {log("Webhook delivered successfully")})
     .catch((error) => {console.error(error)})
 }
-function postprocessingResult(data){ // TODO unfinished, untested
+function postprocessingResult(data){ // TODO unfinished, untested, awaiting new invokeai api release
   log(data)
   var url=data.url
   url=config.basePath+data.url.split('/')[data.url.split('/').length-1]
-  var postRenderObject = {filename: url, seed: data.metadata.image.seed, width:data.metadata.image.width,height:data.metadata.image.height}
+  var postRenderObject={filename: url, seed: data.metadata.image.seed, width:data.metadata.image.width,height:data.metadata.image.height}
   log(postRenderObject)
   //postRender(postRenderObject)
 }
-function requestModelChange(newmodel){
-  log('Requesting model change to '+newmodel)
-  if (newmodel===undefined||newmodel==='undefined'){newmodel='stable-diffusion-1.5'}
-  socket.emit('requestModelChange',newmodel)
-}
-function cancelRenders(){
-  log('Cancelling current render'.bgRed)
-  socket.emit('cancel')
-  queue[queue.findIndex((q)=>q.status==='rendering')-1].status='cancelled'
-  rendering=false
-}
+function requestModelChange(newmodel){log('Requesting model change to '+newmodel);if(newmodel===undefined||newmodel==='undefined'){newmodel='stable-diffusion-1.5'}socket.emit('requestModelChange',newmodel)}
+function cancelRenders(){log('Cancelling current render'.bgRed);socket.emit('cancel');queue[queue.findIndex((q)=>q.status==='rendering')-1].status='cancelled';rendering=false}
 function generationResult(data){
   var url=data.url
   url=config.basePath+data.url.split('/')[data.url.split('/').length-1]
-  var job = queue[queue.findIndex(j=>j.status==='rendering')] // TODO there has to be a better way to know if this is a job from the web interface or the discord bot.
-  if (job){
-    job.results.push(data)
-    var postRenderObject = {id:job.id,filename: url, seed: data.metadata.image.seed, resultNumber:job.results.length-1, width:data.metadata.image.width,height:data.metadata.image.height}
-    postRender(postRenderObject)
-  }else{rendering=false}
-  if (job&&job.results.length>=job.number){
-    job.status='done'
-    rendering=false // is this needed anymore now we have socket updates?
-    processQueue()
-  }
+  var job=queue[queue.findIndex(j=>j.status==='rendering')] // TODO there has to be a better way to know if this is a job from the web interface or the discord bot // upcoming invokeai api release solves this
+  if(job){job.results.push(data);var postRenderObject={id:job.id,filename: url, seed: data.metadata.image.seed, resultNumber:job.results.length-1, width:data.metadata.image.width,height:data.metadata.image.height};postRender(postRenderObject)}else{rendering=false}
+  if(job&&job.results.length>=job.number){job.status='done';rendering=false;processQueue()}
 }
 function initialImageUploaded(data){
-  // response unparsed 42["imageUploaded",{"url":"outputs/init-images/002834.4241631408.postprocessed.40678651.png","mtime":1667534834.4564033,"width":1920,"height":1024,"category":"user","destination":"img2img"}]
   var url=data.url
   var filename=config.basePath+"/"+data.url.replace('outputs/','')
   var id=data.url.split('/')[data.url.split('/').length-1].split('.')[0]
-  var job = queue[id-1]
-  if(job){
-    job.init_img=filename
-    emitRenderApi(job)
-  }
-}
-
-function runPostProcessing(result, options){  
-  //options={"type":"gfpgan","gfpgan_strength":0.8}
-  socket.emit('runPostProcessing',result,options)
-}
+  var job=queue[id-1]
+  if(job){job.init_img=filename;emitRenderApi(job)}
+}// response unparsed 42["imageUploaded",{"url":"outputs/init-images/002834.4241631408.postprocessed.40678651.png","mtime":1667534834.4564033,"width":1920,"height":1024,"category":"user","destination":"img2img"}]
+function runPostProcessing(result, options){socket.emit('runPostProcessing',result,options)}//options={"type":"gfpgan","gfpgan_strength":0.8}
 // capture result
 // 42["postprocessingResult",{"url":"outputs/000313.3208696952.postprocessed.png","mtime":1665588046.4130075,"metadata":{"model":"stable diffusion","model_id":"stable-diffusion-1.4","model_hash":"fe4efff1e174c627256e44ec2991ba279b3816e364b49f9be2abc0b3ff3f8556","app_id":"lstein/stable-diffusion","app_version":"v1.15","image":{"prompt":[{"prompt":"insanely detailed. instagram photo, kodak portra. by wlop, ilya kuvshinov, krenz cushart, greg rutkowski, pixiv. zbrush sculpt, octane, maya, houdini, vfx. closeup anonymous by ayami kojima in gran turismo for ps 5 cinematic dramatic atmosphere, sharp focus, volumetric lighting","weight":1.0}],"steps":50,"cfg_scale":7.5,"threshold":0,"perlin":0,"width":512,"height":512,"seed":3208696952,"seamless":false,"postprocessing":[{"type":"gfpgan","strength":0.8}],"sampler":"k_lms","variations":[],"type":"txt2img"}}}]
 //{type:'gfpgan',gfpgan_strength:0.8}
 //{"type":"esrgan","upscale":[4,0.75]}
 
 async function emitRenderApi(job){
-  var prompt = job.prompt
-  var postObject = {
+  var prompt=job.prompt
+  var postObject={
       "prompt": prompt,
       "iterations": job.number,
       "steps": job.steps,
@@ -621,8 +557,8 @@ async function emitRenderApi(job){
   if(job.with_variations.length>0){log('adding with variations');postObject.with_variations=job.with_variations;log(postObject.with_variations)} 
   if(job.seamless&&job.seamless===true){postObject.seamless=true}
   if(job.hires_fix&&job.hires_fix===true){postObject.hires_fix=true}
-  var upscale = false
-  var facefix = false
+  var upscale=false
+  var facefix=false
   if(job.gfpgan_strength!==0){facefix={type:'gfpgan',strength:job.gfpgan_strength}}
   if (job.codeformer_strength===undefined){job.codeformer_strength=0}
   if(job.codeformer_strength!==0){facefix={type:'codeformer',strength:job.codeformer_strength,codeformer_fidelity:1}}
@@ -630,24 +566,19 @@ async function emitRenderApi(job){
   if(job.init_img){postObject.init_img=job.init_img}
   if(job&&job.model&&currentModel&&job.model!==currentModel){debugLog('job.model is different to currentModel, switching');requestModelChange(job.model)}
   [postObject,upscale,facefix,job].forEach((o)=>{
-    var key = getObjKey(o,undefined)
-    if (key!==undefined){ // not undefined in this context means there is a key that IS undefined, confusing
-      log('Missing property for '+key)
-      if (key==='codeformer_strength'){upscale.strength=0}
-    }
+    var key=getObjKey(o,undefined)
+    if(key!==undefined){log('Missing property for '+key);if(key==='codeformer_strength'){upscale.strength=0}} // not undefined in this context means there is a key that IS undefined, confusing
   })
   socket.emit('generateImage',postObject,upscale,facefix)
   debugLog('sent request',postObject,upscale,facefix)
 }
-function getObjKey(obj, value) {
-  return Object.keys(obj).find(key => obj[key] === value)
-}
-async function addRenderApi (id) {
-  var job = queue[queue.findIndex(x=>x.id===id)] 
-  var initimg = null
-  job.status = 'rendering'
+function getObjKey(obj, value){return Object.keys(obj).find(key=>obj[key]===value)}
+async function addRenderApi(id){
+  var job=queue[queue.findIndex(x=>x.id===id)] 
+  var initimg=null
+  job.status='rendering'
   queueStatus()
-  if (job.attachments[0] && job.attachments[0].content_type && job.attachments[0].content_type.startsWith('image')) {
+  if(job.attachments[0]&&job.attachments[0].content_type&&job.attachments[0].content_type.startsWith('image')){
     log('fetching attachment from '.bgRed + job.attachments[0].proxy_url)
     await axios.get(job.attachments[0].proxy_url, {responseType: 'arraybuffer'})
       .then(res => {initimg = Buffer.from(res.data);debugLog('got attachment')})
@@ -655,45 +586,45 @@ async function addRenderApi (id) {
   }
   if (initimg!==null){debugLog('uploadInitialImage');socket.emit('uploadImage', initimg, job.id+'.png','img2img')}else{emitRenderApi(job)}
 }
-async function postRender (render) {
-  try { fs.readFile(render.filename, null, function(err, data) {
-    if (err) { console.error(err) } else {
-      filename = render.filename.split('\\')[render.filename.split('\\').length-1].replace(".png","")
-      var job = queue[queue.findIndex(x => x.id === render.id)]
-      var msg = ':brain:<@' + job.userid + '>'
-      msg+= ':straight_ruler:`' + render.width + 'x' + render.height + '`'
-      if (job.upscale_level!=='') { msg+= ':mag:**`Upscaledx' + job.upscale_level + ' to '+(parseFloat(job.width)*parseFloat(job.upscale_level))+'x'+(parseFloat(job.height)*parseFloat(job.upscale_level))+' (' + job.upscale_strength + ')`**'}
-      if (job.gfpgan_strength!==0) { msg+= ':magic_wand:`gfpgan face fix(' + job.gfpgan_strength + ')`'}
-      if (job.codeformer_strength!==0) { msg+= ':magic_wand:`codeformer face fix(' + job.codeformer_strength + ')`'}
-      if (job.seamless===true) { msg+= ':knot:**`Seamless Tiling`**'}
-      if (job.hires_fix===true) { msg+= ':telescope:**`High Resolution Fix`**'}
-      if (job.perlin!==0) { msg+= ':oyster:**`Perlin '+job.perlin+'`**'}
-      if (job.threshold!==0) { msg+= ':door:**`Threshold '+job.threshold+'`**'}
-      if (job.attachments.length>0) { msg+= ':paperclip:` attached template`:muscle:`' + job.strength + '`'}
-      if (job.variation_amount!==0) { msg+= ':microbe:**`Variation ' + job.variation_amount + '`**'}
+async function postRender(render){
+  try{fs.readFile(render.filename, null, function(err, data){
+    if(err){console.error(err)}else{
+      filename=render.filename.split('\\')[render.filename.split('\\').length-1].replace(".png","")
+      var job=queue[queue.findIndex(x=>x.id===render.id)]
+      var msg=':brain:<@'+job.userid+'>'
+      msg+=':straight_ruler:`'+render.width+'x'+render.height+'`'
+      if(job.upscale_level!==''){msg+=':mag:**`Upscaledx'+job.upscale_level+' to '+(parseFloat(job.width)*parseFloat(job.upscale_level))+'x'+(parseFloat(job.height)*parseFloat(job.upscale_level))+' ('+job.upscale_strength+')`**'}
+      if(job.gfpgan_strength!==0){msg+=':magic_wand:`gfpgan face fix('+job.gfpgan_strength+')`'}
+      if(job.codeformer_strength!==0){msg+=':magic_wand:`codeformer face fix(' + job.codeformer_strength + ')`'}
+      if(job.seamless===true){msg+=':knot:**`Seamless Tiling`**'}
+      if(job.hires_fix===true){msg+=':telescope:**`High Resolution Fix`**'}
+      if(job.perlin!==0){msg+=':oyster:**`Perlin '+job.perlin+'`**'}
+      if(job.threshold!==0){msg+=':door:**`Threshold '+job.threshold+'`**'}
+      if(job.attachments.length>0){msg+=':paperclip:` attached template`:muscle:`'+job.strength+'`'}
+      if(job.variation_amount!==0){msg+=':microbe:**`Variation '+job.variation_amount+'`**'}
       //var jobResult = job.renders[render.resultNumber]
-      if (render.variations) { msg+= ':linked_paperclips:with variants `' + render.variations + '`'}
-      msg+= ':seedling:`' + render.seed + '`:scales:`' + job.scale + '`:recycle:`' + job.steps + '`'
-      msg+= ':stopwatch:`' + timeDiff(job.timestampRequested, moment()) + 's`'
-      msg+= ':file_cabinet:`' + filename + '`:eye:`' + job.sampler + '`'
-      msg+= ':floppy_disk:`'+job.model+'`'
-      if (job.webhook){msg+='\n:calendar:Scheduled render sent to `'+job.webhook.destination+'` discord'}
+      if(render.variations){msg+=':linked_paperclips:with variants `'+render.variations+'`'}
+      msg+=':seedling:`'+render.seed+'`:scales:`'+job.scale+'`:recycle:`'+job.steps+'`'
+      msg+=':stopwatch:`'+timeDiff(job.timestampRequested, moment())+'s`'
+      msg+=':file_cabinet:`'+filename+'`:eye:`'+job.sampler+'`'
+      msg+=':floppy_disk:`'+job.model+'`'
+      if(job.webhook){msg+='\n:calendar:Scheduled render sent to `'+job.webhook.destination+'` discord'}
       chargeCredits(job.userid,(costCalculator(job))/job.number) // only charge successful renders
-      if (job.cost){msg+=':coin:`'+(job.cost/job.number).toFixed(2).replace(/[.,]00$/, "")+'/'+ creditsRemaining(job.userid) +'`'}
+      if(job.cost){msg+=':coin:`'+(job.cost/job.number).toFixed(2).replace(/[.,]00$/, "")+'/'+ creditsRemaining(job.userid) +'`'}
       var newMessage = { content: msg, embeds: [{description: job.prompt, color: getRandomColorDec()}], components: [ { type: Constants.ComponentTypes.ACTION_ROW, components: [ ] } ] }
-      if (job.prompt.replace(' ','').length===0){newMessage.embeds=[]}
+      if(job.prompt.replace(' ','').length===0){newMessage.embeds=[]}
       newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "ReDream", custom_id: "refresh-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })
       newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Edit Prompt", custom_id: "edit-"+job.id, emoji: { name: '✏️', id: null}, disabled: false })
       newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Tweak", custom_id: "tweak-"+job.id+'-'+render.resultNumber, emoji: { name: '🧪', id: null}, disabled: false })
-      if (newMessage.components[0].components.length<5){newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Random", custom_id: "editRandom-"+job.id, emoji: { name: '🔀', id: null}, disabled: false })}
-      if (newMessage.components[0].components.length===0){delete newMessage.components} // If no components are used there will be a discord api error so remove it
-      var filesize = fs.statSync(render.filename).size
-      if (filesize < 8000000) { // Within discord 8mb filesize limit // TODO make this a .env variable or detect server boost status
-        try {bot.createMessage(job.channel, newMessage, {file: data, name: filename + '.png'}).then(m=>{}).catch((err)=>{log('caught error posting to discord'.bgRed);log(err)})}
-        catch (err) {console.error(err)}
-      } else {
-        if (imgurEnabled() && filesize < 10000000) {
-          bot.createMessage(job.channel,'<@' + job.userid + '> your image was too big for discord, uploading to imgur now..')
+      if(newMessage.components[0].components.length<5){newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Random", custom_id: "editRandom-"+job.id, emoji: { name: '🔀', id: null}, disabled: false })}
+      if(newMessage.components[0].components.length===0){delete newMessage.components} // If no components are used there will be a discord api error so remove it
+      var filesize=fs.statSync(render.filename).size
+      if(filesize<defaultMaxDiscordFileSize){ // Within discord 8mb filesize limit
+        try{bot.createMessage(job.channel, newMessage, {file: data, name: filename + '.png'}).then(m=>{}).catch((err)=>{log('caught error posting to discord'.bgRed);log(err)})}
+        catch(err){console.error(err)}
+      }else{
+        if(imgurEnabled()&&filesize<10000000){
+          bot.createMessage(job.channel,'<@'+job.userid + '> your image was too big for discord, uploading to imgur now..')
           try { imgurupload(render.filename).then(upload => { bot.createMessage(job.channel,{ content: msg, embeds: [{image: {url: upload.link}, description:job.prompt}]}) }) }
           catch (err) { console.error(err); bot.createMessage(job.channel,'Sorry <@' + job.userid + '> imgur uploading failed, contact an admin for your image `' + filename + '.png`') }
         // disabled imgbb as it was unreliable
@@ -885,25 +816,24 @@ meme=debounce(meme,1000,true)
 function shuffle(array) {for (let i = array.length - 1; i > 0; i--) {let j = Math.floor(Math.random() * (i + 1));[array[i], array[j]] = [array[j], array[i]]}} // fisher-yates shuffle
 const unique = (value, index, self) => { return self.indexOf(value) === index }
 function getRandomColorDec(){return Math.floor(Math.random()*16777215)}
-function timeDiff (date1,date2) { return date2.diff(date1, 'seconds') }
+function timeDiff(date1,date2) { return date2.diff(date1, 'seconds') }
 function getRandom(what){if(randoms.includes(what)){try{var lines=fs.readFileSync('txt/'+what+'.txt','utf-8').split(/r?\n/);return lines[Math.floor(Math.random()*lines.length)]}catch(err){console.error(err)}}else{return what}}
-function replaceRandoms (input) {
+function replaceRandoms(input){
   var output=input
   randoms.forEach(x=>{
     var wordToReplace='{'+x+'}'
-    var before=''
-    var after=''
-    var replacement=''
+    var before='';var after='';var replacement=''
     var wordToReplaceLength=wordToReplace.length
-    var howManyReplacements=output.split(wordToReplace).length-1
-    if (howManyReplacements>0){log(howManyReplacements+' replacements for {'+x+'} in input of:',output)}
+    var howManyReplacements=output.split(wordToReplace).length-1 // todo can we improve this?
     for (let i=0;i<howManyReplacements;i++){ // to support multiple {x} of the same type in the same prompt
       var wordToReplacePosition=output.indexOf(wordToReplace) // where the first {x} starts (does this need +1?)
-      var wordToReplacePositionEnd=wordToReplacePosition+wordToReplaceLength
-      before=output.substr(0,wordToReplacePosition)
-      replacement=getRandom(x)
-      after=output.substr(wordToReplacePositionEnd)
-      output=before+replacement+after
+      if (wordToReplacePosition!==-1){ // only continue if a match was found
+        var wordToReplacePositionEnd=wordToReplacePosition+wordToReplaceLength
+        before=output.substr(0,wordToReplacePosition)
+        replacement=getRandom(x)
+        after=output.substr(wordToReplacePositionEnd)
+        output=before+replacement+after
+      }
     }
   })
   return output
@@ -1406,7 +1336,7 @@ bot.on("messageCreate", (msg) => {
                 img.print(font, 0, 0, txtObj, img.bitmap.width, img.bitmap.height)
                 img.getBuffer(jimp.MIME_PNG, (err,buffer)=>{
                   if(err){log(err)}
-                  bot.createMessage(msg.channel.id, '<@'+msg.author.id+'> used `!text`, it cost :coin:`0.05`/`'+creditsRemaining(msg.author.id)+'`', {file: buffer, name: 'text.png'})
+                  try{bot.createMessage(msg.channel.id, '<@'+msg.author.id+'> used `!text`, it cost :coin:`0.05`/`'+creditsRemaining(msg.author.id)+'`', {file: buffer, name: 'text.png'})}catch(err){log(err)}
                 })
               })
             })
