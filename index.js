@@ -76,6 +76,7 @@ try{
     files.forEach((file)=>{if (file.includes('.txt')){log('Adding text file: '.dim+file.replace('.txt',''));randoms.push(file.replace('.txt',''))}})
   })
 }catch(err){log('Unable to read txt file directory'.bgRed);log(err)}
+if(randoms.includes('prompt')){randoms.splice(randoms.indexOf('prompt'),1);randoms.splice(0,0,'prompt')} // Prompt should be interpreted first
 
 // slash command setup - beware discord global limitations on the size/amount of slash command options
 var slashCommands = [
@@ -686,7 +687,7 @@ function processQueue () {
       log(renderJobErrors)
       renderJobErrors.forEach((j)=>{if(j.status==='rendering'){log('setting status to failed for id '+j.id);j.status='failed'}})
     }
-    log('Finished queue, setting idle status'.dim)
+    debugLog('Finished queue, setting idle status'.dim)
     bot.editStatus('idle')
   }
 }
@@ -917,10 +918,10 @@ bot.on("interactionCreate", async (interaction) => {
     if(interaction.data.custom_id.startsWith('random')){
       request({cmd: getRandom('prompt'), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
       return interaction.editParent({}).catch((e)=>{log(e)})
-    } else if (interaction.data.custom_id.startsWith('refresh')) {
-      var id = interaction.data.custom_id.split('-')[1]
-      if (queue.length>=(id-1)){var newJob=JSON.parse(JSON.stringify(queue[id-1]))} // parse/stringify to deep copy and make sure we dont edit the original}
-      if (newJob) {
+    }else if(interaction.data.custom_id.startsWith('refresh')){
+      var id=interaction.data.custom_id.split('-')[1]
+      if(queue.length>=(id-1)){var newJob=JSON.parse(JSON.stringify(queue[id-1]))} // parse/stringify to deep copy and make sure we dont edit the original}
+      if(newJob) {
         newJob.number=1
         if (newJob.webhook){delete newJob.webhook}
         if (interaction.data.custom_id.startsWith('refreshVariants')&&newJob.sampler!=='k_euler_a') { // variants do not work with k_euler_a sampler
@@ -943,7 +944,7 @@ bot.on("interactionCreate", async (interaction) => {
         request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
         if (interaction.data.custom_id.startsWith('refreshEdit-')){return interaction.editParent({}).catch((e)=>{console.error(e)})}else{return interaction.editParent({}).catch((e)=>{console.error(e)})}
       } else {
-        console.error('unable to refresh render'.red)
+        log('unable to refresh render'.bgRed)
         return interaction.editParent({components:[]}).catch((e) => {console.error(e)})
       }
     } else if (interaction.data.custom_id.startsWith('editRandom-')) {
@@ -954,18 +955,18 @@ bot.on("interactionCreate", async (interaction) => {
         if (newJob.webhook){delete newJob.webhook}
         return interaction.createModal({custom_id:'refreshEdit-'+newJob.id,title:'Edit the random prompt?',components:[{type:1,components:[{type:4,custom_id:'prompt',label:'Prompt',style:2,value:getRandom('prompt'),required:true}]}]}).then((r)=>{}).catch((e)=>{console.error(e)})
       } else {
-        console.error('edit request failed')
+        log('edit request failed'.bgRed)
         return interaction.editParent({components:[]}).catch((e) => {console.error(e)})
       }
     } else if (interaction.data.custom_id.startsWith('edit-')) {
       id=interaction.data.custom_id.split('-')[1]
-      var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
-      if (newJob) {
-        newJob.number = 1
-        if (newJob.webhook){delete newJob.webhook}
+      if(queue[id-1]){var newJob=JSON.parse(JSON.stringify(queue[id-1]))} // parse/stringify to deep copy and make sure we dont edit the original
+      if(newJob){
+        newJob.number=1
+        if(newJob.webhook){delete newJob.webhook}
         return interaction.createModal({custom_id:'refreshEdit-'+newJob.id,title:'Edit the prompt',components:[{type:1,components:[{type:4,custom_id:'prompt',label:'Prompt',style:2,value:newJob.prompt,required:true}]}]}).then((r)=>{}).catch((e)=>{console.error(e)})
-      } else {
-        console.error('edit request failed')
+      }else{
+        log('edit request failed'.bgRed)
         return interaction.editParent({components:[]}).catch((e) => {console.error(e)})
       }
     } else if (interaction.data.custom_id.startsWith('tweak-')) {
@@ -1288,7 +1289,7 @@ bot.on("messageCreate", (msg) => {
                 chargeCredits(msg.author.id,0.05)
                 bot.createMessage(msg.channel.id, '<@'+msg.author.id+'> used `!background`, it cost :coin:`0.05`/`'+creditsRemaining(msg.author.id)+'`', {file: Buffer.from(response.data), name: 'bgremoved.png'})
               })
-              .catch((error) => log(error.bgRed))
+              .catch((err) => log(err))
             })
         }
         break
@@ -1348,7 +1349,7 @@ bot.on("messageCreate", (msg) => {
         if(!models){socket.emit('requestSystemConfig')}
         var newMsg=''
         if(models){
-          log(models)
+          //debugLog(models)
           newMsg='**'+Object.keys(models).length+' models available**\n:green_circle: =loaded in VRAM :orange_circle: =cached in RAM :red_circle: = unloaded\n'
           Object.keys(models).forEach((m)=>{
             switch(models[m].status){
@@ -1382,19 +1383,15 @@ bot.on("messageCreate", (msg) => {
         if (msg.mentions.length>0){
           var creditsToAdd=parseFloat(msg.content.split(' ')[1])
           if (Number.isInteger(creditsToAdd)){
-            msg.mentions.forEach((m)=>{
-              creditRecharge(creditsToAdd,'manual',m.id)
-            })
+            msg.mentions.forEach((m)=>{creditRecharge(creditsToAdd,'manual',m.id)})
             bot.createMessage(msg.channel.id,(msg.mentions.length)+' users received a manual `'+creditsToAdd+'` :coin: topup')
-          } else {
-            log('creditsToAdd failed int test');log(creditsToAdd)
-          }
+          } else {debugLog('creditsToAdd failed int test');debugLog(creditsToAdd)}
         }
         break
       }
       case '!say':{
         var sayChan=msg.content.split(' ')[1]
-        var sayMsg=msg.content.substr((Math.ceil(Math.log10(sayChan+1)))+(msg.content.indexOf(msg.content.split(' ')[1])))//+1)
+        var sayMsg=msg.content.substr((Math.ceil(Math.log10(sayChan+1)))+(msg.content.indexOf(msg.content.split(' ')[1])))
         if(Number.isInteger(parseInt(sayChan))&&sayMsg.length>0){
           log('sending message as arty to '+sayChan+':'+sayMsg)
           try{chatChan(sayChan,sayMsg)}
@@ -1409,7 +1406,7 @@ bot.on("messageCreate", (msg) => {
         var newMsg='**Currently loaded randomisers**\n'
         for (r in randoms){newMsg+='`{'+randoms[r]+'}`='+getRandom(randoms[r])+'\n'}
         if(newMsg.length<=2000){newMsg.length=1999} //max discord msg length of 2k
-        try{chatChan(msg.channel.id,newMsg)}catch(err){log(err)}        
+        try{chatChan(msg.channel.id,newMsg)}catch(err){log(err)}
         break
       }
     }
@@ -1422,8 +1419,8 @@ socket.on("generationResult", (data) => {generationResult(data)})
 socket.on("postprocessingResult", (data) => {postprocessingResult(data)})
 socket.on("initialImageUploaded", (data) => {debugLog('got init image uploaded');initialImageUploaded(data)})
 socket.on("imageUploaded", (data) => {debugLog('got image uploaded');initialImageUploaded(data)})
-socket.on("systemConfig", (data) => {log('systemConfig received');currentModel=data.model_id;models=data.model_list})
-socket.on("modelChanged", (data) => {currentModel=data.model_name;models=data.model_list;log('modelChanged to '+currentModel)})
+socket.on("systemConfig", (data) => {debugLog('systemConfig received');currentModel=data.model_id;models=data.model_list})
+socket.on("modelChanged", (data) => {currentModel=data.model_name;models=data.model_list;debugLog('modelChanged to '+currentModel)})
 //socket.on("progressUpdate", (data) => {})
 socket.on('error', (error) => {
   log('Api socket error'.bgRed);log(error)
