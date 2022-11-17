@@ -243,6 +243,9 @@ function request(request){
     results: [],
     model: args.model
   }
+  if(args.text_mask){newJob.text_mask=args.text_mask}
+  if(args.mask){newJob.text_mask=args.mask}
+  if(args.mask_strength){newJob.mask_strength=args.mask_strength}
   if(args.seamless===true||args.seamless==='True'){newJob.seamless=true}else{newJob.seamless=false}
   if(args.hires_fix===true||args.hires_fix==='True'){newJob.hires_fix=true}else{newJob.hires_fix=false}
   if(newJob.channel==='webhook'&&request.webhook){newJob.webhook=request.webhook}
@@ -272,7 +275,7 @@ function queueStatus() {
     if (next.gfpgan_strength!==0){statusMsg+=':lipstick:'}
     if (next.codeformer_strength!==0){statusMsg+=':lipstick:'}
     if (next.variation_amount!==0){statusMsg+=':microbe:'}
-    if (next.steps>50){statusMsg+=':recycle:'}
+    if (next.steps>defaultSteps){statusMsg+=':recycle:'}
     if (next.seamless===true){statusMsg+=':knot:'}
     if (next.hires_fix===true){statusMsg+=':telescope:'}
     if (next.init_img && next.init_img!==''){statusMsg+=':paperclip:'}
@@ -520,6 +523,18 @@ function generationResult(data){
   var url=data.url
   url=config.basePath+data.url.split('/')[data.url.split('/').length-1]
   var job=queue[queue.findIndex(j=>j.status==='rendering')] // TODO there has to be a better way to know if this is a job from the web interface or the discord bot // upcoming invokeai api release solves this
+  // todo detect all-black image result using jimp
+  /*try{
+    var img=jimp.read(data.url)
+    if(img){
+      log('loaded image from generationResult')
+      var p1=img.intToRGBA(img.getPixelColor(0,0))
+      var p2=img.intToRGBA(img.getPixelColor(img.bitmap.width/2,img.bitmap.height/2))
+      var p3=img.intToRGBA(img.getPixelColor(img.bitmap.width,img.bitmap.height))
+      log(p1,p2,p3)
+      if(p1===p2&&p2===p3){log('3 pixels match color, warn');data.warning=true}
+    }
+  }catch(err){log(err)}*/
   if(job){job.results.push(data);var postRenderObject={id:job.id,filename: url, seed: data.metadata.image.seed, resultNumber:job.results.length-1, width:data.metadata.image.width,height:data.metadata.image.height};postRender(postRenderObject)}else{rendering=false}
   if(job&&job.results.length>=job.number){job.status='done';rendering=false;processQueue()}
 }
@@ -554,6 +569,11 @@ async function emitRenderApi(job){
       "strength": job.strength,
       "fit": true,
       "progress_latents": false
+  }
+  if(job.text_mask){
+    var mask_strength=0.5
+    if(job.mask_strength){mask_strength=job.mask_strength}
+    log('adding text mask');postObject.text_mask=[job.text_mask,mask_strength]
   }
   if(job.with_variations.length>0){log('adding with variations');postObject.with_variations=job.with_variations;log(postObject.with_variations)} 
   if(job.seamless&&job.seamless===true){postObject.seamless=true}
@@ -602,6 +622,7 @@ async function postRender(render){
       if(job.perlin!==0){msg+=':oyster:**`Perlin '+job.perlin+'`**'}
       if(job.threshold!==0){msg+=':door:**`Threshold '+job.threshold+'`**'}
       if(job.attachments.length>0){msg+=':paperclip:` attached template`:muscle:`'+job.strength+'`'}
+      if(job.text_mask){msg+=':mask:`'+job.text_mask+'`'}
       if(job.variation_amount!==0){msg+=':microbe:**`Variation '+job.variation_amount+'`**'}
       //var jobResult = job.renders[render.resultNumber]
       if(render.variations){msg+=':linked_paperclips:with variants `'+render.variations+'`'}
@@ -972,7 +993,7 @@ bot.on("interactionCreate", async (interaction) => {
     } else if (interaction.data.custom_id.startsWith('tweak-')) {
       id=interaction.data.custom_id.split('-')[1]
       rn=interaction.data.custom_id.split('-')[2]
-      var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
+      if(queue[id-1]){var newJob=JSON.parse(JSON.stringify(queue[id-1]))} // parse/stringify to deep copy and make sure we dont edit the original
       if (newJob) {
         newJob.number = 1
         if (newJob.webhook){delete newJob.webhook}
@@ -1089,11 +1110,7 @@ bot.on("interactionCreate", async (interaction) => {
       rn=interaction.data.custom_id.split('-')[2]
       var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
       if(newJob&&models){
-        var changeModelResponse={
-            content:':floppy_disk: **Model Menu**\nUse this menu to change the model/checkpoint being used, to give your image a specific style',
-            flags:64,
-            components:[]
-        }
+        var changeModelResponse={content:':floppy_disk: **Model Menu**\nUse this menu to change the model/checkpoint being used, to give your image a specific style',flags:64,components:[]}
         var allModelKeys=Object.keys(models)
         var maxModelAmount=25 // maximum of 25 options in a discord dropdown menu
         for(let i=0;i<allModelKeys.length;i+=maxModelAmount) {
@@ -1110,12 +1127,14 @@ bot.on("interactionCreate", async (interaction) => {
       var result=newJob.results[rn]
       if(result){debugLog('setting seed from batch result:'+result.metadata.image.seed);newJob.seed=result.metadata.image.seed}
       var newModel=interaction.data.values[0]
-      var newModelDescription=models[newModel].description
-      var newModelKeywords=newModelDescription.split('##')[1]
-      var oldModel=newJob.model
-      var oldModelDescription=models[oldModel].description
-      var oldModelKeywords=oldModelDescription.split('##')[1]
-      if(newJob&&newModel){
+      if (models[newModel]){
+        var newModelDescription=models[newModel].description
+        var newModelKeywords=newModelDescription.split('##')[1]
+        var oldModel=newJob.model
+        var oldModelDescription=models[oldModel].description
+        var oldModelKeywords=oldModelDescription.split('##')[1]
+      }
+      if(newJob&&newModel&&models[newModel]){
         newJob.model=newModel // set the new model
         if(newModelKeywords&&!newJob.prompt.includes(newModelKeywords)){ //new model needs keywords not currently in the prompt
           if(newJob.prompt.includes(oldModelKeywords)){ // old model needed keywords that are still in the prompt
@@ -1203,11 +1222,12 @@ bot.on("disconnect", () => {log('disconnected'.bgRed)})
 bot.on("error", (err,id) => {log('error'.bgRed); log(err,id)})
 //bot.on("channelCreate", (channel) => {log(channel)})
 //bot.on("channelDelete", (channel) => {log(channel)})
-bot.on("guildCreate", (guild) => {var m='joined new guild: '+guild.name;log(m.bgRed);directMessageUser(config.adminID,m)})
+bot.on("guildCreate", (guild) => {var m='joined new guild: '+guild.name;log(m.bgRed);directMessageUser(config.adminID,m)}) // todo send invite to admin
 bot.on("guildDelete", (guild) => {var m='left guild: '+guild.name;log(m.bgRed);directMessageUser(config.adminID,m)})
 bot.on("guildAvailable", (guild) => {var m='guild available: '+guild.name;log(m.bgRed)})
 bot.on("channelCreate", (channel) => {var m='channel created: '+channel.name+' in '+channel.guild.name;log(m.bgRed)})
 bot.on("channelDelete", (channel) => {var m='channel deleted: '+channel.name+' in '+channel.guild.name;log(m.bgRed)})
+bot.on("channelUpdate", (channel,oldChannel) => {var m='channel updated: '+channel.name+' in '+channel.guild.name;log(m.bgRed);if(channel.topic!==oldChannel.topic){log('new topic:'+channel.topic)}})
 bot.on("guildMemberAdd", (guild,member) => {var m='User '+member.username+'#'+member.discriminator+' joined guild '+guild.name;log(m.bgMagenta)})
 bot.on("guildMemberRemove", (guild,member) => {var m='User '+member.username+'#'+member.discriminator+' left guild '+guild.name;log(m.bgMagenta)})
 //bot.on("guildMemberUpdate", (guild,member,oldMember,communicationDisabledUntil) => {log('user updated'.bgRed); log(member)}) // todo fires on user edits, want to reward users that start boosting HQ server, oldMember.premiumSince=Timestamp since boosting guild
@@ -1262,6 +1282,14 @@ bot.on("messageCreate", (msg) => {
           } else if (msg.content.startsWith('crop')||msg.content.startsWith('!crop')){
             msg.content='!crop'
             msg.attachments=msg.referencedMessage.attachments
+          } else if (msg.content.startsWith('expand')||msg.content.startsWith('!expand')){
+            msg.content=msg.content.split(' ')[0]
+            if (msg.content[0]!=='!'){msg.content='!'+msg.content}
+            msg.attachments=msg.referencedMessage.attachments
+          } else if (msg.content.startsWith('fade')||msg.content.startsWith('!fade')){
+            msg.content=msg.content.split(' ')[0]
+            if (msg.content[0]!=='!'){msg.content='!'+msg.content}
+            msg.attachments=msg.referencedMessage.attachments
           } else if (msg.content.startsWith('text')||msg.content.startsWith('!text')){
             msg.attachments=msg.referencedMessage.attachments
           }
@@ -1306,6 +1334,78 @@ bot.on("messageCreate", (msg) => {
               img.getBuffer(jimp.MIME_PNG, (err,buffer)=>{
                 if(err){log(err)}
                 bot.createMessage(msg.channel.id, '<@'+msg.author.id+'> used `!crop`, it cost :coin:`0.05`/`'+creditsRemaining(msg.author.id)+'`', {file: buffer, name: 'cropped.png'})
+              })
+            })
+          })
+        }
+        break
+      }
+      case '!expandup':
+      case '!expanddown':
+      case '!expandleft':
+      case '!expandright':
+      case '!expandsides':
+      case '!expand':{
+        if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){
+          var attachmentsUrls = msg.attachments.map((u)=>{return u.proxy_url})
+          attachmentsUrls.forEach((url)=>{
+            log('expanding '+url)
+            jimp.read(url,(err,img)=>{
+              if(err){log('Error during expansion'.bgRed);log(err)}
+              img.background(0x0)
+              var expandHeight=256;var expandWidth=256;var x=0;var y=0
+              switch(c){
+                case '!expand':{expandHeight=256;expandWidth=256;x=128;y=128;break}
+                case '!expandup':{expandHeight=256;expandWidth=0;x=0;y=256;break}
+                case '!expanddown':{expandHeight=256;expandWidth=0;x=0;y=0;break}
+                case '!expandleft':{expandHeight=0;expandWidth=256;x=256;y=0;break}
+                case '!expandright':{expandHeight=0;expandWidth=256;x=0;y=0;break}
+                case '!expandsides':{expandHeight=0;expandWidth=256;x=128;y=0;break}
+              }
+              var newImg=new jimp(img.bitmap.width+expandWidth,img.bitmap.height+expandHeight,0x0, function (err,image) {
+                newImg.background(0x0).blit(img,x,y).getBuffer(jimp.MIME_PNG, (err,buffer)=>{
+                  if(err){log(err)}
+                  chargeCredits(msg.author.id,0.05)
+                  bot.createMessage(msg.channel.id, '<@'+msg.author.id+'> used `'+c+'`, it cost :coin:`0.05`/`'+creditsRemaining(msg.author.id)+'`\nNew image size: '+newImg.bitmap.width+' x '+newImg.bitmap.height, {file: buffer, name: 'expand.png'})
+                })
+              })
+            })
+          })
+        }
+        break
+      }
+      case '!fadeup':
+      case '!fadedown':
+      case '!fadeleft':
+      case '!faderight':{
+        if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){
+          var attachmentsUrls = msg.attachments.map((u)=>{return u.proxy_url})
+          attachmentsUrls.forEach((url)=>{
+            log('fading '+url)
+            jimp.read(url,(err,img)=>{
+              if(err){log('Error during fading'.bgRed);log(err)}
+              var startx=0;var starty=0;var endx=0;var endy=0;var a=0;var newa=0;var fadeWidth=128
+              switch(msg.content.split('fade')[1]){
+                case('up'):{startx=0;starty=0;endx=img.bitmap.width;endy=fadeWidth;break}
+                case('down'):{startx=0;starty=img.bitmap.height-fadeWidth;endx=img.bitmap.width;endy=fadeWidth;break}
+                case('left'):{startx=0;starty=0;endx=fadeWidth;endy=img.bitmap.height;break}
+                case('right'):{startx=img.bitmap.width-fadeWidth;starty=0;endx=fadeWidth;endy=img.bitmap.height;break}
+              }
+              img.scan(startx,starty,endx,endy, ((x,y,idx)=>{
+                  //a=img.bitmap.data[idx+3]
+                  switch(msg.content.split('fade')[1]){
+                      case('up'):{newa=(y*4)+3;break}
+                      case('down'):{newa=255-((y-starty)*2);break}
+                      case('left'):{newa=(x*4);break}
+                      case('right'):{newa=255-((x-startx)*2);break}
+                  }
+                  if(newa>255){newa=255};if(newa<0){newa=0}
+                  img.bitmap.data[idx+3]=newa
+              }))
+              img.getBuffer(jimp.MIME_PNG, (err,buffer)=>{
+                if(err){log(err)}
+                  chargeCredits(msg.author.id,0.05)
+                  bot.createMessage(msg.channel.id, '<@'+msg.author.id+'> used `'+c+'`, it cost :coin:`0.05`/`'+creditsRemaining(msg.author.id), {file: buffer, name: 'faded.png'})
               })
             })
           })
@@ -1399,7 +1499,9 @@ bot.on("messageCreate", (msg) => {
         }
         break
       }
-      case '!guilds':{bot.guilds.forEach((g)=>{log({id: g.id, name: g.name, ownerID: g.ownerID, description: g.description, memberCount: g.memberCount})});break}
+      case '!guilds':{bot.guilds.forEach((g)=>{log({id: g.id, name: g.name, ownerID: g.ownerID, description: g.description, memberCount: g.memberCount})});log('channelGuildMap');log(bot.channelGuildMap);log('threadguiltmap');log(bot.threadGuildMap);log('privateChannelMap');log(bot.privateChannelMap);break}
+      case '!leaveguild':{bot.leaveGuild(msg.content.split(' ')[1]);break}
+      case '!getmessages':{var cid=msg.content.split(' ')[1];if(cid){bot.getMessages(cid).then(x=>{x.reverse();x.forEach((y)=>{log(y.author.username.bgBlue+': '+y.content);y.attachments.map((u)=>{return u.proxy_url}).forEach((a)=>{log(a)})})})};break}
       case '!updateslashcommands':{bot.getCommands().then(cmds=>{bot.commands = new Collection();for (const c of slashCommands) {bot.commands.set(c.name, c);bot.createCommand({name: c.name,description: c.description,options: c.options ?? [],type: Constants.ApplicationCommandTypes.CHAT_INPUT})}});break}
       case '!deleteslashcommands':{bot.bulkEditCommands([]);bot.getCommands().then(cmds=>{bot.commands = new Collection();for (const c of slashCommands) {bot.commands.set(c.name, c);bot.createCommand({name: c.name,description: c.description,options: c.options ?? [],type: Constants.ApplicationCommandTypes.CHAT_INPUT})}});break}
       case '!randomisers':{
