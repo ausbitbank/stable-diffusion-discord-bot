@@ -246,6 +246,7 @@ function request(request){
   if(args.text_mask){newJob.text_mask=args.text_mask}
   if(args.mask){newJob.text_mask=args.mask}
   if(args.mask_strength){newJob.mask_strength=args.mask_strength}
+  if(args.invert_mask===true||args.invert_mask==='True'){newJob.invert_mask=true}else{newJob.invert_mask=false}
   if(args.seamless===true||args.seamless==='True'){newJob.seamless=true}else{newJob.seamless=false}
   if(args.hires_fix===true||args.hires_fix==='True'){newJob.hires_fix=true}else{newJob.hires_fix=false}
   if(newJob.channel==='webhook'&&request.webhook){newJob.webhook=request.webhook}
@@ -573,6 +574,7 @@ async function emitRenderApi(job){
   if(job.text_mask){
     var mask_strength=0.5
     if(job.mask_strength){mask_strength=job.mask_strength}
+    if(job.invert_mask&&job.invert_mask===true){postObject.invert_mask=true}
     log('adding text mask');postObject.text_mask=[job.text_mask,mask_strength]
   }
   if(job.with_variations.length>0){log('adding with variations');postObject.with_variations=job.with_variations;log(postObject.with_variations)} 
