@@ -22,24 +22,35 @@ A discord bot built to interface with the [InvokeAI](https://github.com/invoke-a
 - Tweak menu for altering advanced settings on past renders
 - Remove backgrounds from images automagically, export as transparent PNG
 - Supports custom model/checkpoint files, and selecting what model to use per render
+- Expanding, fading, inpainting and outpainting support
+- Mask an image with a text prompt for inpainting
 
-
-## WIP/future features:
-- Alternative render path via dreamstudio api for paying users
 
 ## Screenshots:
 
 Tweak menu with advanced controls
 
-![](https://media.discordapp.net/attachments/1023961603319808110/1036083691270713354/unknown.png)
-
-Automagic background removal
-
-![](https://media.discordapp.net/attachments/1023961603319808110/1036083691627216916/unknown.png)
+![](https://media.discordapp.net/attachments/968822563662860338/1044069865822093393/image.png)
 
 Model/Checkpoint switching
 
-![](https://media.discordapp.net/attachments/1023961603319808110/1036083691971154030/unknown.png)
+![](https://media.discordapp.net/attachments/968822563662860338/1044069621977853962/image.png)
+
+Expanding image transparency for outpainting
+
+![](https://media.discordapp.net/attachments/968822563662860338/1044071184720986243/image.png)
+
+Outpainting a template image
+
+![](https://media.discordapp.net/attachments/968822563662860338/1044071185069125813/image.png)
+
+Inpainting using a text mask
+
+![](https://media.discordapp.net/attachments/968822563662860338/1044071827611324436/image.png)
+
+Automagic background removal
+
+![](https://media.discordapp.net/attachments/968822563662860338/1044072153131274340/image.png)
 
 Slash commands with available parameters
 
@@ -102,7 +113,7 @@ That's it! See the getting started guide - https://peakd.com/@ausbitbank/our-new
 Recommend at least 8gb video ram, lots of storage space and joining the server above for support (see #bot-help)
 
 You'll need to have https://github.com/invoke-ai/InvokeAI installed and working on your system first, as well as nodejs and npm.
-Launch invokeai from its directory with `python scripts\dream.py --web` to launch the api server for the bot.
+Launch invokeai from its directory with `python .\scripts\invoke.py --web --outdir=out --model "stable-diffusion-1.5" --max_loaded_models 6` to launch the api server for the bot.
 
 To install bot dependancies : `npm install` or `yarn install`
 
