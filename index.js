@@ -381,8 +381,8 @@ function creditRecharge(credits,txid,userid,amount,from){
 function freeRecharge(){
   // allow for regular topups of empty accounts
   // new users get 100 credits on first appearance, then freeRechargeAmount more every 12 hours IF their balance is less then freeRechargeMinBalance
-  var freeRechargeMinBalance=10
-  var freeRechargeAmount=10
+  var freeRechargeMinBalance=parseInt(config.freeRechargeMinBalance)||10
+  var freeRechargeAmount=parseInt(config.freeRechargeAmount)||10
   var freeRechargeUsers=users.filter(u=>u.credits<freeRechargeMinBalance)
   if(freeRechargeUsers.length>0){
     log(freeRechargeUsers.length+' users with balances below '+freeRechargeMinBalance+' getting a free '+freeRechargeAmount+' credit topup')
@@ -1331,7 +1331,7 @@ bot.on("messageCreate", (msg) => {
                 }
                 bot.createMessage(msg.channel.id, newMsg, {file: Buffer.from(response.data), name: 'bgremoved.png'})
               })
-              .catch((err) => log(err))
+              .catch((err) => {var newMsg='unable to connect to rembg server\n`docker run -p 127.0.0.1:5000:5000 danielgatis/rembg s`';directMessageUser(config.adminID,newMsg);log(err,newMsg)})
             })
         }
         break
@@ -1386,7 +1386,7 @@ bot.on("messageCreate", (msg) => {
                   var newMsg = '<@'+msg.author.id+'> used `'+c+'`\nNew image size: '+newImg.bitmap.width+' x '+newImg.bitmap.height
                   if (!creditsDisabled){
                     chargeCredits(msg.author.id,0.05)
-                    msg+='\nIt cost :coin:`0.05`/`'+creditsRemaining(msg.author.id)+'`'
+                    newMsg+='\nIt cost :coin:`0.05`/`'+creditsRemaining(msg.author.id)+'`'
                   }
                   bot.createMessage(msg.channel.id, newMsg, {file: buffer, name: 'expand.png'})
                 })
