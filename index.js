@@ -35,8 +35,8 @@ var cron = require('node-cron')
 // hive payment checks. On startup, every 30 minutes and on a !recharge call
 const hive = require('@hiveio/hive-js')
 const { exit } = require('process')
-var creditsDisabled=config.creditsDisabled||false
-if (config.hivePaymentAddress.length>0 && !creditsDisabled){
+if(config.creditsDisabled==='true'){var creditsDisabled=true}else{var creditsDisabled=false}
+if(config.hivePaymentAddress.length>0 && !creditsDisabled){
   hive.config.set('alternative_api_endpoints',['https://rpc.ausbit.dev','https://api.deathwing.me','https://api.c0ff33a.uk','https://hived.emre.sh']) 
   var hiveUsd = 0.4
   getPrices()
