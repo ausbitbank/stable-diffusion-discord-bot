@@ -35,14 +35,15 @@ var cron = require('node-cron')
 // hive payment checks. On startup, every 30 minutes and on a !recharge call
 const hive = require('@hiveio/hive-js')
 const { exit } = require('process')
-if (config.hivePaymentAddress.length>0){
+var creditsDisabled=config.creditsDisabled||false
+if (config.hivePaymentAddress.length>0 && !creditsDisabled){
   hive.config.set('alternative_api_endpoints',['https://rpc.ausbit.dev','https://api.deathwing.me','https://api.c0ff33a.uk','https://hived.emre.sh']) 
   var hiveUsd = 0.4
   getPrices()
   cron.schedule('0,15,30,45 * * * *', () => { log('Checking account history every 15 minutes'.grey); checkNewPayments() })
   cron.schedule('0,30 * * * *', () => { log('Updating hive price every 30 minutes'.grey); getPrices() })
+  cron.schedule('0 */12 * * *', () => { log('Recharging users with no credit every 12 hrs'.bgCyan.bold); freeRecharge() }) // Comment this out if you don't want free regular topups of low balance users
 }
-cron.schedule('0 */12 * * *', () => { log('Recharging users with no credit every 12 hrs'.bgCyan.bold); freeRecharge() }) // Comment this out if you don't want free regular topups of low balance users
 const bot = new Eris.CommandClient(config.discordBotKey, {
   intents: ["guilds", "guildMessages", "messageContent", "guildMembers", "directMessages", "guildMessageReactions"],
   description: "Just a slave to the art, maaan",
@@ -104,7 +105,7 @@ var slashCommands = [
       {type: 10, name: 'threshold', description: 'Advanced threshold control (0-10)', required: false, min_value:0, max_value:40},
       {type: 10, name: 'perlin', description: 'Add perlin noise to your image (0-1)', required: false, min_value:0, max_value:1},
       {type: 5, name: 'hires_fix', description: 'High resolution fix (re-renders twice using template)', required: false},
-      {type: 3, name: 'model', description: 'Change the model/checkpoint - see !models for more info', required: false,   min_length: 3, max_length:40},
+      {type: 3, name: 'model', description: 'Change the model/checkpoint - see !models for more info', required: false,   min_length: 3, max_length:40}
     ],
     cooldown: 500,
     execute: (i) => {
@@ -168,7 +169,7 @@ var slashCommands = [
 function request(request){
   // request = { cmd: string, userid: int, username: string, discriminator: int, bot: false, channelid: int, attachments: {}, }
   if (request.cmd.includes('{')) { request.cmd = replaceRandoms(request.cmd) } // swap randomizers
-  var args = parseArgs(request.cmd.split(' '),{string: ['template','init_img','sampler'],boolean: ['seamless','hires_fix']}) // parse arguments //
+  var args = parseArgs(request.cmd.split(' '),{string: ['template','init_img','sampler','text_mask'],boolean: ['seamless','hires_fix']}) // parse arguments //
   // messy code below contains defaults values, check numbers are actually numbers and within acceptable ranges etc
   // let sanitize all the numbers first
   debugLog(args)
@@ -250,7 +251,7 @@ function request(request){
   if(args.seamless===true||args.seamless==='True'){newJob.seamless=true}else{newJob.seamless=false}
   if(args.hires_fix===true||args.hires_fix==='True'){newJob.hires_fix=true}else{newJob.hires_fix=false}
   if(newJob.channel==='webhook'&&request.webhook){newJob.webhook=request.webhook}
-  newJob.cost = costCalculator(newJob)
+  if(creditsDisabled){newJob.cost=0}else{newJob.cost=costCalculator(newJob)}
   queue.push(newJob)
   dbWrite() // Push db write after each new addition
   processQueue()
@@ -266,24 +267,24 @@ function queueStatus() {
   var totalWaitLength=parseInt(wait.length)+parseInt(renderq.length)
   var totalWaitGps=parseInt(waitGps)+parseInt(renderGps)
   var statusMsg=':busts_in_silhouette: `'+queue.map(x=>x.userid).filter(unique).length+'`/`'+users.length+'` :european_castle:`'+bot.guilds.size+'` :fire: `'+doneGps+'`'
-  if (totalWaitLength>0){statusMsg=':ticket:`'+totalWaitLength+'`(`'+totalWaitGps+'`) '+statusMsg} else {statusMsg=':ticket:`'+totalWaitLength+'`'+statusMsg}
-  if (renderq.length>0) {
+  if(totalWaitLength>0){statusMsg=':ticket:`'+totalWaitLength+'`(`'+totalWaitGps+'`) '+statusMsg} else {statusMsg=':ticket:`'+totalWaitLength+'`'+statusMsg}
+  if(renderq.length>0){
     var next = renderq[0]
     statusMsg+='\n:track_next:'
     statusMsg+='`'+next.prompt + '`'
-    if (next.number!==1){statusMsg+='x'+next.number}
-    if (next.upscale_level!==''){statusMsg+=':mag:'}
-    if (next.gfpgan_strength!==0){statusMsg+=':lipstick:'}
-    if (next.codeformer_strength!==0){statusMsg+=':lipstick:'}
-    if (next.variation_amount!==0){statusMsg+=':microbe:'}
-    if (next.steps>defaultSteps){statusMsg+=':recycle:'}
-    if (next.seamless===true){statusMsg+=':knot:'}
-    if (next.hires_fix===true){statusMsg+=':telescope:'}
-    if (next.init_img && next.init_img!==''){statusMsg+=':paperclip:'}
-    if ((next.width!==next.height)||(next.width>defaultSize)){statusMsg+=':straight_ruler:'}
+    if(next.number!==1){statusMsg+='x'+next.number}
+    if(next.upscale_level!==''){statusMsg+=':mag:'}
+    if(next.gfpgan_strength!==0){statusMsg+=':lipstick:'}
+    if(next.codeformer_strength!==0){statusMsg+=':lipstick:'}
+    if(next.variation_amount!==0){statusMsg+=':microbe:'}
+    if(next.steps>defaultSteps){statusMsg+=':recycle:'}
+    if(next.seamless===true){statusMsg+=':knot:'}
+    if(next.hires_fix===true){statusMsg+=':telescope:'}
+    if(next.init_img && next.init_img!==''){statusMsg+=':paperclip:'}
+    if((next.width!==next.height)||(next.width>defaultSize)){statusMsg+=':straight_ruler:'}
     statusMsg+=' :brain: **'+next.username+'**#'+next.discriminator+' :coin:`'+costCalculator(next)+'` :fire:`'+renderGps+'`'
   }
-  if (next&&next.channel!=='webhook'){var chan=next.channel} else {var chan=config.channelID}
+  if(next&&next.channel!=='webhook'){var chan=next.channel} else {var chan=config.channelID}
   bot.createMessage(chan,statusMsg).then(x=>{dialogs.queue=x}).catch((err)=>console.error(err))
 }
 queueStatus=debounce(queueStatus,2000,true)
@@ -291,14 +292,14 @@ function closestRes(n){ // diffusion needs a resolution as a multiple of 64 pixe
     var q, n1, n2; var m=64
     q=n/m
     n1=m*q
-    if ((n*m)>0){n2=m*(q+1)}else{n2=m*(q-1)}
-    if (Math.abs(n-n1)<Math.abs(n-n2)){return n1.toFixed(0)}
+    if((n*m)>0){n2=m*(q+1)}else{n2=m*(q-1)}
+    if(Math.abs(n-n1)<Math.abs(n-n2)){return n1.toFixed(0)}
     return n2.toFixed(0)
 }
 function prepSlashCmd(options) { // Turn partial options into full command for slash commands, hate the redundant code here
-  var job = {}
-  var defaults = [{ name: 'prompt', value: ''},{name: 'width', value: defaultSize},{name:'height',value:defaultSize},{name:'steps',value:defaultSteps},{name:'scale',value:7.5},{name:'sampler',value:defaultSampler},{name:'seed', value: getRandomSeed()},{name:'strength',value:0.75},{name:'number',value:1},{name:'gfpgan_strength',value:0},{name:'codeformer_strength',value:0},{name:'upscale_strength',value:0.75},{name:'upscale_level',value:''},{name:'seamless',value:false},{name:'variation_amount',value:0},{name:'with_variations',value:[]},{name:'threshold',value:0},{name:'perlin',value:0},{name:'hires_fix',value:false},{name:'model',value:'stable-diffusion-1.5'}]
-  defaults.forEach(d=>{ if (options.find(o=>{ if (o.name===d.name) { return true } else { return false } })) { job[d.name] = options.find(o=>{ if (o.name===d.name) { return true } else { return false } }).value } else { job[d.name] = d.value } })
+  var job={}
+  var defaults=[{ name: 'prompt', value: ''},{name: 'width', value: defaultSize},{name:'height',value:defaultSize},{name:'steps',value:defaultSteps},{name:'scale',value:7.5},{name:'sampler',value:defaultSampler},{name:'seed', value: getRandomSeed()},{name:'strength',value:0.75},{name:'number',value:1},{name:'gfpgan_strength',value:0},{name:'codeformer_strength',value:0},{name:'upscale_strength',value:0.75},{name:'upscale_level',value:''},{name:'seamless',value:false},{name:'variation_amount',value:0},{name:'with_variations',value:[]},{name:'threshold',value:0},{name:'perlin',value:0},{name:'hires_fix',value:false},{name:'model',value:'stable-diffusion-1.5'}]
+  defaults.forEach(d=>{if(options.find(o=>{if(o.name===d.name){return true}else{return false}})){job[d.name]=options.find(o=>{if(o.name===d.name){return true}else{return false}}).value}else{job[d.name]=d.value}})
   return job
 }
 function getCmd(newJob){ return newJob.prompt+' --width ' + newJob.width + ' --height ' + newJob.height + ' --seed ' + newJob.seed + ' --scale ' + newJob.scale + ' --sampler ' + newJob.sampler + ' --steps ' + newJob.steps + ' --strength ' + newJob.strength + ' --n ' + newJob.number + ' --gfpgan_strength ' + newJob.gfpgan_strength + ' --codeformer_strength ' + newJob.codeformer_strength + ' --upscale_level ' + newJob.upscale_level + ' --upscale_strength ' + newJob.upscale_strength + ' --threshold ' + newJob.threshold + ' --perlin ' + newJob.perlin + ' --seamless ' + newJob.seamless + ' --hires_fix ' + newJob.hires_fix + ' --variation_amount ' + newJob.variation_amount + ' --with_variations ' + newJob.with_variations + ' --model ' + newJob.model}
@@ -338,7 +339,7 @@ function createNewUser(id){
 function userCreditCheck(userID,amount) { // Check if a user can afford a specific amount of credits, create if not existing yet
   var user=users.find(x=>x.id===String(userID))
   if(!user){createNewUser(userID);user=users.find(x=>x.id===String(userID))}
-  if(parseFloat(user.credits)>=parseFloat(amount)){return true}else{return false}
+  if(parseFloat(user.credits)>=parseFloat(amount)||creditsDisabled){return true}else{return false}
 }
 function costCalculator(job) {                 // Pass in a render, get a cost in credits
   var cost=1                                   // a normal render base cost, 512x512 50 steps
@@ -353,16 +354,18 @@ function costCalculator(job) {                 // Pass in a render, get a cost i
   if (job.hires_fix===true){cost=cost*1.5}     // 1.5x charge for hires_fix (renders once at half resolution, then again at full)
   if (job.channel!==config.channelID){cost=cost*1.1}// 10% charge for renders outside of home channel
   cost=cost*job.number                         // Multiply by image count
-  return cost.toFixed(2)                       // Return cost to 2 decimal places
+  if(creditsDisabled){return 0} else {return cost.toFixed(2)} // Return cost to 2 decimal places if credits enabled
 }
 function creditsRemaining(userID){return users.find(x=>x.id===userID).credits}
 function chargeCredits(userID,amount){
-  var user=users.find(x=>x.id===userID)
-  user.credits=(user.credits-amount).toFixed(2)
-  dbWrite()
-  var z='charged id '+userID+' - '+amount+'/'
-  if(user.credits>90){z+=user.credits.bgBrightGreen.white}else if(user.credits>50){z+=user.credits.bgGreen.black}else if(user.credits>10){z+=user.credits.bgBlack.white}else{z+=user.credits.bgRed.black}
-  log(z.dim.bold)
+  if(!creditsDisabled){
+    var user=users.find(x=>x.id===userID)
+    user.credits=(user.credits-amount).toFixed(2)
+    dbWrite()
+    var z='charged id '+userID+' - '+amount+'/'
+    if(user.credits>90){z+=user.credits.bgBrightGreen.white}else if(user.credits>50){z+=user.credits.bgGreen.black}else if(user.credits>10){z+=user.credits.bgBlack.white}else{z+=user.credits.bgRed.white}
+    log(z.dim.bold)
+  }
 }
 function creditRecharge(credits,txid,userid,amount,from){
   var user=users.find(x=>x.id===userid)
@@ -633,8 +636,10 @@ async function postRender(render){
       msg+=':file_cabinet:`'+filename+'`:eye:`'+job.sampler+'`'
       msg+=':floppy_disk:`'+job.model+'`'
       if(job.webhook){msg+='\n:calendar:Scheduled render sent to `'+job.webhook.destination+'` discord'}
-      chargeCredits(job.userid,(costCalculator(job))/job.number) // only charge successful renders
-      if(job.cost){msg+=':coin:`'+(job.cost/job.number).toFixed(2).replace(/[.,]00$/, "")+'/'+ creditsRemaining(job.userid) +'`'}
+      if(job.cost&&!creditsDisabled){
+        chargeCredits(job.userid,(costCalculator(job))/job.number) // only charge successful renders, if enabled
+        msg+=':coin:`'+(job.cost/job.number).toFixed(2).replace(/[.,]00$/, "")+'/'+ creditsRemaining(job.userid) +'`'
+      }
       var newMessage = { content: msg, embeds: [{description: job.prompt, color: getRandomColorDec()}], components: [ { type: Constants.ComponentTypes.ACTION_ROW, components: [ ] } ] }
       if(job.prompt.replace(' ','').length===0){newMessage.embeds=[]}
       newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "ReDream", custom_id: "refresh-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })
@@ -644,7 +649,7 @@ async function postRender(render){
       if(newMessage.components[0].components.length===0){delete newMessage.components} // If no components are used there will be a discord api error so remove it
       var filesize=fs.statSync(render.filename).size
       if(filesize<defaultMaxDiscordFileSize){ // Within discord 8mb filesize limit
-        try{bot.createMessage(job.channel, newMessage, {file: data, name: filename + '.png'}).then(m=>{}).catch((err)=>{log('caught error posting to discord'.bgRed);log(err)})}
+        try{bot.createMessage(job.channel, newMessage, {file: data, name: filename + '.png'}).then(m=>{}).catch((err)=>{log('caught error posting to discord in channel '.bgRed+job.channel);log(err)})}
         catch(err){console.error(err)}
       }else{
         if(imgurEnabled()&&filesize<10000000){
@@ -830,9 +835,12 @@ async function meme(prompt,urls,userid,channel){
     case 'color': var img = await new DIG.Color().getImage(params[1]);break // take hex color code
   }
   if (img&&cmd){
-    chargeCredits(userid,0.05)
+    var msg = '<@'+userid+'> used `!meme '+prompt+'`'
+    if (!creditsDisabled){
+      chargeCredits(userid,0.05)
+      msg+=', it cost :coin:`0.05`/`'+creditsRemaining(userid)+'`'
+    }
     var extension = ['blink','triggered','animate'].includes(cmd) ? '.gif' : '.png'
-    var msg = '<@'+userid+'> used `!meme '+prompt+'`, it cost :coin:`0.05`/`'+creditsRemaining(userid)+'`'
     bot.createMessage(channel, msg, {file: img, name: cmd+'-'+getRandomSeed()+extension})
   }
 }
@@ -1316,8 +1324,12 @@ bot.on("messageCreate", (msg) => {
             log('Removing background from '+url)
             axios.get('http://127.0.0.1:5000?url='+encodeURIComponent(url),{responseType: 'arraybuffer'})//axios.get('http://127.0.0.1:5000?url='+encodeURIComponent(msg.attachments.map((u)=>{return u.proxy_url})),{responseType: 'arraybuffer'})
               .then((response)=>{
-                chargeCredits(msg.author.id,0.05)
-                bot.createMessage(msg.channel.id, '<@'+msg.author.id+'> used `!background`, it cost :coin:`0.05`/`'+creditsRemaining(msg.author.id)+'`', {file: Buffer.from(response.data), name: 'bgremoved.png'})
+                var newMsg='<@'+msg.author.id+'> used `!background`'
+                if (!creditsDisabled){
+                  chargeCredits(msg.author.id,0.05)
+                  newMsg+=', it cost :coin:`0.05`/`'+creditsRemaining(msg.author.id)+'`'
+                }
+                bot.createMessage(msg.channel.id, newMsg, {file: Buffer.from(response.data), name: 'bgremoved.png'})
               })
               .catch((err) => log(err))
             })
@@ -1332,10 +1344,14 @@ bot.on("messageCreate", (msg) => {
             jimp.read(url,(err,img)=>{
               if(err){log('Error during cropping'.bgRed);log(err)}
               img.autocrop()
-              chargeCredits(msg.author.id,0.05)
+              var newMsg='<@'+msg.author.id+'> used `!crop`'
+              if(!creditsDisabled){
+                chargeCredits(msg.author.id,0.05)
+                newMsg+=', it cost :coin:`0.05`/`'+creditsRemaining(msg.author.id)+'`'
+              }
               img.getBuffer(jimp.MIME_PNG, (err,buffer)=>{
                 if(err){log(err)}
-                bot.createMessage(msg.channel.id, '<@'+msg.author.id+'> used `!crop`, it cost :coin:`0.05`/`'+creditsRemaining(msg.author.id)+'`', {file: buffer, name: 'cropped.png'})
+                bot.createMessage(msg.channel.id, newMsg, {file: buffer, name: 'cropped.png'})
               })
             })
           })
@@ -1367,8 +1383,12 @@ bot.on("messageCreate", (msg) => {
               var newImg=new jimp(img.bitmap.width+expandWidth,img.bitmap.height+expandHeight,0x0, function (err,image) {
                 newImg.background(0x0).blit(img,x,y).getBuffer(jimp.MIME_PNG, (err,buffer)=>{
                   if(err){log(err)}
-                  chargeCredits(msg.author.id,0.05)
-                  bot.createMessage(msg.channel.id, '<@'+msg.author.id+'> used `'+c+'`, it cost :coin:`0.05`/`'+creditsRemaining(msg.author.id)+'`\nNew image size: '+newImg.bitmap.width+' x '+newImg.bitmap.height, {file: buffer, name: 'expand.png'})
+                  var newMsg = '<@'+msg.author.id+'> used `'+c+'`\nNew image size: '+newImg.bitmap.width+' x '+newImg.bitmap.height
+                  if (!creditsDisabled){
+                    chargeCredits(msg.author.id,0.05)
+                    msg+='\nIt cost :coin:`0.05`/`'+creditsRemaining(msg.author.id)+'`'
+                  }
+                  bot.createMessage(msg.channel.id, newMsg, {file: buffer, name: 'expand.png'})
                 })
               })
             })
@@ -1406,8 +1426,12 @@ bot.on("messageCreate", (msg) => {
               }))
               img.getBuffer(jimp.MIME_PNG, (err,buffer)=>{
                 if(err){log(err)}
-                  chargeCredits(msg.author.id,0.05)
-                  bot.createMessage(msg.channel.id, '<@'+msg.author.id+'> used `'+c+'`, it cost :coin:`0.05`/`'+creditsRemaining(msg.author.id), {file: buffer, name: 'faded.png'})
+                  var newMsg='<@'+msg.author.id+'> used `'+c+'`'
+                  if(!creditsDisabled){
+                    chargeCredits(msg.author.id,0.05)
+                    newMsg+=', it cost :coin:`0.05`/`'+creditsRemaining(msg.author.id)
+                  }
+                  bot.createMessage(msg.channel.id, newMsg, {file: buffer, name: 'faded.png'})
               })
             })
           })
@@ -1425,7 +1449,11 @@ bot.on("messageCreate", (msg) => {
             log('adding text: '+newTxt)
             jimp.read(url,(err,img)=>{
               if(err){log('Error during text addition'.bgRed);log(err)}
-              chargeCredits(msg.author.id,0.05)
+              var newMsg='<@'+msg.author.id+'> used `!text`'
+              if (!creditsDisabled){
+                chargeCredits(msg.author.id,0.05)
+                newMsg+=', it cost :coin:`0.05`/`'+creditsRemaining(msg.author.id)+'`'
+              }
               jimp.loadFont(jimp.FONT_SANS_32_BLACK).then(font => {
                 //var newTxtWidth=jimp.measureText(jimp.FONT_SANS_32_BLACK, newTxt)
                 //var newTxtHeight=jimp.measureTextHeight(jimp.FONT_SANS_32_BLACK, newTxt, 100)
@@ -1439,7 +1467,7 @@ bot.on("messageCreate", (msg) => {
                 img.print(font, 0, 0, txtObj, img.bitmap.width, img.bitmap.height)
                 img.getBuffer(jimp.MIME_PNG, (err,buffer)=>{
                   if(err){log(err)}
-                  try{bot.createMessage(msg.channel.id, '<@'+msg.author.id+'> used `!text`, it cost :coin:`0.05`/`'+creditsRemaining(msg.author.id)+'`', {file: buffer, name: 'text.png'})}catch(err){log(err)}
+                  try{bot.createMessage(msg.channel.id, newMsg, {file: buffer, name: 'text.png'})}catch(err){log(err)}
                 })
               })
             })
@@ -1481,6 +1509,8 @@ bot.on("messageCreate", (msg) => {
       case '!richlist':{getRichList();break}
       case '!checkpayments':{checkNewPayments();break}
       case '!restart':{log('Admin restarted bot'.bgRed.white);exit(0)}
+      case '!creditdisabled':{log('Credits have been disabled'.bgRed.white);creditsDisabled=true;bot.createMessage(msg.channel.id,'Credits have been disabled');break}
+      case '!creditenabled':{log('Credits have been enabled'.bgRed.white);creditsDisabled=false;bot.createMessage(msg.channel.id,'Credits have been enabled');break}
       case '!credit':{
         if (msg.mentions.length>0){
           var creditsToAdd=parseFloat(msg.content.split(' ')[1])
