@@ -1154,6 +1154,7 @@ bot.on("interactionCreate", async (interaction) => {
         if (newJob.prompt.includes(oldModelKeywords)&&!newModelKeywords){newJob.prompt=newJob.prompt.replace(oldModelKeywords+',','')}//Remove old keywords, even if we dont have new ones to replace
         var attach=[]
         if (newJob.attachments.length>0){attach=newJob.attachments}
+        newJob.number=1
         if(interaction.member){
           request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: attach})
         } else if (interaction.user){
