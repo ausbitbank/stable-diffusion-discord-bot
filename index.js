@@ -36,6 +36,7 @@ var cron = require('node-cron')
 const hive = require('@hiveio/hive-js')
 const { exit } = require('process')
 if(config.creditsDisabled==='true'){var creditsDisabled=true}else{var creditsDisabled=false}
+if(config.showFilename==='true'){var showFilename=true}else{var showFilename=false}
 if(config.hivePaymentAddress.length>0 && !creditsDisabled){
   hive.config.set('alternative_api_endpoints',['https://rpc.ausbit.dev','https://api.deathwing.me','https://api.c0ff33a.uk','https://hived.emre.sh']) 
   var hiveUsd = 0.4
@@ -257,7 +258,7 @@ function request(request){
   processQueue()
 }
 function queueStatus() {
-  if(dialogs.queue!==null){dialogs.queue.delete().catch((err)=>{console.error(err)})}
+  if(dialogs.queue!==null){dialogs.queue.delete().catch((err)=>{debugLog(err)})}
   var done=queue.filter((j)=>j.status==='done')
   var doneGps=tidyNumber((getPixelStepsTotal(done)/1000000).toFixed(0))
   var wait=queue.filter((j)=>j.status==='new')
@@ -633,7 +634,8 @@ async function postRender(render){
       if(render.variations){msg+=':linked_paperclips:with variants `'+render.variations+'`'}
       msg+=':seedling:`'+render.seed+'`:scales:`'+job.scale+'`:recycle:`'+job.steps+'`'
       msg+=':stopwatch:`'+timeDiff(job.timestampRequested, moment())+'s`'
-      msg+=':file_cabinet:`'+filename+'`:eye:`'+job.sampler+'`'
+      if(showFilename){msg+=':file_cabinet:`'+filename+'`'}
+      msg+=':eye:`'+job.sampler+'`'
       msg+=':floppy_disk:`'+job.model+'`'
       if(job.webhook){msg+='\n:calendar:Scheduled render sent to `'+job.webhook.destination+'` discord'}
       if(job.cost&&!creditsDisabled){
