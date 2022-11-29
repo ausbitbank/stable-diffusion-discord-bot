@@ -91,7 +91,7 @@ var slashCommands = [
       {type: 4, name: 'height', description: 'height of the image in pixels (250-~1024)', required: false, min_value: 256, max_value: 1024 },
       {type: 4, name: 'steps', description: 'how many steps to render for (10-250)', required: false, min_value: 5, max_value: 250 },
       {type: 4, name: 'seed', description: 'seed (initial noise pattern)', required: false},
-      {type: 10, name: 'strength', description: 'how much noise to add to your template image (0.1-0.9)', required: false, min_value:0.1, max_value:0.99},
+      {type: 10, name: 'strength', description: 'how much noise to add to your template image (0.1-0.9)', required: false, min_value:0.01, max_value:0.99},
       {type: 10, name: 'scale', description: 'how important is the prompt (1-30)', required: false, min_value:1, max_value:30},
       {type: 4, name: 'number', description: 'how many would you like (1-10)', required: false, min_value: 1, max_value: 10},
       {type: 5, name: 'seamless', description: 'Seamlessly tiling textures', required: false},
@@ -210,7 +210,7 @@ function request(request){
   if (!args.with_variations){args.with_variations=[]}else{log(args.with_variations)}//; args.with_variations=args.with_variations.toString()
   if (!args.threshold){args.threshold=0}
   if (!args.perlin||args.perlin>1||args.perlin<0){args.perlin=0}
-  if (!args.model||args.model===undefined){args.model='stable-diffusion-1.5'}else{args.model=args.model.toLowerCase()}
+  if (!args.model||args.model===undefined||!Object.keys(models).includes(args.model)){args.model='stable-diffusion-1.5'}else{args.model=args.model.toLowerCase()}
   args.timestamp=moment()
   args.prompt=sanitize(args._.join(' '))
   if (args.prompt.length===0){args.prompt=getRandom('prompt');log('empty prompt found, adding random')} 
