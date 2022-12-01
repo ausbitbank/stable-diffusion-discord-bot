@@ -524,7 +524,7 @@ function postprocessingResult(data){ // TODO unfinished, untested, awaiting new 
   log(postRenderObject)
   //postRender(postRenderObject)
 }
-function requestModelChange(newmodel){log('Requesting model change to '+newmodel);if(newmodel===undefined||newmodel==='undefined'){newmodel='stable-diffusion-1.5'}socket.emit('requestModelChange',newmodel)}
+function requestModelChange(newmodel){log('Requesting model change to '+newmodel);if(newmodel===undefined||newmodel==='undefined'){newmodel='stable-diffusion-1.5'}socket.emit('requestModelChange',newmodel,()=>{log('requestModelChange loaded')})}
 function cancelRenders(){log('Cancelling current render'.bgRed);socket.emit('cancel');queue[queue.findIndex((q)=>q.status==='rendering')-1].status='cancelled';rendering=false}
 function generationResult(data){
   var url=data.url
@@ -610,18 +610,23 @@ async function addRenderApi(id){
   queueStatus()
   if(job.attachments[0]&&job.attachments[0].content_type&&job.attachments[0].content_type.startsWith('image')){
     log('fetching attachment from '.bgRed + job.attachments[0].proxy_url)
-    await axios.get(job.attachments[0].proxy_url, {responseType: 'arraybuffer'})
-      .then(res => {initimg = Buffer.from(res.data);debugLog('got attachment')})
-      .catch(err => { console.error('unable to fetch url: ' + job.attachments[0].proxy_url); console.error(err) })
+    await axios.get(job.attachments[0].proxy_url,{responseType: 'arraybuffer'})
+      .then(res=>{initimg = Buffer.from(res.data);debugLog('got attachment')})
+      .catch(err=>{ console.error('unable to fetch url: ' + job.attachments[0].proxy_url); console.error(err) })
   }
   if (initimg!==null){
     debugLog('uploadInitialImage');
     // socket.emit('uploadImage', initimg, job.id+'.png','img2img') // latest invokeai no longer uses socket emit for image uploads ?
-    // POST to /upload as webform
     let form = new FormData()
-    //const fileStream = fs.createReadStream(render.filename)
-    form.append("file", initimg)
-    axios({method:'post',url:config.apiUrl+'/upload','Content-Disposition': 'form-data',data:initimg})//,'maxContentLength': Infinity,'maxBodyLength': Infinity,headers:{...form.getHeaders()}})
+    form.append('file',initimg,job.id+'.png')
+    form.append('data',JSON.stringify({kind:'init'}))
+    const response = await fetch(config.apiUrl+'/upload', {
+      method: 'POST',
+      body: form,
+    })
+    log(response)
+    log('completed upload')
+    /*axios.post(config.apiUrl+'/upload',form,{headers:{...form.getHeaders()}})
       .then((response)=>{
         log(response)
         var filename=config.basePath+"/"+response.data.url.replace('outputs/','')
@@ -629,7 +634,7 @@ async function addRenderApi(id){
         job.initimg=null
         emitRenderApi(job)
       })
-    .catch((error) => console.error(error))
+    .catch((error) => console.error(error))*/
   }else{
     emitRenderApi(job)
   }
@@ -907,18 +912,6 @@ async function imgbbupload(file) {
     .then((response)=>{debugLog(response);return response})
     .catch((error)=>console.error(error))
 }
-async function oshiupload(file) {
-  log('uploading via oshi.at api')
-  debugLog(file)
-  let form = new FormData()
-  let shortname = file.split('\\')[file.split('\\').length-1]
-  const fileStream = fs.createReadStream(file)
-  form.append("file", fileStream)//shortname
-  await axios({method:'post',url:'https://oshi.at/',data:form,'maxContentLength': Infinity,'maxBodyLength': Infinity,headers:{...form.getHeaders()}})
-  .then((response)=>{log('oshiUpload .then callback.. response.data:');log(response.data); return response.data.DL})
-  .catch((error) => console.error(error))
-}
-
 function process (file){// Monitor new files entering watchFolder, post image with filename.
   try {
     if (file.endsWith('.png')||file.endsWith('jpg')){
@@ -1585,7 +1578,7 @@ socket.on('error', (error) => {
   var nowJob=queue[queue.findIndex((j)=>j.status==="rendering")]
   if(nowJob){
     log('Failing status for:');nowJob.status='failed';log(nowJob)
-    chatChan(nowJob.channel,':warning: <@'+nowJob.userid+'>, there was an error in your prompt: `'+nowJob.prompt+'`\n**Error:** `'+error.message+'`\n')
+    chatChan(nowJob.channel,':warning: <@'+nowJob.userid+'>, there was an error in your request with prompt: `'+nowJob.prompt+'`\n**Error:** `'+error.message+'`\n')
   }
   rendering=false
 })
