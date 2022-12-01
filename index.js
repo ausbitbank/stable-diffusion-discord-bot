@@ -5,7 +5,7 @@ const Eris = require("eris")
 const Constants = Eris.Constants
 const Collection = Eris.Collection
 const fs = require('fs')
-const path = require('path')
+const path = require('path') // still needed?
 const axios = require('axios')
 var parseArgs = require('minimist')
 const chokidar = require('chokidar')
@@ -23,6 +23,7 @@ var jimp = require('jimp')
 const FormData = require('form-data')
 const io = require("socket.io-client")
 const socket = io(config.apiUrl,{reconnect: true})
+var paused=false
 var queue = []
 var users = []
 var payments = []
@@ -256,6 +257,7 @@ function request(request){
   queue.push(newJob)
   dbWrite() // Push db write after each new addition
   processQueue()
+  // acknowledge received job with ethereal message here?
 }
 function queueStatus() {
   if(dialogs.queue!==null){dialogs.queue.delete().catch((err)=>{debugLog(err)})}
@@ -573,7 +575,8 @@ async function emitRenderApi(job){
       "variation_amount": job.variation_amount,
       "strength": job.strength,
       "fit": true,
-      "progress_latents": false
+      "progress_latents": false,
+      "generation_mode": 'txt2img'
   }
   if(job.text_mask){
     var mask_strength=0.5
@@ -611,7 +614,25 @@ async function addRenderApi(id){
       .then(res => {initimg = Buffer.from(res.data);debugLog('got attachment')})
       .catch(err => { console.error('unable to fetch url: ' + job.attachments[0].proxy_url); console.error(err) })
   }
-  if (initimg!==null){debugLog('uploadInitialImage');socket.emit('uploadImage', initimg, job.id+'.png','img2img')}else{emitRenderApi(job)}
+  if (initimg!==null){
+    debugLog('uploadInitialImage');
+    // socket.emit('uploadImage', initimg, job.id+'.png','img2img') // latest invokeai no longer uses socket emit for image uploads ?
+    // POST to /upload as webform
+    let form = new FormData()
+    //const fileStream = fs.createReadStream(render.filename)
+    form.append("file", initimg)
+    axios({method:'post',url:config.apiUrl+'/upload','Content-Disposition': 'form-data',data:initimg})//,'maxContentLength': Infinity,'maxBodyLength': Infinity,headers:{...form.getHeaders()}})
+      .then((response)=>{
+        log(response)
+        var filename=config.basePath+"/"+response.data.url.replace('outputs/','')
+        job.init_img=filename
+        job.initimg=null
+        emitRenderApi(job)
+      })
+    .catch((error) => console.error(error))
+  }else{
+    emitRenderApi(job)
+  }
 }
 async function postRender(render){
   try{fs.readFile(render.filename, null, function(err, data){
@@ -685,23 +706,23 @@ async function postRender(render){
   }
   catch(err) {console.error(err)}
 }
-function processQueue () {
+function processQueue(){
   // WIP attempt to make a harder to dominate queue
   // TODO make a queueing system that prioritizes the users that have recharged the most
-  var queueNew = queue.filter((q)=>q.status==='new') // first alias to simplify
-  if (queueNew.length>0){
-    var queueUnique = queueNew.filter((value,index,self)=>{return self.findIndex(v=>v.userid===value.userid)===index}) // reduce to 1 entry in queue per username
-    var nextJobId = queueUnique[Math.floor(Math.random()*queueUnique.length)].id // random select
-    var nextJob = queue[queue.findIndex(x => x.id === nextJobId)]
-  } else {var nextJob = queue[queue.findIndex(x => x.status === 'new')]}
-  if (nextJob&&!rendering) {
-    if (userCreditCheck(nextJob.userid,costCalculator(nextJob))) {
+  var queueNew=queue.filter((q)=>q.status==='new') // first alias to simplify
+  if(queueNew.length>0){
+    var queueUnique=queueNew.filter((value,index,self)=>{return self.findIndex(v=>v.userid===value.userid)===index}) // reduce to 1 entry in queue per username
+    var nextJobId=queueUnique[Math.floor(Math.random()*queueUnique.length)].id // random select
+    var nextJob=queue[queue.findIndex(x=>x.id===nextJobId)]
+  }else{var nextJob=queue[queue.findIndex(x=>x.status==='new')]}
+  if(nextJob&&!rendering){
+    if(userCreditCheck(nextJob.userid,costCalculator(nextJob))){
       bot.editStatus('online')
       rendering=true
       log(nextJob.username.bgWhite.red+':'+nextJob.cmd.replace('\r','').replace('\n').bgWhite.black)
       //pedoScan(nextJob.id) // Scan for pedo prompts,reject,alert OR render it
       addRenderApi(nextJob.id) // Comment out line if enabling pedoscan above
-    } else {
+    }else{
       log(nextJob.username+' cant afford this render, denying')
       log('cost: '+costCalculator(nextJob))
       log('credits remaining: '+creditsRemaining(nextJob.userid))
@@ -709,8 +730,8 @@ function processQueue () {
       if(config.hivePaymentAddress.length>0){rechargePrompt(nextJob.userid,nextJob.channel)}else{chat('An admin can manually top up your credit with\n`!credit 1 <@'+ nextJob.userid +'>')}
       processQueue()
     }
-  } else if (nextJob&&rendering){
-  } else if(!nextJob&&!rendering) { // no jobs, not rendering
+  }else if(nextJob&&rendering){
+  }else if(!nextJob&&!rendering){ // no jobs, not rendering
     renderJobErrors=queue.filter((q)=>q.status==='rendering')
     if(renderJobErrors.length>0){
       log('These job statuses are set to rendering, but rendering=false - this shouldnt happen'.bgRed)
@@ -1218,7 +1239,7 @@ bot.on("messageReactionAdd", (msg,emoji,reactor) => {
       case '😂':
       case '👍':
       case '⭐':
-      case '❤️': log('Positive emojis'.green+emoji.name.bgWhite.rainbow); break
+      case '❤️': log('Positive emojis'.green+emoji.name); break
       case '✉️': log('sending image to dm'.dim);directMessageUser(reactor.user.id,{content: msg.content, embeds: embeds});break // todo debug occasional error about reactor.user.id undefined here
       case '👎':
       case '⚠️':
@@ -1507,8 +1528,8 @@ bot.on("messageCreate", (msg) => {
       case '!wipequeue':{rendering=false;queue=[];dbWrite();log('admin wiped queue');break}
       case '!queue':{queueStatus();break}
       case '!cancel':{cancelRenders();break}
-      case '!pause':{chat(':pause_button: Bot is paused, requests will still be accepted and queued for when I return');rendering=true;break}
-      case '!resume':{rendering=false;chat(':play_pause: Bot is back online');processQueue();break}
+      case '!pause':{chat(':pause_button: Bot is paused, requests will still be accepted and queued for when I return');paused=true;rendering=true;break}
+      case '!resume':{socket.emit('requestSystemConfig');paused=false;rendering=false;chat(':play_pause: Bot is back online');processQueue();break}
       case '!richlist':{getRichList();break}
       case '!checkpayments':{checkNewPayments();break}
       case '!restart':{log('Admin restarted bot'.bgRed.white);exit(0)}
@@ -1556,7 +1577,7 @@ socket.on("generationResult", (data) => {generationResult(data)})
 socket.on("postprocessingResult", (data) => {postprocessingResult(data)})
 socket.on("initialImageUploaded", (data) => {debugLog('got init image uploaded');initialImageUploaded(data)})
 socket.on("imageUploaded", (data) => {debugLog('got image uploaded');initialImageUploaded(data)})
-socket.on("systemConfig", (data) => {debugLog('systemConfig received');currentModel=data.model_id;models=data.model_list})
+socket.on("systemConfig", (data) => {debugLog('systemConfig received');currentModel=data.model_weights;models=data.model_list})
 socket.on("modelChanged", (data) => {currentModel=data.model_name;models=data.model_list;debugLog('modelChanged to '+currentModel)})
 //socket.on("progressUpdate", (data) => {})
 socket.on('error', (error) => {
