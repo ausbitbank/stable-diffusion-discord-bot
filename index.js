@@ -5,7 +5,7 @@ const Eris = require("eris")
 const Constants = Eris.Constants
 const Collection = Eris.Collection
 const fs = require('fs')
-const path = require('path')
+const path = require('path') // still needed?
 const axios = require('axios')
 var parseArgs = require('minimist')
 const chokidar = require('chokidar')
@@ -23,6 +23,7 @@ var jimp = require('jimp')
 const FormData = require('form-data')
 const io = require("socket.io-client")
 const socket = io(config.apiUrl,{reconnect: true})
+var paused=false
 var queue = []
 var users = []
 var payments = []
@@ -256,6 +257,7 @@ function request(request){
   queue.push(newJob)
   dbWrite() // Push db write after each new addition
   processQueue()
+  // acknowledge received job with ethereal message here?
 }
 function queueStatus() {
   if(dialogs.queue!==null){dialogs.queue.delete().catch((err)=>{debugLog(err)})}
@@ -522,7 +524,7 @@ function postprocessingResult(data){ // TODO unfinished, untested, awaiting new 
   log(postRenderObject)
   //postRender(postRenderObject)
 }
-function requestModelChange(newmodel){log('Requesting model change to '+newmodel);if(newmodel===undefined||newmodel==='undefined'){newmodel='stable-diffusion-1.5'}socket.emit('requestModelChange',newmodel)}
+function requestModelChange(newmodel){log('Requesting model change to '+newmodel);if(newmodel===undefined||newmodel==='undefined'){newmodel='stable-diffusion-1.5'}socket.emit('requestModelChange',newmodel,()=>{log('requestModelChange loaded')})}
 function cancelRenders(){log('Cancelling current render'.bgRed);socket.emit('cancel');queue[queue.findIndex((q)=>q.status==='rendering')-1].status='cancelled';rendering=false}
 function generationResult(data){
   var url=data.url
@@ -573,7 +575,8 @@ async function emitRenderApi(job){
       "variation_amount": job.variation_amount,
       "strength": job.strength,
       "fit": true,
-      "progress_latents": false
+      "progress_latents": false,
+      "generation_mode": 'txt2img'
   }
   if(job.text_mask){
     var mask_strength=0.5
@@ -607,11 +610,29 @@ async function addRenderApi(id){
   queueStatus()
   if(job.attachments[0]&&job.attachments[0].content_type&&job.attachments[0].content_type.startsWith('image')){
     log('fetching attachment from '.bgRed + job.attachments[0].proxy_url)
-    await axios.get(job.attachments[0].proxy_url, {responseType: 'arraybuffer'})
-      .then(res => {initimg = Buffer.from(res.data);debugLog('got attachment')})
-      .catch(err => { console.error('unable to fetch url: ' + job.attachments[0].proxy_url); console.error(err) })
+    await axios.get(job.attachments[0].proxy_url,{responseType: 'arraybuffer'})
+      .then(res=>{initimg = Buffer.from(res.data);debugLog('got attachment')})
+      .catch(err=>{ console.error('unable to fetch url: ' + job.attachments[0].proxy_url); console.error(err) })
   }
-  if (initimg!==null){debugLog('uploadInitialImage');socket.emit('uploadImage', initimg, job.id+'.png','img2img')}else{emitRenderApi(job)}
+  if (initimg!==null){
+    debugLog('uploadInitialImage')
+    let writer=fs.createWriteStream('attach.png').write(initimg)
+    let reader=fs.readFileSync('attach.png')
+    initimg=reader
+    let form = new FormData()
+    form.append("file",initimg,job.id+'.png')
+    form.append("data",JSON.stringify({kind:'init'}))
+    axios.post(config.apiUrl+'/upload',form,{headers:{...form.getHeaders()}})
+      .then((response)=>{
+        var filename=config.basePath+"/"+response.data.url.replace('outputs/','')
+        job.init_img=filename
+        job.initimg=null
+        emitRenderApi(job)
+      })
+    .catch((error) => console.error(error))
+  }else{
+    emitRenderApi(job)
+  }
 }
 async function postRender(render){
   try{fs.readFile(render.filename, null, function(err, data){
@@ -685,23 +706,23 @@ async function postRender(render){
   }
   catch(err) {console.error(err)}
 }
-function processQueue () {
+function processQueue(){
   // WIP attempt to make a harder to dominate queue
   // TODO make a queueing system that prioritizes the users that have recharged the most
-  var queueNew = queue.filter((q)=>q.status==='new') // first alias to simplify
-  if (queueNew.length>0){
-    var queueUnique = queueNew.filter((value,index,self)=>{return self.findIndex(v=>v.userid===value.userid)===index}) // reduce to 1 entry in queue per username
-    var nextJobId = queueUnique[Math.floor(Math.random()*queueUnique.length)].id // random select
-    var nextJob = queue[queue.findIndex(x => x.id === nextJobId)]
-  } else {var nextJob = queue[queue.findIndex(x => x.status === 'new')]}
-  if (nextJob&&!rendering) {
-    if (userCreditCheck(nextJob.userid,costCalculator(nextJob))) {
+  var queueNew=queue.filter((q)=>q.status==='new') // first alias to simplify
+  if(queueNew.length>0){
+    var queueUnique=queueNew.filter((value,index,self)=>{return self.findIndex(v=>v.userid===value.userid)===index}) // reduce to 1 entry in queue per username
+    var nextJobId=queueUnique[Math.floor(Math.random()*queueUnique.length)].id // random select
+    var nextJob=queue[queue.findIndex(x=>x.id===nextJobId)]
+  }else{var nextJob=queue[queue.findIndex(x=>x.status==='new')]}
+  if(nextJob&&!rendering){
+    if(userCreditCheck(nextJob.userid,costCalculator(nextJob))){
       bot.editStatus('online')
       rendering=true
       log(nextJob.username.bgWhite.red+':'+nextJob.cmd.replace('\r','').replace('\n').bgWhite.black)
       //pedoScan(nextJob.id) // Scan for pedo prompts,reject,alert OR render it
       addRenderApi(nextJob.id) // Comment out line if enabling pedoscan above
-    } else {
+    }else{
       log(nextJob.username+' cant afford this render, denying')
       log('cost: '+costCalculator(nextJob))
       log('credits remaining: '+creditsRemaining(nextJob.userid))
@@ -709,8 +730,8 @@ function processQueue () {
       if(config.hivePaymentAddress.length>0){rechargePrompt(nextJob.userid,nextJob.channel)}else{chat('An admin can manually top up your credit with\n`!credit 1 <@'+ nextJob.userid +'>')}
       processQueue()
     }
-  } else if (nextJob&&rendering){
-  } else if(!nextJob&&!rendering) { // no jobs, not rendering
+  }else if(nextJob&&rendering){
+  }else if(!nextJob&&!rendering){ // no jobs, not rendering
     renderJobErrors=queue.filter((q)=>q.status==='rendering')
     if(renderJobErrors.length>0){
       log('These job statuses are set to rendering, but rendering=false - this shouldnt happen'.bgRed)
@@ -886,18 +907,6 @@ async function imgbbupload(file) {
     .then((response)=>{debugLog(response);return response})
     .catch((error)=>console.error(error))
 }
-async function oshiupload(file) {
-  log('uploading via oshi.at api')
-  debugLog(file)
-  let form = new FormData()
-  let shortname = file.split('\\')[file.split('\\').length-1]
-  const fileStream = fs.createReadStream(file)
-  form.append("file", fileStream)//shortname
-  await axios({method:'post',url:'https://oshi.at/',data:form,'maxContentLength': Infinity,'maxBodyLength': Infinity,headers:{...form.getHeaders()}})
-  .then((response)=>{log('oshiUpload .then callback.. response.data:');log(response.data); return response.data.DL})
-  .catch((error) => console.error(error))
-}
-
 function process (file){// Monitor new files entering watchFolder, post image with filename.
   try {
     if (file.endsWith('.png')||file.endsWith('jpg')){
@@ -1218,7 +1227,7 @@ bot.on("messageReactionAdd", (msg,emoji,reactor) => {
       case '😂':
       case '👍':
       case '⭐':
-      case '❤️': log('Positive emojis'.green+emoji.name.bgWhite.rainbow); break
+      case '❤️': log('Positive emojis'.green+emoji.name); break
       case '✉️': log('sending image to dm'.dim);directMessageUser(reactor.user.id,{content: msg.content, embeds: embeds});break // todo debug occasional error about reactor.user.id undefined here
       case '👎':
       case '⚠️':
@@ -1507,8 +1516,8 @@ bot.on("messageCreate", (msg) => {
       case '!wipequeue':{rendering=false;queue=[];dbWrite();log('admin wiped queue');break}
       case '!queue':{queueStatus();break}
       case '!cancel':{cancelRenders();break}
-      case '!pause':{chat(':pause_button: Bot is paused, requests will still be accepted and queued for when I return');rendering=true;break}
-      case '!resume':{rendering=false;chat(':play_pause: Bot is back online');processQueue();break}
+      case '!pause':{chat(':pause_button: Bot is paused, requests will still be accepted and queued for when I return');paused=true;rendering=true;break}
+      case '!resume':{socket.emit('requestSystemConfig');paused=false;rendering=false;chat(':play_pause: Bot is back online');processQueue();break}
       case '!richlist':{getRichList();break}
       case '!checkpayments':{checkNewPayments();break}
       case '!restart':{log('Admin restarted bot'.bgRed.white);exit(0)}
@@ -1556,7 +1565,7 @@ socket.on("generationResult", (data) => {generationResult(data)})
 socket.on("postprocessingResult", (data) => {postprocessingResult(data)})
 socket.on("initialImageUploaded", (data) => {debugLog('got init image uploaded');initialImageUploaded(data)})
 socket.on("imageUploaded", (data) => {debugLog('got image uploaded');initialImageUploaded(data)})
-socket.on("systemConfig", (data) => {debugLog('systemConfig received');currentModel=data.model_id;models=data.model_list})
+socket.on("systemConfig", (data) => {debugLog('systemConfig received');currentModel=data.model_weights;models=data.model_list})
 socket.on("modelChanged", (data) => {currentModel=data.model_name;models=data.model_list;debugLog('modelChanged to '+currentModel)})
 //socket.on("progressUpdate", (data) => {})
 socket.on('error', (error) => {
@@ -1564,7 +1573,7 @@ socket.on('error', (error) => {
   var nowJob=queue[queue.findIndex((j)=>j.status==="rendering")]
   if(nowJob){
     log('Failing status for:');nowJob.status='failed';log(nowJob)
-    chatChan(nowJob.channel,':warning: <@'+nowJob.userid+'>, there was an error in your prompt: `'+nowJob.prompt+'`\n**Error:** `'+error.message+'`\n')
+    chatChan(nowJob.channel,':warning: <@'+nowJob.userid+'>, there was an error in your request with prompt: `'+nowJob.prompt+'`\n**Error:** `'+error.message+'`\n')
   }
   rendering=false
 })
