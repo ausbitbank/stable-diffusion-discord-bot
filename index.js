@@ -615,26 +615,21 @@ async function addRenderApi(id){
       .catch(err=>{ console.error('unable to fetch url: ' + job.attachments[0].proxy_url); console.error(err) })
   }
   if (initimg!==null){
-    debugLog('uploadInitialImage');
-    // socket.emit('uploadImage', initimg, job.id+'.png','img2img') // latest invokeai no longer uses socket emit for image uploads ?
+    debugLog('uploadInitialImage')
+    let writer=fs.createWriteStream('attach.png').write(initimg)
+    let reader=fs.readFileSync('attach.png')
+    initimg=reader
     let form = new FormData()
-    form.append('file',initimg,job.id+'.png')
-    form.append('data',JSON.stringify({kind:'init'}))
-    const response = await fetch(config.apiUrl+'/upload', {
-      method: 'POST',
-      body: form,
-    })
-    log(response)
-    log('completed upload')
-    /*axios.post(config.apiUrl+'/upload',form,{headers:{...form.getHeaders()}})
+    form.append("file",initimg,job.id+'.png')
+    form.append("data",JSON.stringify({kind:'init'}))
+    axios.post(config.apiUrl+'/upload',form,{headers:{...form.getHeaders()}})
       .then((response)=>{
-        log(response)
         var filename=config.basePath+"/"+response.data.url.replace('outputs/','')
         job.init_img=filename
         job.initimg=null
         emitRenderApi(job)
       })
-    .catch((error) => console.error(error))*/
+    .catch((error) => console.error(error))
   }else{
     emitRenderApi(job)
   }
