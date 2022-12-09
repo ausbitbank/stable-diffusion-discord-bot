@@ -154,3 +154,7 @@ You can test out the bot in the #artspam channel
 
 ![discord](https://img.shields.io/discord/419390618209353730?style=plastic)
 ![license](https://img.shields.io/github/license/ausbitbank/stable-diffusion-discord-bot?style=plastic)
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=ausbitbank/stable-diffusion-discord-bot&type=Date)](https://star-history.com/#ausbitbank/stable-diffusion-discord-bot&Date)
