@@ -59,6 +59,7 @@ const defaultSize = parseInt(config.defaultSize)||512
 const defaultSteps = parseInt(config.defaultSteps)||50
 const defaultMaxDiscordFileSize=parseInt(config.defaultMaxDiscordFileSize)||8000000  // TODO detect server boost status and increase this if boosted
 const basePath = config.basePath
+var defaultModel=config.defaultModel||'stable-diffusion-1.5'
 var currentModel='notInitializedYet'
 var models=null
 // load samplers from config
@@ -211,7 +212,7 @@ function request(request){
   if (!args.with_variations){args.with_variations=[]}else{log(args.with_variations)}//; args.with_variations=args.with_variations.toString()
   if (!args.threshold){args.threshold=0}
   if (!args.perlin||args.perlin>1||args.perlin<0){args.perlin=0}
-  if (!args.model||args.model===undefined||!Object.keys(models).includes(args.model)){args.model='stable-diffusion-1.5'}else{args.model=args.model.toLowerCase()}
+  if (!args.model||args.model===undefined||!Object.keys(models).includes(args.model)){args.model=defaultModel}else{args.model=args.model.toLowerCase()}
   args.timestamp=moment()
   args.prompt=sanitize(args._.join(' '))
   if (args.prompt.length===0){args.prompt=getRandom('prompt');log('empty prompt found, adding random')} 
@@ -301,7 +302,7 @@ function closestRes(n){ // diffusion needs a resolution as a multiple of 64 pixe
 }
 function prepSlashCmd(options) { // Turn partial options into full command for slash commands, hate the redundant code here
   var job={}
-  var defaults=[{ name: 'prompt', value: ''},{name: 'width', value: defaultSize},{name:'height',value:defaultSize},{name:'steps',value:defaultSteps},{name:'scale',value:7.5},{name:'sampler',value:defaultSampler},{name:'seed', value: getRandomSeed()},{name:'strength',value:0.75},{name:'number',value:1},{name:'gfpgan_strength',value:0},{name:'codeformer_strength',value:0},{name:'upscale_strength',value:0.75},{name:'upscale_level',value:''},{name:'seamless',value:false},{name:'variation_amount',value:0},{name:'with_variations',value:[]},{name:'threshold',value:0},{name:'perlin',value:0},{name:'hires_fix',value:false},{name:'model',value:'stable-diffusion-1.5'}]
+  var defaults=[{ name: 'prompt', value: ''},{name: 'width', value: defaultSize},{name:'height',value:defaultSize},{name:'steps',value:defaultSteps},{name:'scale',value:7.5},{name:'sampler',value:defaultSampler},{name:'seed', value: getRandomSeed()},{name:'strength',value:0.75},{name:'number',value:1},{name:'gfpgan_strength',value:0},{name:'codeformer_strength',value:0},{name:'upscale_strength',value:0.75},{name:'upscale_level',value:''},{name:'seamless',value:false},{name:'variation_amount',value:0},{name:'with_variations',value:[]},{name:'threshold',value:0},{name:'perlin',value:0},{name:'hires_fix',value:false},{name:'model',value:defaultModel}]
   defaults.forEach(d=>{if(options.find(o=>{if(o.name===d.name){return true}else{return false}})){job[d.name]=options.find(o=>{if(o.name===d.name){return true}else{return false}}).value}else{job[d.name]=d.value}})
   return job
 }
@@ -524,7 +525,7 @@ function postprocessingResult(data){ // TODO unfinished, untested, awaiting new 
   log(postRenderObject)
   //postRender(postRenderObject)
 }
-function requestModelChange(newmodel){log('Requesting model change to '+newmodel);if(newmodel===undefined||newmodel==='undefined'){newmodel='stable-diffusion-1.5'}socket.emit('requestModelChange',newmodel,()=>{log('requestModelChange loaded')})}
+function requestModelChange(newmodel){log('Requesting model change to '+newmodel);if(newmodel===undefined||newmodel==='undefined'){newmodel=defaultModel}socket.emit('requestModelChange',newmodel,()=>{log('requestModelChange loaded')})}
 function cancelRenders(){log('Cancelling current render'.bgRed);socket.emit('cancel');queue[queue.findIndex((q)=>q.status==='rendering')-1].status='cancelled';rendering=false}
 function generationResult(data){
   var url=data.url
@@ -616,7 +617,7 @@ async function addRenderApi(id){
   }
   if (initimg!==null){
     debugLog('uploadInitialImage')
-    let writer=fs.createWriteStream('attach.png').write(initimg)
+    let writer=await fs.createWriteStream('attach.png').write(initimg)
     let reader=fs.readFileSync('attach.png')
     initimg=reader
     let form = new FormData()
@@ -1469,7 +1470,7 @@ bot.on("messageCreate", (msg) => {
               jimp.loadFont(jimp.FONT_SANS_32_BLACK).then(font => {
                 //var newTxtWidth=jimp.measureText(jimp.FONT_SANS_32_BLACK, newTxt)
                 //var newTxtHeight=jimp.measureTextHeight(jimp.FONT_SANS_32_BLACK, newTxt, 100)
-                var txtObj={text:newTxt,alignmentX:jimp.HORIZONTAL_ALIGN_CENTER,alignmentY:jimp.VERTICAL_ALIGN_TOP}
+                var txtObj={text:newTxt,alignmentX:jimp.HORIZONTAL_ALIGN_CENTER,alignmentY:jimp.VERTICAL_ALIGN_TOP,background:0xffffff}
                 switch(c){
                   case '!text':
                   case '!textCenter':{txtObj.alignmentY=jimp.VERTICAL_ALIGN_MIDDLE;break}
