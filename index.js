@@ -59,6 +59,7 @@ const defaultSize = parseInt(config.defaultSize)||512
 const defaultSteps = parseInt(config.defaultSteps)||50
 const defaultMaxDiscordFileSize=parseInt(config.defaultMaxDiscordFileSize)||8000000  // TODO detect server boost status and increase this if boosted
 const basePath = config.basePath
+var rembg=config.rembg||'http://127.0.0.1:5000?url='
 var defaultModel=config.defaultModel||'stable-diffusion-1.5'
 var currentModel='notInitializedYet'
 var models=null
@@ -1335,7 +1336,7 @@ bot.on("messageCreate", (msg) => {
           var attachmentsUrls = msg.attachments.map((u)=>{return u.proxy_url})
           attachmentsUrls.forEach((url)=>{
             log('Removing background from '+url)
-            axios.get('http://127.0.0.1:5000?url='+encodeURIComponent(url),{responseType: 'arraybuffer'})//axios.get('http://127.0.0.1:5000?url='+encodeURIComponent(msg.attachments.map((u)=>{return u.proxy_url})),{responseType: 'arraybuffer'})
+            axios.get(rembg+encodeURIComponent(url),{responseType: 'arraybuffer'})//axios.get('http://127.0.0.1:5000?url='+encodeURIComponent(msg.attachments.map((u)=>{return u.proxy_url})),{responseType: 'arraybuffer'})
               .then((response)=>{
                 var newMsg='<@'+msg.author.id+'> used `!background`'
                 if (!creditsDisabled){
