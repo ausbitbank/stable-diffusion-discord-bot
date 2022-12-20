@@ -1234,7 +1234,12 @@ bot.on("messageReactionAdd", (msg,emoji,reactor) => {
       case '👎':
       case '⚠️':
       case '🙈':
-      case '💩': log('Negative emojis'.red+emoji.name.red); break
+      case '❌':
+      case '💩': {
+        log('Negative emojis'.red+emoji.name.red)
+        if(msg.content.includes(reactor.user.id)){msg.delete().catch(() => {})}
+        break
+      }
     }
   } 
 })
