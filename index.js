@@ -57,7 +57,7 @@ const bot = new Eris.CommandClient(config.discordBotKey, {
 })
 const defaultSize = parseInt(config.defaultSize)||512
 const defaultSteps = parseInt(config.defaultSteps)||50
-const defaultScale = parseInt(config.defaultScale)||7.5
+const defaultScale = parseFloat(config.defaultScale)||7.5
 const defaultMaxDiscordFileSize=parseInt(config.defaultMaxDiscordFileSize)||8000000  // TODO detect server boost status and increase this if boosted
 const basePath = config.basePath
 var rembg=config.rembg||'http://127.0.0.1:5000?url='
