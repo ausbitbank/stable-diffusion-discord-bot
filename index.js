@@ -39,7 +39,7 @@ const { exit } = require('process')
 if(config.creditsDisabled==='true'){var creditsDisabled=true}else{var creditsDisabled=false}
 if(config.showFilename==='true'){var showFilename=true}else{var showFilename=false}
 if(config.hivePaymentAddress.length>0 && !creditsDisabled){
-  hive.config.set('alternative_api_endpoints',['https://rpc.ausbit.dev','https://api.deathwing.me','https://api.c0ff33a.uk','https://hived.emre.sh']) 
+  hive.config.set('alternative_api_endpoints',['https://rpc.ausbit.dev','https://api.deathwing.me','https://api.c0ff33a.uk','https://hived.emre.sh'])
   var hiveUsd = 0.4
   getPrices()
   cron.schedule('0,15,30,45 * * * *', () => { log('Checking account history every 15 minutes'.grey); checkNewPayments() })
@@ -217,7 +217,7 @@ function request(request){
   if (!args.model||args.model===undefined||!Object.keys(models).includes(args.model)){args.model=defaultModel}else{args.model=args.model.toLowerCase()}
   args.timestamp=moment()
   args.prompt=sanitize(args._.join(' '))
-  if (args.prompt.length===0){args.prompt=getRandom('prompt');log('empty prompt found, adding random')} 
+  if (args.prompt.length===0){args.prompt=getRandom('prompt');log('empty prompt found, adding random')}
   var newJob={
     id: queue.length+1,
     status: 'new',
@@ -356,7 +356,7 @@ function costCalculator(job) {                 // Pass in a render, get a cost i
   if (job.gfpgan_strength!==0){cost=cost*1.05} // 5% charge for gfpgan face fixing (minor increased processing time)
   if (job.codeformer_strength!==0){cost=cost*1.05} // 5% charge for gfpgan face fixing (minor increased processing time)
   if (job.upscale_level===2){cost=cost*1.5}    // 1.5x charge for upscale 2x (increased processing+storage+bandwidth)
-  if (job.upscale_level===4){cost=cost*2}      // 2x charge for upscale 4x 
+  if (job.upscale_level===4){cost=cost*2}      // 2x charge for upscale 4x
   if (job.hires_fix===true){cost=cost*1.5}     // 1.5x charge for hires_fix (renders once at half resolution, then again at full)
   if (job.channel!==config.channelID){cost=cost*1.1}// 10% charge for renders outside of home channel
   cost=cost*job.number                         // Multiply by image count
@@ -435,7 +435,13 @@ function scheduleInit(){
     log('Scheduling job: '.grey+s.name)
     cron.schedule(s.cron,()=>{
       log('Running scheduled job: '.grey+s.name)
-      var randomPrompt=s.prompts[Math.floor(Math.random()*s.prompts.length)].prompt
+      var randomPromptObj=s.prompts[Math.floor(Math.random()*s.prompts.length)]
+      var randomPrompt = randomPromptObj.prompt
+      Object.keys(randomPromptObj).forEach(key => {
+        if(key!=='prompt'){
+          randomPrompt += ` --${key} ${randomPromptObj[key]}`
+        }
+      });
       var newRequest={cmd: randomPrompt, userid: s.admins[0].id, username: s.admins[0].username, discriminator: s.admins[0].discriminator, bot: 'False', channelid: s.channel, attachments: []}
       if(s.onlyOnIdle==="True"){if(queue.filter((q)=>q.status==='new').length>0){log('Ignoring scheduled job due to renders')}else{request(newRequest)}}else{request(newRequest)}
     })
@@ -587,7 +593,7 @@ async function emitRenderApi(job){
     if(job.invert_mask&&job.invert_mask===true){postObject.invert_mask=true}
     log('adding text mask');postObject.text_mask=[job.text_mask,mask_strength]
   }
-  if(job.with_variations.length>0){log('adding with variations');postObject.with_variations=job.with_variations;log(postObject.with_variations)} 
+  if(job.with_variations.length>0){log('adding with variations');postObject.with_variations=job.with_variations;log(postObject.with_variations)}
   if(job.seamless&&job.seamless===true){postObject.seamless=true}
   if(job.hires_fix&&job.hires_fix===true){postObject.hires_fix=true}
   var upscale=false
@@ -607,7 +613,7 @@ async function emitRenderApi(job){
 }
 function getObjKey(obj, value){return Object.keys(obj).find(key=>obj[key]===value)}
 async function addRenderApi(id){
-  var job=queue[queue.findIndex(x=>x.id===id)] 
+  var job=queue[queue.findIndex(x=>x.id===id)]
   var initimg=null
   job.status='rendering'
   queueStatus()
@@ -1242,7 +1248,7 @@ bot.on("messageReactionAdd", (msg,emoji,reactor) => {
         break
       }
     }
-  } 
+  }
 })
 
 //bot.on("messageReactionRemoved", (msg,emoji,userid) => {log('message reaction removed');log(msg,emoji,userid)})
