@@ -631,7 +631,7 @@ async function addRenderApi(id){
     let form = new FormData()
     form.append("file",initimg,job.id+'.png')
     form.append("data",JSON.stringify({kind:'init'}))
-    axios.post(config.apiUrl+'/upload',form,{headers:{...form.getHeaders()}})
+    axios.post(config.apiUrl+'/upload',form)
       .then((response)=>{
         var filename=config.basePath+"/"+response.data.url.replace('outputs/','')
         job.init_img=filename
@@ -1336,6 +1336,7 @@ bot.on("messageCreate", (msg) => {
   var c=msg.content.split(' ')[0]
   if (msg.author.id!==bot.id&&authorised(msg,msg.channel.id,msg.guildID,)){ // Work anywhere its authorized // (msg.channel.id===config.channelID||!msg.guildID) // interaction.member,interaction.channel.id,interaction.guildID
     switch(c){
+      case '!help':{bot.createMessage(msg.channel.id,'To create art type `!dream your idea here`\nSee these links for more info:\nhttps://peakd.com/@ausbitbank/our-new-stable-diffusion-discord-bot\nhttps://github.com/ausbitbank/stable-diffusion-discord-bot');break}
       case '!dream':{request({cmd: msg.content.substr(7, msg.content.length), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments});break}
       case '!prompt':
       case '!random':{request({cmd: msg.content.substr(8,msg.content.length)+getRandom('prompt'), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments});break}
