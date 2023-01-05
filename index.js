@@ -91,8 +91,8 @@ var slashCommands = [
     description: 'Create a new image from your prompt',
     options: [
       {type: 3, name: 'prompt', description: 'what would you like to see ?', required: true, min_length: 1, max_length:750 },
-      {type: 4, name: 'width', description: 'width of the image in pixels (250-~1024)', required: false, min_value: 256, max_value: 1024 },
-      {type: 4, name: 'height', description: 'height of the image in pixels (250-~1024)', required: false, min_value: 256, max_value: 1024 },
+      {type: 4, name: 'width', description: 'width of the image in pixels (250-~1024)', required: false, min_value: 256, max_value: 1280 },
+      {type: 4, name: 'height', description: 'height of the image in pixels (250-~1024)', required: false, min_value: 256, max_value: 1280 },
       {type: 4, name: 'steps', description: 'how many steps to render for (10-250)', required: false, min_value: 5, max_value: 250 },
       {type: 4, name: 'seed', description: 'seed (initial noise pattern)', required: false},
       {type: 10, name: 'strength', description: 'how much noise to add to your template image (0.1-0.9)', required: false, min_value:0.01, max_value:0.99},
@@ -349,7 +349,8 @@ function userCreditCheck(userID,amount) { // Check if a user can afford a specif
 }
 function costCalculator(job) {                 // Pass in a render, get a cost in credits
   var cost=1                                   // a normal render base cost, 512x512 50 steps
-  var pixelBase=262144                         // 512x512 reference pixel size
+  //var pixelBase=262144                         // 512x512 reference pixel size
+  var pixelBase=defaultSize*defaultSize        // reference pixel size
   var pixels=job.width*job.height              // How many pixels does this render use?
   cost=(pixels/pixelBase)*cost                 // premium or discount for resolution relative to default
   cost=(job.steps/50)*cost                     // premium or discount for step count relative to default
@@ -631,7 +632,9 @@ async function addRenderApi(id){
     let form = new FormData()
     form.append("file",initimg,job.id+'.png')
     form.append("data",JSON.stringify({kind:'init'}))
-    axios.post(config.apiUrl+'/upload',form)
+    var header={}
+    //var header={proxy:{host:'127.0.0.1',port:8080}}
+    axios.post(config.apiUrl+'/upload',form, header)
       .then((response)=>{
         var filename=config.basePath+"/"+response.data.url.replace('outputs/','')
         job.init_img=filename
@@ -1041,8 +1044,8 @@ bot.on("interactionCreate", async (interaction) => {
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Scale - 1", custom_id: "twkscaleMinus-"+id+'-'+rn, emoji: { name: '⚖️', id: null}, disabled: false },
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Scale + 1", custom_id: "twkscalePlus-"+id+'-'+rn, emoji: { name: '⚖️', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Steps - 5", custom_id: "twkstepsMinus-"+id+'-'+rn, emoji: { name: '♻️', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Steps + 5", custom_id: "twkstepsPlus-"+id+'-'+rn, emoji: { name: '♻️', id: null}, disabled: false }
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Steps - 10", custom_id: "twkstepsMinus-"+id+'-'+rn, emoji: { name: '♻️', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Steps + 10", custom_id: "twkstepsPlus-"+id+'-'+rn, emoji: { name: '♻️', id: null}, disabled: false }
               ]},
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Upscale 2x", custom_id: "twkupscale2-"+id+'-'+rn, emoji: { name: '🔍', id: null}, disabled: false },
@@ -1067,13 +1070,15 @@ bot.on("interactionCreate", async (interaction) => {
             ]
           }
           // Disable buttons depending on the current parameters
-          if (newJob.width===512&&newJob.height===704){tweakResponse.components[0].components[0].disabled=true}
+          //if (newJob.width===512&&newJob.height===704){tweakResponse.components[0].components[0].disabled=true}
+          if (newJob.width===defaultSize&&newJob.height===(defaultSize+192)){tweakResponse.components[0].components[0].disabled=true}
           if (newJob.width===newJob.height){tweakResponse.components[0].components[1].disabled=true}
-          if (newJob.width===704&&newJob.height===512){tweakResponse.components[0].components[2].disabled=true}
+          //if (newJob.width===704&&newJob.height===512){tweakResponse.components[0].components[2].disabled=true}
+          if (newJob.height===defaultSize&&newJob.width===(defaultSize+192)){tweakResponse.components[0].components[0].disabled=true}
           if (newJob.scale<=1){tweakResponse.components[1].components[0].disabled=true}
           if (newJob.scale>=30){tweakResponse.components[1].components[1].disabled=true}
           if (newJob.steps<=5){tweakResponse.components[1].components[2].disabled=true}
-          if (newJob.steps>=145){tweakResponse.components[1].components[3].disabled=true}
+          if (newJob.steps>=140){tweakResponse.components[1].components[3].disabled=true}
           if (newJob.upscale_level!==0&&newJob.upscale_level!==''){tweakResponse.components[2].components[0].disabled=true;tweakResponse.components[2].components[1].disabled=true}
           if (newJob.gfpgan_strength!==0){tweakResponse.components[2].components[2].disabled=true}
           if (newJob.codeformer_strength!==0){tweakResponse.components[2].components[3].disabled=true}
@@ -1099,12 +1104,12 @@ bot.on("interactionCreate", async (interaction) => {
       var newCmd=''
       var postProcess=false
       switch(interaction.data.custom_id.split('-')[0].replace('twk','')){
-        case 'scalePlus': newJob.scale=newJob.scale+1;break
-        case 'scaleMinus': newJob.scale=newJob.scale-1;break
-        case 'stepsPlus': newJob.steps=newJob.steps+5;break
-        case 'stepsMinus': newJob.steps=newJob.steps-5;break
-        case 'aspectPortrait': newJob.height=704;newJob.width=512;break
-        case 'aspectLandscape': newJob.width=704;newJob.height=512;break
+        case 'scalePlus': newJob.scale=newJob.scale+5;break
+        case 'scaleMinus': newJob.scale=newJob.scale-5;break
+        case 'stepsPlus': newJob.steps=newJob.steps+10;break
+        case 'stepsMinus': newJob.steps=newJob.steps-10;break
+        case 'aspectPortrait': newJob.height=defaultSize+192;newJob.width=defaultSize;break
+        case 'aspectLandscape': newJob.width=defaultSize+192;newJob.height=defaultSize;break
         case 'aspectSquare': newJob.width=defaultSize;newJob.height=defaultSize;break
         case 'aspect4k': newJob.width=960;newJob.height=512;newJob.upscale_level=4;newJob.hires_fix=true;break
         case 'upscale2': newJob.upscale_level=2;break // currently resubmitting jobs, update to use postprocess once working
@@ -1120,8 +1125,8 @@ bot.on("interactionCreate", async (interaction) => {
         case 'gfpgan': newJob.gfpgan_strength=0.8;newJob.codeformer_strength=0;break //
         case 'codeformer': newJob.codeformer_strength=0.8;newJob.gfpgan_strength=0;break //
         case 'default': newCmd=newJob.prompt;break
-        case 'fast': newJob.sampler='k_euler_a';newJob.steps=25;break
-        case 'slow': newJob.sampler='k_euler_a';newJob.steps=100;break
+        case 'fast': newJob.steps=20;break
+        case 'slow': newJob.steps=50;break
         case 'batch5': newJob.seed=getRandomSeed();newJob.number=5;break
       }
       if (postProcess){ // submit as postProcess request
@@ -1568,6 +1573,11 @@ bot.on("messageCreate", (msg) => {
         for (r in randoms){newMsg+='`{'+randoms[r]+'}`='+getRandom(randoms[r])+'\n'}
         if(newMsg.length<=2000){newMsg.length=1999} //max discord msg length of 2k
         try{chatChan(msg.channel.id,newMsg)}catch(err){log(err)}
+        break
+      }
+      case '!schedule':{
+        if (msg.content.split(' ')[1]==='on'){dbScheduleRead()}
+        if (msg.content.split(' ')[1]==='off'){dbScheduleRead()}
         break
       }
     }
