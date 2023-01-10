@@ -58,6 +58,8 @@ const bot = new Eris.CommandClient(config.discordBotKey, {
 const defaultSize = parseInt(config.defaultSize)||512
 const defaultSteps = parseInt(config.defaultSteps)||50
 const defaultScale = parseFloat(config.defaultScale)||7.5
+const maxSteps = parseInt(config.maxSteps)||100
+const maxIterations = parseInt(config.maxIterations)||10
 const defaultMaxDiscordFileSize=parseInt(config.defaultMaxDiscordFileSize)||8000000  // TODO detect server boost status and increase this if boosted
 const basePath = config.basePath
 var rembg=config.rembg||'http://127.0.0.1:5000?url='
@@ -198,13 +200,13 @@ function request(request){
     args.width=parseInt(args.width);args.height=parseInt(args.height)
     log('compromised resolution to '+args.width+'x'+args.height)
   }
-  if (!args.steps||!Number.isInteger(args.steps)||args.steps>250){args.steps=defaultSteps} // max 250 steps, default 50
+  if (!args.steps||!Number.isInteger(args.steps)||args.steps>maxSteps){args.steps=defaultSteps} // default 50
   if (!args.seed||!Number.isInteger(args.seed)||args.seed<1||args.seed>4294967295){args.seed=getRandomSeed()}
   if (!args.strength||args.strength>=1||args.strength<=0){args.strength=0.75}
   if (!args.scale||args.scale>200||args.scale<1){args.scale=defaultScale}
   if (!args.sampler){args.sampler=defaultSampler}
   if (args.n){args.number=args.n}
-  if (!args.number||!Number.isInteger(args.number)||args.number>10||args.number<1){args.number=1}
+  if (!args.number||!Number.isInteger(args.number)||args.number>maxIterations||args.number<1){args.number=1}
   if (!args.renderer||['localApi'].includes(args.renderer)){args.renderer='localApi'}
   if (!args.gfpgan_strength){args.gfpgan_strength=0}
   if (!args.codeformer_strength){args.codeformer_strength=0}
@@ -262,8 +264,8 @@ function request(request){
   processQueue()
   // acknowledge received job with ethereal message here?
 }
+
 function queueStatus() {
-  if(dialogs.queue!==null){dialogs.queue.delete().catch((err)=>{debugLog(err)})}
   var done=queue.filter((j)=>j.status==='done')
   var doneGps=tidyNumber((getPixelStepsTotal(done)/1000000).toFixed(0))
   var wait=queue.filter((j)=>j.status==='new')
@@ -272,7 +274,8 @@ function queueStatus() {
   var renderGps=tidyNumber((getPixelStepsTotal(renderq)/1000000).toFixed(0))
   var totalWaitLength=parseInt(wait.length)+parseInt(renderq.length)
   var totalWaitGps=parseInt(waitGps)+parseInt(renderGps)
-  var statusMsg=':busts_in_silhouette: `'+queue.map(x=>x.userid).filter(unique).length+'`/`'+users.length+'` :european_castle:`'+bot.guilds.size+'` :fire: `'+doneGps+'`'
+  var statusMsg=''
+  statusMsg+=':busts_in_silhouette: `'+queue.map(x=>x.userid).filter(unique).length+'`/`'+users.length+'` :european_castle:`'+bot.guilds.size+'` :fire: `'+doneGps+'`'
   if(totalWaitLength>0){statusMsg=':ticket:`'+totalWaitLength+'`(`'+totalWaitGps+'`) '+statusMsg} else {statusMsg=':ticket:`'+totalWaitLength+'`'+statusMsg}
   if(renderq.length>0){
     var next = renderq[0]
@@ -289,11 +292,30 @@ function queueStatus() {
     if(next.init_img && next.init_img!==''){statusMsg+=':paperclip:'}
     if((next.width!==next.height)||(next.width>defaultSize)){statusMsg+=':straight_ruler:'}
     statusMsg+=' :brain: **'+next.username+'**#'+next.discriminator+' :coin:`'+costCalculator(next)+'` :fire:`'+renderGps+'`'
+    if(progressUpdate['isProcessing']===true){
+      var renderPercent=((parseInt(progressUpdate['currentStep'])/parseInt(progressUpdate['totalSteps']))*100).toFixed(2)
+      var renderPercentEmoji=':hourglass_flowing_sand:'
+      if(renderPercent>50){renderPercentEmoji=':hourglass:'}
+      statusMsg+=renderPercentEmoji+'`'+renderPercent+'`**%**'
+    }
   }
-  if(next&&next.channel!=='webhook'){var chan=next.channel} else {var chan=config.channelID}
-  bot.createMessage(chan,statusMsg).then(x=>{dialogs.queue=x}).catch((err)=>console.error(err))
+  if(next&&next.channel!=='webhook'){var chan=next.channel}else{var chan=config.channelID}
+  nowTimestamp=new Date().getTime();sent=false
+  if(dialogs.queue!==null){
+    if(dialogs.queue.channel.id!==next.channel){
+      dialogs.queue.delete().catch((err)=>{debugLog(err)});dialogs.queue=null
+    }else if((nowTimestamp-dialogs.queue.timestamp)>120000){
+      dialogs.queue.delete().catch((err)=>{debugLog(err)});dialogs.queue=null
+    }else if(progressUpdate['totalSteps']===0) {
+      dialogs.queue.delete().catch((err)=>{debugLog(err)});dialogs.queue=null
+      sent=true
+    }else{
+      if((nowTimestamp-dialogs.queue.timestamp)>2000){dialogs.queue.edit(statusMsg).then(x=>{dialogs.queue=x;sent=true}).catch((err)=>debugLog(err));sent=true}else{sent=true}
+    }
+  }
+  if(sent===false){bot.createMessage(chan,statusMsg).then(x=>{dialogs.queue=x}).catch((err)=>console.error(err))}
 }
-queueStatus=debounce(queueStatus,2000,true)
+queueStatus=debounce(queueStatus,1750,true)
 function closestRes(n){ // diffusion needs a resolution as a multiple of 64 pixels, find the closest
     var q, n1, n2; var m=64
     q=n/m
@@ -353,7 +375,7 @@ function costCalculator(job) {                 // Pass in a render, get a cost i
   var pixelBase=defaultSize*defaultSize        // reference pixel size
   var pixels=job.width*job.height              // How many pixels does this render use?
   cost=(pixels/pixelBase)*cost                 // premium or discount for resolution relative to default
-  cost=(job.steps/50)*cost                     // premium or discount for step count relative to default
+  cost=(job.steps/defaultSteps)*cost           // premium or discount for step count relative to default
   if (job.gfpgan_strength!==0){cost=cost*1.05} // 5% charge for gfpgan face fixing (minor increased processing time)
   if (job.codeformer_strength!==0){cost=cost*1.05} // 5% charge for gfpgan face fixing (minor increased processing time)
   if (job.upscale_level===2){cost=cost*1.5}    // 1.5x charge for upscale 2x (increased processing+storage+bandwidth)
@@ -552,7 +574,13 @@ function generationResult(data){
       if(p1===p2&&p2===p3){log('3 pixels match color, warn');data.warning=true}
     }
   }catch(err){log(err)}*/
-  if(job){job.results.push(data);var postRenderObject={id:job.id,filename: url, seed: data.metadata.image.seed, resultNumber:job.results.length-1, width:data.metadata.image.width,height:data.metadata.image.height};postRender(postRenderObject)}else{rendering=false}
+  if(job){
+    var postRenderObject={id:job.id,filename: url, seed: data.metadata.image.seed, resultNumber:job.results.length-1, width:data.metadata.image.width,height:data.metadata.image.height}
+    // remove redundant data before pushing to db results
+    //delete (data.metadata.prompt);delete (data.metadata.seed);delete (data.metadata.model_list);delete (data.metadata.app_id);delete (data.metadata.app_version)
+    job.results.push(data)
+    postRender(postRenderObject)
+  }else{rendering=false}
   if(job&&job.results.length>=job.number){job.status='done';rendering=false;processQueue()}
 }
 function initialImageUploaded(data){
@@ -617,7 +645,6 @@ async function addRenderApi(id){
   var job=queue[queue.findIndex(x=>x.id===id)]
   var initimg=null
   job.status='rendering'
-  queueStatus()
   if(job.attachments[0]&&job.attachments[0].content_type&&job.attachments[0].content_type.startsWith('image')){
     log('fetching attachment from '.bgRed + job.attachments[0].proxy_url)
     await axios.get(job.attachments[0].proxy_url,{responseType: 'arraybuffer'})
@@ -632,8 +659,8 @@ async function addRenderApi(id){
     let form = new FormData()
     form.append("file",initimg,job.id+'.png')
     form.append("data",JSON.stringify({kind:'init'}))
-    var header={}
-    //var header={proxy:{host:'127.0.0.1',port:8080}}
+    //var header={}
+    var header={proxy:{host:'127.0.0.1',port:8080}} // default burpsuite proxy settings to get image upload working. Temp hack, help wanted to figure out why this is needed
     axios.post(config.apiUrl+'/upload',form, header)
       .then((response)=>{
         var filename=config.basePath+"/"+response.data.url.replace('outputs/','')
@@ -884,7 +911,19 @@ function shuffle(array) {for (let i = array.length - 1; i > 0; i--) {let j = Mat
 const unique = (value, index, self) => { return self.indexOf(value) === index }
 function getRandomColorDec(){return Math.floor(Math.random()*16777215)}
 function timeDiff(date1,date2) { return date2.diff(date1, 'seconds') }
-function getRandom(what){if(randoms.includes(what)){try{var lines=fs.readFileSync('txt/'+what+'.txt','utf-8').split(/r?\n/);return lines[Math.floor(Math.random()*lines.length)]}catch(err){console.error(err)}}else{return what}}
+function getRandom(what){
+  if(randoms.includes(what)){
+    try{
+      var lines=fs.readFileSync('txt/'+what+'.txt','utf-8').split(/r?\n/);
+      return lines[Math.floor(Math.random()*lines.length)]
+    }catch(err){
+      console.error(err)
+    }
+  }else{
+    debugLog('Randomiser ' +what+ ' not found')
+    return what
+  }
+  }
 function replaceRandoms(input){
   var output=input
   randoms.forEach(x=>{
@@ -1592,7 +1631,15 @@ socket.on("initialImageUploaded", (data) => {debugLog('got init image uploaded')
 socket.on("imageUploaded", (data) => {debugLog('got image uploaded');initialImageUploaded(data)})
 socket.on("systemConfig", (data) => {debugLog('systemConfig received');currentModel=data.model_weights;models=data.model_list})
 socket.on("modelChanged", (data) => {currentModel=data.model_name;models=data.model_list;debugLog('modelChanged to '+currentModel)})
-//socket.on("progressUpdate", (data) => {})
+var progressUpdate = {currentStep: 0,totalSteps: 0,currentIteration: 0,totalIterations: 0,currentStatus: 'Initializing',isProcessing: false,currentStatusHasSteps: true,hasError: false}
+socket.on("progressUpdate", (data) => {
+  progressUpdate=data
+  if(data['currentStatus']==='Processing Complete'&&dialogs.queue!==null){
+    dialogs.queue.delete().catch((err)=>{debugLog(err)});dialogs.queue=null
+  }else{
+    queueStatus()
+  }
+})
 socket.on('error', (error) => {
   log('Api socket error'.bgRed);log(error)
   var nowJob=queue[queue.findIndex((j)=>j.status==="rendering")]
