@@ -653,22 +653,30 @@ async function addRenderApi(id){
   }
   if (initimg!==null){
     debugLog('uploadInitialImage')
-    let writer=await fs.createWriteStream('attach.png').write(initimg)
-    let reader=fs.readFileSync('attach.png')
-    initimg=reader
+    //let writer=await fs.createWriteStream('attach.png').write(initimg)
+    //let reader=fs.readFileSync('attach.png')
+    //initimg=reader
     let form = new FormData()
-    form.append("file",initimg,job.id+'.png')
     form.append("data",JSON.stringify({kind:'init'}))
-    //var header={}
-    var header={proxy:{host:'127.0.0.1',port:8080}} // default burpsuite proxy settings to get image upload working. Temp hack, help wanted to figure out why this is needed
-    axios.post(config.apiUrl+'/upload',form, header)
-      .then((response)=>{
-        var filename=config.basePath+"/"+response.data.url.replace('outputs/','')
-        job.init_img=filename
-        job.initimg=null
-        emitRenderApi(job)
+    form.append("file",initimg,{contentType:'image/png',filename:job.id+'.png'})
+    function getHeaders(form) {
+      return new Promise((resolve, reject) => {
+          form.getLength((err, length) => {
+              if(err) { reject(err) }
+              let headers = Object.assign({'Content-Length': length}, form.getHeaders())
+              resolve(headers)
+           })
       })
-    .catch((error) => console.error(error))
+    }
+    getHeaders(form).then((headers)=>{
+      return axios.post(config.apiUrl+'/upload',form, {headers:headers})
+    }).then((response)=>{
+      debugLog('initimg: '+response.data.url)
+      var filename=config.basePath+"/"+response.data.url.replace('outputs/','')
+      job.init_img=filename
+      job.initimg=null
+      emitRenderApi(job)
+    }).catch((error) => console.error(error))
   }else{
     emitRenderApi(job)
   }
