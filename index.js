@@ -1281,7 +1281,8 @@ async function directMessageUser(id,msg,channel){ // try, fallback to channel
   })
 }
 
-bot.on("messageReactionAdd", (msg,emoji,reactor) => {
+bot.on("messageReactionAdd", async (msg,emoji,reactor) => {
+  if (msg.author){targetUserId=reactor.user.id}else{msg=await bot.getMessage(msg.channel.id,msg.id);targetUserId=reactor.id}
   var embeds=false
   if (msg.embeds){embeds=dJSON.parse(JSON.stringify(msg.embeds))}
   if (embeds&&msg.attachments&&msg.attachments.length>0) {embeds.unshift({image:{url:msg.attachments[0].url}})}
@@ -1293,7 +1294,7 @@ bot.on("messageReactionAdd", (msg,emoji,reactor) => {
       case '👍':
       case '⭐':
       case '❤️': log('Positive emojis'.green+emoji.name); break
-      case '✉️': log('sending image to dm'.dim);directMessageUser(reactor.user.id,{content: msg.content, embeds: embeds});break // todo debug occasional error about reactor.user.id undefined here
+      case '✉️': log('sending image to dm'.dim);directMessageUser(targetUserId,{content: msg.content, embeds: embeds});break // todo debug occasional error about reactor.user.id undefined here
       case '👎':
       case '⚠️':
       case '🙈':
