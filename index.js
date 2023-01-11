@@ -266,17 +266,15 @@ function request(request){
 }
 
 function queueStatus() {
-  var done=queue.filter((j)=>j.status==='done')
-  var doneGps=tidyNumber((getPixelStepsTotal(done)/1000000).toFixed(0))
-  var wait=queue.filter((j)=>j.status==='new')
-  var waitGps=tidyNumber((getPixelStepsTotal(wait)/1000000).toFixed(0))
+  //var done=queue.filter((j)=>j.status==='done')
+  //var doneGps=tidyNumber((getPixelStepsTotal(done)/1000000).toFixed(0))
+  //var wait=queue.filter((j)=>j.status==='new')
+  //var waitGps=tidyNumber((getPixelStepsTotal(wait)/1000000).toFixed(0))
+  //var totalWaitLength=parseInt(wait.length)+parseInt(renderq.length)
+  //var totalWaitGps=parseInt(waitGps)+parseInt(renderGps)
   var renderq=queue.filter((j)=>j.status==='rendering')
   var renderGps=tidyNumber((getPixelStepsTotal(renderq)/1000000).toFixed(0))
-  var totalWaitLength=parseInt(wait.length)+parseInt(renderq.length)
-  var totalWaitGps=parseInt(waitGps)+parseInt(renderGps)
   var statusMsg=''
-  statusMsg+=':busts_in_silhouette: `'+queue.map(x=>x.userid).filter(unique).length+'`/`'+users.length+'` :european_castle:`'+bot.guilds.size+'` :fire: `'+doneGps+'`'
-  if(totalWaitLength>0){statusMsg=':ticket:`'+totalWaitLength+'`(`'+totalWaitGps+'`) '+statusMsg} else {statusMsg=':ticket:`'+totalWaitLength+'`'+statusMsg}
   if(renderq.length>0){
     var next = renderq[0]
     statusMsg+='\n:track_next:'
@@ -298,24 +296,35 @@ function queueStatus() {
       if(renderPercent>50){renderPercentEmoji=':hourglass:'}
       statusMsg+=renderPercentEmoji+'`'+renderPercent+'`**%**'
     }
-  }
-  if(next&&next.channel!=='webhook'){var chan=next.channel}else{var chan=config.channelID}
-  nowTimestamp=new Date().getTime();sent=false
-  if(dialogs.queue!==null){
-    if(dialogs.queue.channel.id!==next.channel){
-      dialogs.queue.delete().catch((err)=>{debugLog(err)});dialogs.queue=null
-    }else if((nowTimestamp-dialogs.queue.timestamp)>120000){
-      dialogs.queue.delete().catch((err)=>{debugLog(err)});dialogs.queue=null
-    }else if(progressUpdate['totalSteps']===0) {
-      dialogs.queue.delete().catch((err)=>{debugLog(err)});dialogs.queue=null
-      sent=true
-    }else{
-      if((nowTimestamp-dialogs.queue.timestamp)>2000){dialogs.queue.edit(statusMsg).then(x=>{dialogs.queue=x;sent=true}).catch((err)=>debugLog(err));sent=true}else{sent=true}
+    //statusMsg+='\n:busts_in_silhouette: `'+queue.map(x=>x.userid).filter(unique).length+'`/`'+users.length+'` :european_castle:`'+bot.guilds.size+'` :fire: `'+doneGps+'`'
+    //if(totalWaitLength>0){statusMsg=':ticket:`'+totalWaitLength+'`(`'+totalWaitGps+'`) '+statusMsg} else {statusMsg=':ticket:`'+totalWaitLength+'`'+statusMsg}
+    var statusObj={content:statusMsg}
+    if(next&&next.channel!=='webhook'){var chan=next.channel}else{var chan=config.channelID}
+    nowTimestamp=new Date().getTime();sent=false
+    if(dialogs.queue!==null){
+      delay=nowTimestamp-dialogs.queue.timestamp
+      if(dialogs.queue.channel.id!==next.channel){
+        dialogs.queue.delete().catch((err)=>{});dialogs.queue=null
+      }else if((delay)>120000){
+        dialogs.queue.delete().catch((err)=>{});dialogs.queue=null
+      }else if(progressUpdate['totalSteps']===0){
+        dialogs.queue.delete().catch((err)=>{});dialogs.queue=null
+        sent=true
+      }else{
+        if(intermediateImage!==null){
+          var previewImg=new Buffer.from(intermediateImage.url.replace(/^data:image\/\w+;base64,/, ''), 'base64')
+          statusObj.file={file:previewImg,contentType:'image/png',name:next.id+'.png'}
+          //debugLog(statusObj)
+        }
+        if(delay>1000){
+          dialogs.queue.edit(statusObj).then(x=>{dialogs.queue=x;sent=true}).catch((err)=>debugLog(err));sent=true
+        }else{debugLog('too soon to edit');sent=true}
+      }
     }
+    if(sent===false){bot.createMessage(chan,statusMsg).then(x=>{dialogs.queue=x}).catch((err)=>debugLog(err))}
   }
-  if(sent===false){bot.createMessage(chan,statusMsg).then(x=>{dialogs.queue=x}).catch((err)=>console.error(err))}
 }
-queueStatus=debounce(queueStatus,1750,true)
+queueStatus=debounce(queueStatus,1000,true)
 function closestRes(n){ // diffusion needs a resolution as a multiple of 64 pixels, find the closest
     var q, n1, n2; var m=64
     q=n/m
@@ -332,7 +341,7 @@ function prepSlashCmd(options) { // Turn partial options into full command for s
 }
 function getCmd(newJob){
   var cmd = newJob.prompt+' --width ' + newJob.width + ' --height ' + newJob.height + ' --seed ' + newJob.seed + ' --scale ' + newJob.scale + ' --sampler ' + newJob.sampler + ' --steps ' + newJob.steps + ' --strength ' + newJob.strength + ' --n ' + newJob.number + ' --gfpgan_strength ' + newJob.gfpgan_strength + ' --codeformer_strength ' + newJob.codeformer_strength + ' --upscale_level ' + newJob.upscale_level + ' --upscale_strength ' + newJob.upscale_strength + ' --threshold ' + newJob.threshold + ' --perlin ' + newJob.perlin + ' --seamless ' + newJob.seamless + ' --hires_fix ' + newJob.hires_fix + ' --variation_amount ' + newJob.variation_amount + ' --with_variations ' + newJob.with_variations + ' --model ' + newJob.model
-  if(newJob.mask){cmd+=' --mask '+newJob.mask}
+  if(newJob.text_mask){cmd+=' --text_mask '+newJob.text_mask}
   return cmd
 }
 function getRandomSeed(){return Math.floor(Math.random()*4294967295)}
@@ -581,7 +590,7 @@ function generationResult(data){
   if(job){
     var postRenderObject={id:job.id,filename: url, seed: data.metadata.image.seed, resultNumber:job.results.length-1, width:data.metadata.image.width,height:data.metadata.image.height}
     // remove redundant data before pushing to db results
-    //delete (data.metadata.prompt);delete (data.metadata.seed);delete (data.metadata.model_list);delete (data.metadata.app_id);delete (data.metadata.app_version)
+    delete (data.metadata.prompt);delete (data.metadata.seed);delete (data.metadata.model_list);delete (data.metadata.app_id);delete (data.metadata.app_version); delete (data.attentionMaps)
     job.results.push(data)
     postRender(postRenderObject)
   }else{rendering=false}
@@ -617,7 +626,7 @@ async function emitRenderApi(job){
       "variation_amount": job.variation_amount,
       "strength": job.strength,
       "fit": true,
-      "progress_latents": false,
+      "progress_latents": true,
       "generation_mode": 'txt2img'
   }
   if(job.text_mask){
@@ -657,9 +666,6 @@ async function addRenderApi(id){
   }
   if (initimg!==null){
     debugLog('uploadInitialImage')
-    //let writer=await fs.createWriteStream('attach.png').write(initimg)
-    //let reader=fs.readFileSync('attach.png')
-    //initimg=reader
     let form = new FormData()
     form.append("data",JSON.stringify({kind:'init'}))
     form.append("file",initimg,{contentType:'image/png',filename:job.id+'.png'})
@@ -771,8 +777,7 @@ function processQueue(){
       bot.editStatus('online')
       rendering=true
       log(nextJob.username.bgWhite.red+':'+nextJob.cmd.replace('\r','').replace('\n').bgWhite.black)
-      //pedoScan(nextJob.id) // Scan for pedo prompts,reject,alert OR render it
-      addRenderApi(nextJob.id) // Comment out line if enabling pedoscan above
+      addRenderApi(nextJob.id)
     }else{
       log(nextJob.username+' cant afford this render, denying')
       log('cost: '+costCalculator(nextJob))
@@ -812,58 +817,6 @@ function lexicaSearch(query,channel){
 }
 lexicaSearch=debounce(lexicaSearch,1000,true)
 
-function pedoScan(jobid){
-  debugLog('start pedoscan')
-  // Call in between processQueue and render emit
-  // Detect likely p*do prompts, set job status to failed, reply with chris hansen behind spoiler, alert admin with user info, prompt with matching terms and discord ID to manually ban via .env
-  var chrisHansen='||https://media.discordapp.net/attachments/1024766656347652186/1036541751147638854/unknown.png *Why don\'t you take a seat right over here*...\n(**Prompt rejected**)||'
-  // Fuck discord id miami#7199 986810579991818261 ..
-  var job=queue[jobid-1]
-  if (job){
-    debugLog('pedoScan job found')
-    var prompt=job.prompt
-    var ageKeywords=['baby','toddler','infant','prepubescent','child','kid','young','TESTAGEKEYWORD'] // suss when combined with pornKeywords
-    var ageNumbers=['one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','TESTAGENUMBER'] // suss when combined with ageYearTerms AND pornKeywords
-    var ageYearTerms=['yr','year','yo','TESTAGEYEARTERM']
-    var pornKeywords=['nude','naked','sex','porn','fucking','fuck','gape','gangbang','cumshot','cum','lolita','rape','TESTPORNKEYWORD']
-    var promptMatches=[]
-    var possibleCombos=[]
-    if (['f111'].includes(job.model)){
-      if (ageKeywords.some(k=>prompt.includes(k))){ // no young keywords + porn models
-        promptMatches.push(job.model)
-        promptMatches.push(k) // BUGGED k is not defined)
-      }
-    }
-    if(pornKeywords.some(p=>prompt.includes(p))){// Matched a porn keyword in the prompt
-      if (ageKeywords.some(k=>prompt.includes(k))){// AND matched a child keyword
-        // BUGGED k is not defined
-        promptMatches.push(k);promptMatches.push(p)
-      }
-      if (ageNumbers.some(a=>prompt.includes(a))){ // Matching porn AND ageNumber
-        ageYearTerms.forEach((y)=>{ // Make sure ageNumber is neighbouring the ageYearTerm
-          // BUGGED a is not defined
-          possibleCombos.push(a+y);possibleCombos.push(a+' '+y)
-          if(possibleCombos.some(pc=>prompt.includes(pc))){promptMatches.push(pc);promptMatches.push(p)}
-          possibleCombos=[]
-        })
-      }
-    }
-    if(promptMatches.length>0){//any matches is too many, reject/alert
-      log('failed pedoScan')
-      job.status='rejected'
-      sayChan(job.channel,'<'+job.userid+'>'+chrisHansen)
-      var alertMsg='Flagged prompts by '+job.username+'#'+job.discriminator+' userid '+job.userid+' channelid '+job.channel+'\nMatching terms:'+promptMatches.join(',')+'\nFull prompt:'+job.prompt
-      log(alertMsg)
-      directMessageUser(config.adminID,alertMsg,config.channelID)
-      rendering=false;processQueue()
-    } else {
-      debugLog('passed pedoScan')
-      addRenderApi(jobid)
-    }
-  } else {
-    log('pedoScan job not found')
-  }
-}
 async function meme(prompt,urls,userid,channel){
   params = prompt.split(' ')
   cmd = prompt.split(' ')[0]
@@ -874,8 +827,18 @@ async function meme(prompt,urls,userid,channel){
     case 'greyscale': var img = await new DIG.Greyscale().getImage(urls[0]);break
     case 'invert': var img = await new DIG.Invert().getImage(urls[0]);break
     case 'sepia': var img = await new DIG.Sepia().getImage(urls[0]);break
+    case 'animateseed':{
+      let urlseed=[]
+      queue.filter((j)=>j.seed==params[1]&&j.userid===userid).forEach((j)=>{j.results.forEach((r)=>{urlseed.push(config.basePath+r.url.replace('outputs/',''))})})
+      if (urlseed.length>1){var img = await new DIG.Blink().getImage(...urlseed)}
+    }
     case 'animate':
-    case 'blink': {if (urls.length>1){var img = await new DIG.Blink().getImage(...urls)};break} // Can take up to 10 images (discord limit) and make animations
+    case 'blink': {
+      if (urls.length>1){
+        var img = await new DIG.Blink().getImage(...urls)
+      }
+      break
+      } // Can take up to 10 images (discord limit) and make animations
     case 'triggered': var img = await new DIG.Triggered().getImage(urls[0]);break
     case 'ad': var img = await new DIG.Ad().getImage(urls[0]);break
     case 'affect': var img = await new DIG.Affect().getImage(urls[0]);break
@@ -1041,11 +1004,13 @@ bot.on("interactionCreate", async (interaction) => {
           newJob.upscale_level = 2
           newJob.seed = interaction.data.custom_id.split('-')[2]
           newJob.variation_amount=0
+        } else if (interaction.data.custom_id.startsWith('refreshEdit-')){
+          newJob.prompt=interaction.data.components[0].components[0].value
         } else { // Only a normal refresh should change the seed
           newJob.variation_amount=0
           newJob.seed=getRandomSeed()
         }
-        if (interaction.data.custom_id.startsWith('refreshEdit-')){newJob.prompt=interaction.data.components[0].components[0].value}
+        //if (interaction.data.custom_id.startsWith('refreshEdit-')){newJob.prompt=interaction.data.components[0].components[0].value}
         request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
         if (interaction.data.custom_id.startsWith('refreshEdit-')){return interaction.editParent({}).catch((e)=>{console.error(e)})}else{return interaction.editParent({}).catch((e)=>{console.error(e)})}
       } else {
@@ -1397,7 +1362,7 @@ bot.on("messageCreate", (msg) => {
       case '!random':{request({cmd: msg.content.substr(8,msg.content.length)+getRandom('prompt'), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments});break}
       case '!recharge':rechargePrompt(msg.author.id,msg.channel.id);break
       case '!lexica':lexicaSearch(msg.content.substr(8, msg.content.length),msg.channel.id);break
-      case '!meme':{if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){meme(msg.content.substr(6, msg.content.length),msg.attachments.map((u)=>{return u.proxy_url}),msg.author.id,msg.channel.id)} else if (msg.content.startsWith('!meme lisapresentation')){meme(msg.content.substr(6, msg.content.length),urls,msg.author.id,msg.channel.id)};break}
+      case '!meme':{if (msg.content.startsWith('!meme lisapresentation')){meme(msg.content.substr(6, msg.content.length),urls,msg.author.id,msg.channel.id)}else{meme(msg.content.substr(6, msg.content.length),msg.attachments.map((u)=>{return u.proxy_url}),msg.author.id,msg.channel.id)};break}
       case '!avatar':{var avatars='';msg.mentions.forEach((m)=>{avatars+=m.avatarURL.replace('size=128','size=512')+'\n'});bot.createMessage(msg.channel.id,avatars);break}
       case '!background':{ // requires docker run -p 127.0.0.1:5000:5000 danielgatis/rembg s
         if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){
@@ -1651,6 +1616,8 @@ socket.on("progressUpdate", (data) => {
     queueStatus()
   }
 })
+var intermediateImage=null
+socket.on("intermediateResult", (data) => {intermediateImage=data; queueStatus()})
 socket.on('error', (error) => {
   log('Api socket error'.bgRed);log(error)
   var nowJob=queue[queue.findIndex((j)=>j.status==="rendering")]
