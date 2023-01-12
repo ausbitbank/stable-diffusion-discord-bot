@@ -1090,7 +1090,7 @@ bot.on("interactionCreate", async (interaction) => {
           if (newJob.width===defaultSize&&newJob.height===(defaultSize+192)){tweakResponse.components[0].components[0].disabled=true}
           if (newJob.width===newJob.height){tweakResponse.components[0].components[1].disabled=true}
           //if (newJob.width===704&&newJob.height===512){tweakResponse.components[0].components[2].disabled=true}
-          if (newJob.height===defaultSize&&newJob.width===(defaultSize+192)){tweakResponse.components[0].components[0].disabled=true}
+          if (newJob.height===defaultSize&&newJob.width===(defaultSize+192)){tweakResponse.components[0].components[2].disabled=true}
           if (newJob.scale<=1){tweakResponse.components[1].components[0].disabled=true}
           if (newJob.scale>=30){tweakResponse.components[1].components[1].disabled=true}
           if (newJob.steps<=5){tweakResponse.components[1].components[2].disabled=true}
