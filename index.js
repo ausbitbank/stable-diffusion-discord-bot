@@ -81,7 +81,9 @@ var randoms=[]
 try{
   fs.readdir('txt',(err,files)=>{
     if(err){log('Unable to read txt file directory'.bgRed);log(err)}
-    files.forEach((file)=>{if (file.includes('.txt')){log('Adding text file: '.dim+file.replace('.txt',''));randoms.push(file.replace('.txt',''))}})
+    files.forEach((file)=>{if (file.includes('.txt')){randoms.push(file.replace('.txt',''))}})
+      debugLog('Enabled randomisers:')
+      debugLog(randoms)
   })
 }catch(err){log('Unable to read txt file directory'.bgRed);log(err)}
 if(randoms.includes('prompt')){randoms.splice(randoms.indexOf('prompt'),1);randoms.splice(0,0,'prompt')} // Prompt should be interpreted first
@@ -211,7 +213,7 @@ function request(request){
   if (!args.gfpgan_strength){args.gfpgan_strength=0}
   if (!args.codeformer_strength){args.codeformer_strength=0}
   if (!args.upscale_level){args.upscale_level=''}
-  if (!args.upscale_strength){args.upscale_strength=0.75}
+  if (!args.upscale_strength){args.upscale_strength=0.5}
   if (!args.variation_amount||args.variation_amount>1||args.variation_amount<0){args.variation_amount=0}
   if (!args.with_variations){args.with_variations=[]}else{log(args.with_variations)}//; args.with_variations=args.with_variations.toString()
   if (!args.threshold){args.threshold=0}
@@ -266,6 +268,7 @@ function request(request){
 }
 
 function queueStatus() {
+  //debugLog('queuestatus fire')
   //var done=queue.filter((j)=>j.status==='done')
   //var doneGps=tidyNumber((getPixelStepsTotal(done)/1000000).toFixed(0))
   //var wait=queue.filter((j)=>j.status==='new')
@@ -290,12 +293,13 @@ function queueStatus() {
     if(next.init_img && next.init_img!==''){statusMsg+=':paperclip:'}
     if((next.width!==next.height)||(next.width>defaultSize)){statusMsg+=':straight_ruler:'}
     statusMsg+=' :brain: **'+next.username+'**#'+next.discriminator+' :coin:`'+costCalculator(next)+'` :fire:`'+renderGps+'`'
-    if(progressUpdate['isProcessing']===true){
+    //if(progressUpdate['isProcessing']===true){
       var renderPercent=((parseInt(progressUpdate['currentStep'])/parseInt(progressUpdate['totalSteps']))*100).toFixed(2)
       var renderPercentEmoji=':hourglass_flowing_sand:'
       if(renderPercent>50){renderPercentEmoji=':hourglass:'}
-      statusMsg+=renderPercentEmoji+'`'+renderPercent+'`**%**'
-    }
+      statusMsg+=renderPercentEmoji+'`'+renderPercent+'%` - '+progressUpdate['currentStatus']
+
+    //}
     //statusMsg+='\n:busts_in_silhouette: `'+queue.map(x=>x.userid).filter(unique).length+'`/`'+users.length+'` :european_castle:`'+bot.guilds.size+'` :fire: `'+doneGps+'`'
     //if(totalWaitLength>0){statusMsg=':ticket:`'+totalWaitLength+'`(`'+totalWaitGps+'`) '+statusMsg} else {statusMsg=':ticket:`'+totalWaitLength+'`'+statusMsg}
     var statusObj={content:statusMsg}
@@ -304,27 +308,38 @@ function queueStatus() {
     if(dialogs.queue!==null){
       delay=nowTimestamp-dialogs.queue.timestamp
       if(dialogs.queue.channel.id!==next.channel){
-        dialogs.queue.delete().catch((err)=>{});dialogs.queue=null
-      }else if((delay)>120000){
-        dialogs.queue.delete().catch((err)=>{});dialogs.queue=null
+        // dialogs.queue.delete().catch((err)=>{}).then(()=>{dialogs.queue=null})
+      }else if((delay)>90000){
+        dialogs.queue.delete().catch((err)=>{}).then(()=>{dialogs.queue=null})
       }else if(progressUpdate['totalSteps']===0){
-        dialogs.queue.delete().catch((err)=>{});dialogs.queue=null
+        // dialogs.queue.delete().catch((err)=>{}).then(()=>{dialogs.queue=null})
+        debugLog('totalsteps=0')
         sent=true
       }else{
         if(intermediateImage!==null){
           var previewImg=new Buffer.from(intermediateImage.url.replace(/^data:image\/\w+;base64,/, ''), 'base64')
-          statusObj.file={file:previewImg,contentType:'image/png',name:next.id+'.png'}
-          //debugLog(statusObj)
+          enlargePreview(previewImg)
+          if(intermediateImageZoom!==null){
+            statusObj.file={file:intermediateImageZoom,contentType:'image/png',name:next.id+'.png'}
+          }
         }
-        if(delay>1000){
+        if(delay>=500){
           dialogs.queue.edit(statusObj).then(x=>{dialogs.queue=x;sent=true}).catch((err)=>debugLog(err));sent=true
-        }else{debugLog('too soon to edit');sent=true}
+        }else{sent=true}
       }
     }
     if(sent===false){bot.createMessage(chan,statusMsg).then(x=>{dialogs.queue=x}).catch((err)=>debugLog(err))}
   }
 }
-queueStatus=debounce(queueStatus,1000,true)
+queueStatus=debounce(queueStatus,1500)//,true
+
+function enlargePreview(oldimgbuffer){
+  jimp.read(oldimgbuffer).then(img=>{
+    //img.resize(img.bitmap.width*4,img.bitmap.height*4)
+    img.scale(4, jimp.RESIZE_BILINEAR)
+    img.getBufferAsync(img.getMIME()).then(img=>{intermediateImageZoom=img})
+  })
+}
 function closestRes(n){ // diffusion needs a resolution as a multiple of 64 pixels, find the closest
     var q, n1, n2; var m=64
     q=n/m
@@ -335,7 +350,7 @@ function closestRes(n){ // diffusion needs a resolution as a multiple of 64 pixe
 }
 function prepSlashCmd(options) { // Turn partial options into full command for slash commands, hate the redundant code here
   var job={}
-  var defaults=[{ name: 'prompt', value: ''},{name: 'width', value: defaultSize},{name:'height',value:defaultSize},{name:'steps',value:defaultSteps},{name:'scale',value:defaultScale},{name:'sampler',value:defaultSampler},{name:'seed', value: getRandomSeed()},{name:'strength',value:0.75},{name:'number',value:1},{name:'gfpgan_strength',value:0},{name:'codeformer_strength',value:0},{name:'upscale_strength',value:0.75},{name:'upscale_level',value:''},{name:'seamless',value:false},{name:'variation_amount',value:0},{name:'with_variations',value:[]},{name:'threshold',value:0},{name:'perlin',value:0},{name:'hires_fix',value:false},{name:'model',value:defaultModel}]
+  var defaults=[{ name: 'prompt', value: ''},{name: 'width', value: defaultSize},{name:'height',value:defaultSize},{name:'steps',value:defaultSteps},{name:'scale',value:defaultScale},{name:'sampler',value:defaultSampler},{name:'seed', value: getRandomSeed()},{name:'strength',value:0.75},{name:'number',value:1},{name:'gfpgan_strength',value:0},{name:'codeformer_strength',value:0},{name:'upscale_strength',value:0.5},{name:'upscale_level',value:''},{name:'seamless',value:false},{name:'variation_amount',value:0},{name:'with_variations',value:[]},{name:'threshold',value:0},{name:'perlin',value:0},{name:'hires_fix',value:false},{name:'model',value:defaultModel}]
   defaults.forEach(d=>{if(options.find(o=>{if(o.name===d.name){return true}else{return false}})){job[d.name]=options.find(o=>{if(o.name===d.name){return true}else{return false}}).value}else{job[d.name]=d.value}})
   return job
 }
@@ -519,7 +534,7 @@ function rechargePrompt(userid,channel){
   var paymentLinkHbd='https://hivesigner.com/sign/transfer?to='+config.hivePaymentAddress+'&amount=1.000%20HBD&memo='+paymentMemo
   var paymentLinkHive='https://hivesigner.com/sign/transfer?to='+config.hivePaymentAddress+'&amount=1.000%20HIVE&memo='+paymentMemo
   var lightningInvoiceQr=getLightningInvoiceQr(paymentMemo)
-  var paymentMsg='<@'+userid+'> has :coin:`'+creditsRemaining(userid)+'` left\n\n*Recharging costs `1` usd per :coin:`100` *\nSend HBD or HIVE to `'+config.hivePaymentAddress+'` with the memo `'+paymentMemo+'`\n**Pay $1 with Hbd:** '+paymentLinkHbd+'\n**Pay $1 with Hive:** '+paymentLinkHive
+  var paymentMsg='<@'+userid+'> has :coin:`'+creditsRemaining(userid)+'` left\n\n*Recharging costs `1` usd per :coin:`500` *\nSend HBD or HIVE to `'+config.hivePaymentAddress+'` with the memo `'+paymentMemo+'`\n**Pay $1 with Hbd:** '+paymentLinkHbd+'\n**Pay $1 with Hive:** '+paymentLinkHive
   var freeRechargeMsg='..Or just wait for your free recharge of 10 credits twice a day'
   var paymentMsgObject={content: paymentMsg,embeds:[{description:'Pay $1 via btc lightning network', image:{url:lightningInvoiceQr}}]}
   if (creditsRemaining(userid)<10){paymentMsgObject.embeds.push({footer:{text:freeRechargeMsg}})}
@@ -545,7 +560,7 @@ function checkNewPayments(){
           if(pastPayment===undefined){
             coin=op.amount.split(' ')[1]
             amount=parseFloat(op.amount.split(' ')[0])
-            if(coin==='HBD'){amountCredit=amount*100}else if(coin==='HIVE'){amountCredit=(amount*hiveUsd)*100}
+            if(coin==='HBD'){amountCredit=amount*500}else if(coin==='HIVE'){amountCredit=(amount*hiveUsd)*500}
             log('New Payment: amount credit:'.bgBrightGreen.red+amountCredit+' , amount:'+op.amount)
             creditRecharge(amountCredit,tx.trx_id,accountId,op.amount,op.from)
           }
@@ -1542,6 +1557,22 @@ bot.on("messageCreate", (msg) => {
         }
         break
       }
+      case '!imgdiff':{
+        if (msg.attachments.length===2&&msg.attachments[0].content_type.startsWith('image/')&&msg.attachments[1].content_type.startsWith('image/')){
+          var attachmentsUrls = msg.attachments.map((u)=>{return u.proxy_url})
+          jimp.read(attachmentsUrls[0], (err,img1)=>{
+            jimp.read(attachmentsUrls[1], (err,img2)=>{
+              var distance = jimp.distance(img1,img2)
+              var diff = jimp.diff(img1,img2)
+              var newMsg = 'Image 1 hash: `'+img1.hash()+'`\nImage 2 hash: `'+img2.hash()+'`\nHash Distance: `'+distance+'`\nImage Difference: `'+diff.percent*100+' %`'
+              diff.image.getBuffer(jimp.MIME_PNG, (err,buffer)=>{
+                if(err){debugLog(err)}
+                try{bot.createMessage(msg.channel.id, newMsg, {file: buffer, name: 'imgdiff.png'})}catch(err){debugLog(err)}
+              })
+            })
+          })
+      }
+      break
     }
   }
   if (msg.author.id===config.adminID) { // admins only
@@ -1551,8 +1582,8 @@ bot.on("messageCreate", (msg) => {
       case '!wipequeue':{rendering=false;queue=[];dbWrite();log('admin wiped queue');break}
       case '!queue':{queueStatus();break}
       case '!cancel':{cancelRenders();break}
-      case '!pause':{chat(':pause_button: Bot is paused, requests will still be accepted and queued for when I return');paused=true;rendering=true;break}
-      case '!resume':{socket.emit('requestSystemConfig');paused=false;rendering=false;chat(':play_pause: Bot is back online');processQueue();break}
+      case '!pause':{bot.editStatus('dnd');paused=true;rendering=true;chat(':pause_button: Bot is paused, requests will still be accepted and queued for when I return');break}
+      case '!resume':{socket.emit('requestSystemConfig');paused=false;rendering=false;bot.editStatus('online');chat(':play_pause: Bot is back online');processQueue();break}
       case '!richlist':{getRichList();break}
       case '!checkpayments':{checkNewPayments();break}
       case '!restart':{log('Admin restarted bot'.bgRed.white);exit(0)}
@@ -1578,7 +1609,11 @@ bot.on("messageCreate", (msg) => {
         }
         break
       }
-      case '!guilds':{bot.guilds.forEach((g)=>{log({id: g.id, name: g.name, ownerID: g.ownerID, description: g.description, memberCount: g.memberCount})});log('channelGuildMap');log(bot.channelGuildMap);log('threadguiltmap');log(bot.threadGuildMap);log('privateChannelMap');log(bot.privateChannelMap);break}
+      case '!guilds':{
+        debugLog('Guild count: '+bot.guilds.size)
+        bot.guilds.forEach((g)=>{log({id: g.id, name: g.name, ownerID: g.ownerID, description: g.description, memberCount: g.memberCount})})
+        break
+      }
       case '!leaveguild':{bot.leaveGuild(msg.content.split(' ')[1]);break}
       case '!getmessages':{var cid=msg.content.split(' ')[1];if(cid){bot.getMessages(cid).then(x=>{x.reverse();x.forEach((y)=>{log(y.author.username.bgBlue+': '+y.content);y.attachments.map((u)=>{return u.proxy_url}).forEach((a)=>{log(a)})})})};break}
       case '!updateslashcommands':{bot.getCommands().then(cmds=>{bot.commands = new Collection();for (const c of slashCommands) {bot.commands.set(c.name, c);bot.createCommand({name: c.name,description: c.description,options: c.options ?? [],type: Constants.ApplicationCommandTypes.CHAT_INPUT})}});break}
@@ -1597,7 +1632,7 @@ bot.on("messageCreate", (msg) => {
       }
     }
   }
-})
+}})
 
 // Socket listeners for invokeai backend api
 //socket.on("connect", (socket) => {log(socket)})
@@ -1610,14 +1645,17 @@ socket.on("modelChanged", (data) => {currentModel=data.model_name;models=data.mo
 var progressUpdate = {currentStep: 0,totalSteps: 0,currentIteration: 0,totalIterations: 0,currentStatus: 'Initializing',isProcessing: false,currentStatusHasSteps: true,hasError: false}
 socket.on("progressUpdate", (data) => {
   progressUpdate=data
-  if(data['currentStatus']==='Processing Complete'&&dialogs.queue!==null){
-    dialogs.queue.delete().catch((err)=>{debugLog(err)});dialogs.queue=null
-  }else{
-    queueStatus()
+  if(['Processing Complete'].includes(data['currentStatus'])){
+    if(dialogs.queue!==null){dialogs.queue.delete().catch((err)=>{debugLog(err)}).then(()=>{dialogs.queue=null;intermediateImage=null;intermediateImageZoom=null})}
   }
+  queueStatus()
 })
 var intermediateImage=null
-socket.on("intermediateResult", (data) => {intermediateImage=data; queueStatus()})
+var intermediateImageZoom=null
+socket.on("intermediateResult", (data) => {
+  intermediateImage=data
+  queueStatus()
+})
 socket.on('error', (error) => {
   log('Api socket error'.bgRed);log(error)
   var nowJob=queue[queue.findIndex((j)=>j.status==="rendering")]
