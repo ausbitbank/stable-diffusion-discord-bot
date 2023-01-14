@@ -336,7 +336,7 @@ queueStatus=debounce(queueStatus,1500)//,true
 function enlargePreview(oldimgbuffer){
   jimp.read(oldimgbuffer).then(img=>{
     //img.resize(img.bitmap.width*4,img.bitmap.height*4)
-    img.scale(4, jimp.RESIZE_BILINEAR)
+    img.scale(2, jimp.RESIZE_BILINEAR)
     img.getBufferAsync(img.getMIME()).then(img=>{intermediateImageZoom=img})
   })
 }
@@ -892,7 +892,7 @@ async function meme(prompt,urls,userid,channel){
       chargeCredits(userid,0.05)
       msg+=', it cost :coin:`0.05`/`'+creditsRemaining(userid)+'`'
     }
-    var extension = ['blink','triggered','animate'].includes(cmd) ? '.gif' : '.png'
+    var extension = ['blink','triggered','animate','animateseed'].includes(cmd) ? '.gif' : '.png'
     bot.createMessage(channel, msg, {file: img, name: cmd+'-'+getRandomSeed()+extension})
   }
 }
