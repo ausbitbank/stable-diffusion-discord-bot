@@ -297,7 +297,8 @@ function queueStatus() {
       var renderPercent=((parseInt(progressUpdate['currentStep'])/parseInt(progressUpdate['totalSteps']))*100).toFixed(2)
       var renderPercentEmoji=':hourglass_flowing_sand:'
       if(renderPercent>50){renderPercentEmoji=':hourglass:'}
-      statusMsg+=renderPercentEmoji+'`'+renderPercent+'%` - '+progressUpdate['currentStatus']
+      statusMsg+='\n'+renderPercentEmoji+' `'+progressUpdate['currentStatus'].replace('common:status','')+'` '
+      if (progressUpdate['currentStatusHasSteps']===true){statusMsg+='`'+renderPercent+'% Step '+progressUpdate['currentStep']+'/'+progressUpdate['totalSteps']+'`'}
 
     //}
     //statusMsg+='\n:busts_in_silhouette: `'+queue.map(x=>x.userid).filter(unique).length+'`/`'+users.length+'` :european_castle:`'+bot.guilds.size+'` :fire: `'+doneGps+'`'
@@ -308,11 +309,13 @@ function queueStatus() {
     if(dialogs.queue!==null){
       delay=nowTimestamp-dialogs.queue.timestamp
       if(dialogs.queue.channel.id!==next.channel){
-        // dialogs.queue.delete().catch((err)=>{}).then(()=>{dialogs.queue=null})
+        intermediateImageZoom=null
+        dialogs.queue.delete().catch((err)=>{}).then(()=>{dialogs.queue=null})
       }else if((delay)>90000){
         dialogs.queue.delete().catch((err)=>{}).then(()=>{dialogs.queue=null})
       }else if(progressUpdate['totalSteps']===0){
-        // dialogs.queue.delete().catch((err)=>{}).then(()=>{dialogs.queue=null})
+        intermediateImageZoom=null
+        dialogs.queue.delete().catch((err)=>{}).then(()=>{dialogs.queue=null})
         debugLog('totalsteps=0')
         sent=true
       }else{
@@ -323,12 +326,12 @@ function queueStatus() {
             statusObj.file={file:intermediateImageZoom,contentType:'image/png',name:next.id+'.png'}
           }
         }
-        if(delay>=500){
+        if(delay>=400){
           dialogs.queue.edit(statusObj).then(x=>{dialogs.queue=x;sent=true}).catch((err)=>debugLog(err));sent=true
         }else{sent=true}
       }
     }
-    if(sent===false){bot.createMessage(chan,statusMsg).then(x=>{dialogs.queue=x}).catch((err)=>debugLog(err))}
+    if(sent===false&&dialogs.queue===null){bot.createMessage(chan,statusMsg).then(x=>{dialogs.queue=x}).catch((err)=>debugLog(err))}
   }
 }
 queueStatus=debounce(queueStatus,1500)//,true
@@ -1645,13 +1648,13 @@ socket.on("modelChanged", (data) => {currentModel=data.model_name;models=data.mo
 var progressUpdate = {currentStep: 0,totalSteps: 0,currentIteration: 0,totalIterations: 0,currentStatus: 'Initializing',isProcessing: false,currentStatusHasSteps: true,hasError: false}
 socket.on("progressUpdate", (data) => {
   progressUpdate=data
-  if(['Processing Complete'].includes(data['currentStatus'])){
+  if(['common:statusProcessing Complete'].includes(data['currentStatus'])){
+    intermediateImage=null;intermediateImageZoom=null
     if(dialogs.queue!==null){dialogs.queue.delete().catch((err)=>{debugLog(err)}).then(()=>{dialogs.queue=null;intermediateImage=null;intermediateImageZoom=null})}
   }
   queueStatus()
 })
-var intermediateImage=null
-var intermediateImageZoom=null
+var intermediateImage=null;var intermediateImageZoom=null
 socket.on("intermediateResult", (data) => {
   intermediateImage=data
   queueStatus()
