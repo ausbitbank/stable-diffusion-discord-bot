@@ -267,14 +267,10 @@ function request(request){
   // acknowledge received job with ethereal message here?
 }
 
+queueStatusLock=false
 function queueStatus() {
-  //debugLog('queuestatus fire')
-  //var done=queue.filter((j)=>j.status==='done')
-  //var doneGps=tidyNumber((getPixelStepsTotal(done)/1000000).toFixed(0))
-  //var wait=queue.filter((j)=>j.status==='new')
-  //var waitGps=tidyNumber((getPixelStepsTotal(wait)/1000000).toFixed(0))
-  //var totalWaitLength=parseInt(wait.length)+parseInt(renderq.length)
-  //var totalWaitGps=parseInt(waitGps)+parseInt(renderGps)
+  if(queueStatusLock===true){return}else{queueStatusLock=true}
+  sent=false;
   var renderq=queue.filter((j)=>j.status==='rendering')
   var renderGps=tidyNumber((getPixelStepsTotal(renderq)/1000000).toFixed(0))
   var statusMsg=''
@@ -293,56 +289,31 @@ function queueStatus() {
     if(next.init_img && next.init_img!==''){statusMsg+=':paperclip:'}
     if((next.width!==next.height)||(next.width>defaultSize)){statusMsg+=':straight_ruler:'}
     statusMsg+=' :brain: **'+next.username+'**#'+next.discriminator+' :coin:`'+costCalculator(next)+'` :fire:`'+renderGps+'`'
-    //if(progressUpdate['isProcessing']===true){
-      var renderPercent=((parseInt(progressUpdate['currentStep'])/parseInt(progressUpdate['totalSteps']))*100).toFixed(2)
-      var renderPercentEmoji=':hourglass_flowing_sand:'
-      if(renderPercent>50){renderPercentEmoji=':hourglass:'}
-      statusMsg+='\n'+renderPercentEmoji+' `'+progressUpdate['currentStatus'].replace('common:status','')+'` '
-      if (progressUpdate['currentStatusHasSteps']===true){statusMsg+='`'+renderPercent+'% Step '+progressUpdate['currentStep']+'/'+progressUpdate['totalSteps']+'`'}
-
-    //}
-    //statusMsg+='\n:busts_in_silhouette: `'+queue.map(x=>x.userid).filter(unique).length+'`/`'+users.length+'` :european_castle:`'+bot.guilds.size+'` :fire: `'+doneGps+'`'
-    //if(totalWaitLength>0){statusMsg=':ticket:`'+totalWaitLength+'`(`'+totalWaitGps+'`) '+statusMsg} else {statusMsg=':ticket:`'+totalWaitLength+'`'+statusMsg}
+    var renderPercent=((parseInt(progressUpdate['currentStep'])/parseInt(progressUpdate['totalSteps']))*100).toFixed(2)
+    var renderPercentEmoji=':hourglass_flowing_sand:'
+    if(renderPercent>50){renderPercentEmoji=':hourglass:'}
+    statusMsg+='\n'+renderPercentEmoji+' `'+progressUpdate['currentStatus'].replace('common:status','')+'` '
+    if (progressUpdate['currentStatusHasSteps']===true){statusMsg+='`'+renderPercent+'% Step '+progressUpdate['currentStep']+'/'+progressUpdate['totalSteps']+'`'}
     var statusObj={content:statusMsg}
     if(next&&next.channel!=='webhook'){var chan=next.channel}else{var chan=config.channelID}
-    nowTimestamp=new Date().getTime();sent=false
     if(dialogs.queue!==null){
-      delay=nowTimestamp-dialogs.queue.timestamp
-      if(dialogs.queue.channel.id!==next.channel){
-        intermediateImageZoom=null
-        dialogs.queue.delete().catch((err)=>{}).then(()=>{dialogs.queue=null})
-      }else if((delay)>90000){
-        dialogs.queue.delete().catch((err)=>{}).then(()=>{dialogs.queue=null})
-      }else if(progressUpdate['totalSteps']===0){
-        intermediateImageZoom=null
-        dialogs.queue.delete().catch((err)=>{}).then(()=>{dialogs.queue=null})
-        debugLog('totalsteps=0')
-        sent=true
-      }else{
-        if(intermediateImage!==null){
-          var previewImg=new Buffer.from(intermediateImage.url.replace(/^data:image\/\w+;base64,/, ''), 'base64')
-          enlargePreview(previewImg)
-          if(intermediateImageZoom!==null){
-            statusObj.file={file:intermediateImageZoom,contentType:'image/png',name:next.id+'.png'}
-          }
-        }
-        if(delay>=400){
-          dialogs.queue.edit(statusObj).then(x=>{dialogs.queue=x;sent=true}).catch((err)=>debugLog(err));sent=true
-        }else{sent=true}
+      if(dialogs.queue.channel.id!==next.channel){dialogs.queue.delete().catch((err)=>{}).then(()=>{dialogs.queue=null})}
+      if(intermediateImage!==null){
+        var previewImg=intermediateImage
+        if(previewImg!==null){statusObj.file={file:previewImg,contentType:'image/png',name:next.id+'.png'}}
       }
-    }
-    if(sent===false){bot.createMessage(chan,statusMsg).then(x=>{dialogs.queue=x}).catch((err)=>debugLog(err))}
+      dialogs.queue.edit(statusObj)
+      .then(x=>{
+        dialogs.queue=x
+        sent=true
+        queueStatusLock=false
+      })
+      .catch((err)=>{queueStatusLock=false;sent=false})
+      }
+    if(sent===false&&dialogs.queue===null){bot.createMessage(chan,statusMsg).then(x=>{dialogs.queue=x;queueStatusLock=false}).catch((err)=>{dialogs.queue=null;queueStatusLock=false})}
   }
 }
-queueStatus=debounce(queueStatus,1500)//,true
 
-function enlargePreview(oldimgbuffer){
-  jimp.read(oldimgbuffer).then(img=>{
-    //img.resize(img.bitmap.width*4,img.bitmap.height*4)
-    img.scale(2, jimp.RESIZE_BILINEAR)
-    img.getBufferAsync(img.getMIME()).then(img=>{intermediateImageZoom=img})
-  })
-}
 function closestRes(n){ // diffusion needs a resolution as a multiple of 64 pixels, find the closest
     var q, n1, n2; var m=64
     q=n/m
@@ -590,6 +561,8 @@ function postprocessingResult(data){ // TODO unfinished, untested, awaiting new 
 function requestModelChange(newmodel){log('Requesting model change to '+newmodel);if(newmodel===undefined||newmodel==='undefined'){newmodel=defaultModel}socket.emit('requestModelChange',newmodel,()=>{log('requestModelChange loaded')})}
 function cancelRenders(){log('Cancelling current render'.bgRed);socket.emit('cancel');queue[queue.findIndex((q)=>q.status==='rendering')-1].status='cancelled';rendering=false}
 function generationResult(data){
+  //log('generation result')
+  //log(data)
   var url=data.url
   url=config.basePath+data.url.split('/')[data.url.split('/').length-1]
   var job=queue[queue.findIndex(j=>j.status==='rendering')] // TODO there has to be a better way to know if this is a job from the web interface or the discord bot // upcoming invokeai api release solves this
@@ -606,13 +579,14 @@ function generationResult(data){
     }
   }catch(err){log(err)}*/
   if(job){
-    var postRenderObject={id:job.id,filename: url, seed: data.metadata.image.seed, resultNumber:job.results.length-1, width:data.metadata.image.width,height:data.metadata.image.height}
+    var postRenderObject={id:job.id,filename: url, seed: data.metadata.image.seed, resultNumber:job.results.length, width:data.metadata.image.width,height:data.metadata.image.height}
     // remove redundant data before pushing to db results
     delete (data.metadata.prompt);delete (data.metadata.seed);delete (data.metadata.model_list);delete (data.metadata.app_id);delete (data.metadata.app_version); delete (data.attentionMaps)
     job.results.push(data)
     postRender(postRenderObject)
   }else{rendering=false}
   if(job&&job.results.length>=job.number){job.status='done';rendering=false;processQueue()}
+  if(dialogs.queue!==null){dialogs.queue.delete().catch((err)=>{}).then(()=>{dialogs.queue=null;intermediateImage=null;queueStatusLock=false})}
 }
 function initialImageUploaded(data){
   var url=data.url
@@ -1647,17 +1621,39 @@ socket.on("systemConfig", (data) => {debugLog('systemConfig received');currentMo
 socket.on("modelChanged", (data) => {currentModel=data.model_name;models=data.model_list;debugLog('modelChanged to '+currentModel)})
 var progressUpdate = {currentStep: 0,totalSteps: 0,currentIteration: 0,totalIterations: 0,currentStatus: 'Initializing',isProcessing: false,currentStatusHasSteps: true,hasError: false}
 socket.on("progressUpdate", (data) => {
+  //debugLog('progressUpdate')
   progressUpdate=data
-  if(['common:statusProcessing Complete'].includes(data['currentStatus'])){
-    intermediateImage=null;intermediateImageZoom=null
-    if(dialogs.queue!==null){dialogs.queue.delete().catch((err)=>{debugLog(err)}).then(()=>{dialogs.queue=null;intermediateImage=null;intermediateImageZoom=null})}
+  if(['common:statusProcessing Complete'].includes(data['currentStatus'])){//'common:statusGeneration Complete'
+    intermediateImage=null;queueStatusLock=false
+    if(dialogs.queue!==null){
+      dialogs.queue.delete().catch((err)=>{debugLog(err)}).then(()=>{
+        dialogs.queue=null;intermediateImage=null;queueStatusLock=false
+      })
+    }
+  } else {
+    queueStatus()
   }
-  queueStatus()
 })
-var intermediateImage=null;var intermediateImageZoom=null
+var intermediateImage=null
+var intermediateImagePrior=null
 socket.on("intermediateResult", (data) => {
-  intermediateImage=data
-  queueStatus()
+  buf=new Buffer.from(data.url.replace(/^data:image\/\w+;base64,/, ''), 'base64')
+  if(buf!==intermediateImagePrior){ // todo look at image difference % instead
+    jimp.read(buf, (err,img)=>{
+      side=Math.max(img.bitmap.width,img.bitmap.height)
+      scale=Math.round(512/side)
+      //debugLog('width:'+img.bitmap.width+' height:'+img.bitmap.height+' side:'+side+' upscale:'+scale)
+      //img.scale(scale, jimp.RESIZE_BILINEAR) // better quality, slower
+      img.scale(scale, jimp.RESIZE_NEAREST_NEIGHBOR) // fastest but bad quality
+      img.getBuffer(img.getMIME(),(err,img2)=>{
+        intermediateImage=img2
+        intermediateImagePrior=buf
+        queueStatus()
+      })
+    })
+  } else {
+    debugLog('not upscaling cos same')
+  }
 })
 socket.on('error', (error) => {
   log('Api socket error'.bgRed);log(error)
