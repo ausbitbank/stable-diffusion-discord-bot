@@ -331,7 +331,7 @@ function queueStatus() {
         }else{sent=true}
       }
     }
-    if(sent===false&&dialogs.queue===null){bot.createMessage(chan,statusMsg).then(x=>{dialogs.queue=x}).catch((err)=>debugLog(err))}
+    if(sent===false){bot.createMessage(chan,statusMsg).then(x=>{dialogs.queue=x}).catch((err)=>debugLog(err))}
   }
 }
 queueStatus=debounce(queueStatus,1500)//,true
