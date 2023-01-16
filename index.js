@@ -14,6 +14,9 @@ const { ImgurClient } = require('imgur')
 const imgur = new ImgurClient({ clientId: config.imgurClientID})
 const imgbb = require("imgbb-uploader")
 const DIG = require("discord-image-generation")
+const sharp = require("sharp")
+const GIF = require("sharp-gif2")
+const Diff = require("diff")
 const log = console.log.bind(console)
 function debugLog(m){if(config.showDebug){log(m)}}
 const dJSON = require('dirty-json')
@@ -62,6 +65,7 @@ const maxSteps = parseInt(config.maxSteps)||100
 const maxIterations = parseInt(config.maxIterations)||10
 const defaultMaxDiscordFileSize=parseInt(config.defaultMaxDiscordFileSize)||8000000  // TODO detect server boost status and increase this if boosted
 const basePath = config.basePath
+const maxAnimateImages = 100 // Only will fetch most recent X images for animating
 var rembg=config.rembg||'http://127.0.0.1:5000?url='
 var defaultModel=config.defaultModel||'stable-diffusion-1.5'
 var currentModel='notInitializedYet'
@@ -164,14 +168,19 @@ var slashCommands = [
         lexicaSearch(query,i.channel.id)
       }
     }
-  },
-  {
+  }
+]
+// If credits are active, add recharge otherwise don't include it
+if(!creditsDisabled)
+{
+  slashCommands.push({
     name: 'recharge',
     description: 'Recharge your render credits with Hive, HBD or Bitcoin over lightning network',
     cooldown: 500,
     execute: (i) => {if (i.member) {rechargePrompt(i.member.id,i.channel.id)} else if (i.user){rechargePrompt(i.user.id,i.channel.id)}}
-  }
-]
+  })
+}
+
 
 // Functions
 
@@ -686,7 +695,10 @@ async function addRenderApi(id){
 async function postRender(render){
   try{fs.readFile(render.filename, null, function(err, data){
     if(err){console.error(err)}else{
-      filename=render.filename.split('\\')[render.filename.split('\\').length-1].replace(".png","")
+      // TODO: OS agnostic folder seperators
+      // NOTE: filename being wrong wasn't breaking because slashes get replaced automatically in createMessage, but makes filename long/ugly
+      filename=render.filename.split('\\')[render.filename.split('\\').length-1].replace(".png","") // win
+      //filename=render.filename.split('/')[render.filename.split('/').length-1].replace(".png","") // lin
       var job=queue[queue.findIndex(x=>x.id===render.id)]
       var msg=':brain:<@'+job.userid+'>'
       msg+=':straight_ruler:`'+render.width+'x'+render.height+'`'
@@ -702,7 +714,8 @@ async function postRender(render){
       if(job.variation_amount!==0){msg+=':microbe:**`Variation '+job.variation_amount+'`**'}
       //var jobResult = job.renders[render.resultNumber]
       if(render.variations){msg+=':linked_paperclips:with variants `'+render.variations+'`'}
-      msg+=':seedling:`'+render.seed+'`:scales:`'+job.scale+'`:recycle:`'+job.steps+'`'
+      // Added spaces to make it easier to double click the seed to copy/paste, otherwise discord selects whole line
+      msg+=':seedling: `'+render.seed+'` :scales:`'+job.scale+'`:recycle:`'+job.steps+'`'
       msg+=':stopwatch:`'+timeDiff(job.timestampRequested, moment())+'s`'
       if(showFilename){msg+=':file_cabinet:`'+filename+'`'}
       msg+=':eye:`'+job.sampler+'`'
@@ -820,14 +833,94 @@ async function meme(prompt,urls,userid,channel){
     case 'invert': var img = await new DIG.Invert().getImage(urls[0]);break
     case 'sepia': var img = await new DIG.Sepia().getImage(urls[0]);break
     case 'animateseed':{
-      let urlseed=[]
-      queue.filter((j)=>j.seed==params[1]&&j.userid===userid).forEach((j)=>{j.results.forEach((r)=>{urlseed.push(config.basePath+r.url.replace('outputs/',''))})})
-      if (urlseed.length>1){var img = await new DIG.Blink().getImage(...urlseed)}
+      debugLog('Seed match count:' + queue.filter((j)=>j.seed==params[1]).length)
+      let urlseed=[] // prompt image urls
+      let promptseed = [] // prompt texts
+      let delay = parseInt(params[2])||1000 // delay between frames
+      // If command was replying to an image, consider that our stopping point.
+      // So collect every image url for seed until we reach that end point
+      var donemark = false // did we hit the last frame
+      var stopUrl = null // image url that is our last frame to animate
+      if (urls && urls.length > 0) { stopUrl = urls[0].split('/')[urls[0].split('/').length-1] }
+      // Use slice to cap maximum frames, preferring more recent images
+      queue.filter((j)=>j.seed==params[1]).slice(-1 * maxAnimateImages).forEach((j) => {
+        j.results.forEach((r) => {        
+          // TODO: early exit feels awkward, maybe just do a normal loop with break?
+          if (donemark) {return} // We're stopping early
+          fileOnly = r.url.replace('outputs/','')
+          if (stopUrl == fileOnly) {donemark=true} // this is the last one
+          var seedUrl = config.basePath+fileOnly // TODO: Review OS compat path operations
+          urlseed.push(seedUrl)
+          promptseed.push(r.metadata.image.prompt[0].prompt)
+          //debugLog(r.metadata.image.prompt[0].prompt)
+        })
+      })
+      if (urlseed.length>1) // At least two images to work with
+      {
+        let styledprompts = [promptseed[0]] // prefill first prompt
+        for (var i = 1; i < promptseed.length;i++) // start on second prompt
+        {
+          // Find differences between previous prompt and this one
+          // Chunks into unchanged/added/removed
+          const diff = Diff.diffWords(promptseed[i - 1], promptseed[i])
+          var updateprompt = ""
+          // Bring all chunks back together with styling based on type
+          diff.forEach((part) => {
+            if (part.added) {updateprompt += "<span foreground='green'><b><big>" + part.value + "</big></b></span>"}
+            else if (part.removed) {updateprompt += "<span foreground='red'><s>" + part.value + "</s></span>"}
+            else {updateprompt += part.value}
+          })
+          styledprompts.push(updateprompt)      	
+        }
+        // TODO: Better finisher ideas? Repeating last prompt in blue to signify the end
+        styledprompts.push("<span foreground='blue'>" + promptseed[promptseed.length - 1] + "</span>")
+        urlseed.push(urlseed[urlseed.length - 1])
+        debugLog(urlseed)
+      	let frameList = []
+      	for (var i = 0;i < urlseed.length;i++)
+      	{
+          // Add blank area for prompt text at bottom
+      		var res = await sharp(urlseed[i]).extend({bottom: 200,background: 'white'})
+          // metadata will give wrong height value after our extend, reload it. Not too expensive
+          //debugLog('after buffer log')
+          try{
+            debugLog('before buffer')
+            //debugLog(await res.toBuffer())
+            res = sharp(await res.toBuffer())
+            //debugLog(res)
+          }catch(error){debugLog(error)}
+          debugLog('after buffer')
+          var metadata = await res.metadata()
+          debugLog('after meta')
+          // Create styled prompt text overlay
+          // TODO: Some height padding would be nice. Not as easy as width padding cuz of alignment
+          // WARN: Had no issue with font, but read about extra steps sometimes being necessary
+          const overlay = await sharp({
+              text: {
+                  text: styledprompts[i],
+                  rgba: true,
+                  width: metadata.width - 20,
+                  height: 200, 
+                  font: 'Arial',
+              },
+          }).png().toBuffer()
+          // Combine the prompt overlay with prompt image
+          res = await res.composite([{ input: overlay, gravity: 'south' }])		
+          frameList.push(res)
+      	}
+        // rgb444 format is way faster, slightly worse quality
+        // default takes almost a minute for 15 frames, versus a handful of seconds
+        // Does makes background a bit off-white sometimes
+      	var image = await GIF.createGif({delay:delay, format:"rgb444"}).addFrame(frameList).toSharp()
+      	img = await image.toBuffer()
+        debugLog('finish animateseed')
+      }
+      break
     }
     case 'animate':
     case 'blink': {
       if (urls.length>1){
-        var img = await new DIG.Blink().getImage(...urls)
+        var img = await new DIG.Blink().getImage(...urls.slice(-1 * maxAnimateImages))
       }
       break
       } // Can take up to 10 images (discord limit) and make animations
@@ -1354,7 +1447,7 @@ bot.on("messageCreate", (msg) => {
       case '!random':{request({cmd: msg.content.substr(8,msg.content.length)+getRandom('prompt'), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments});break}
       case '!recharge':rechargePrompt(msg.author.id,msg.channel.id);break
       case '!lexica':lexicaSearch(msg.content.substr(8, msg.content.length),msg.channel.id);break
-      case '!meme':{if (msg.content.startsWith('!meme lisapresentation')){meme(msg.content.substr(6, msg.content.length),urls,msg.author.id,msg.channel.id)}else{meme(msg.content.substr(6, msg.content.length),msg.attachments.map((u)=>{return u.proxy_url}),msg.author.id,msg.channel.id)};break}
+      case '!meme':{if (msg.content.startsWith('!meme lisapresentation')){meme(msg.content.substr(6, msg.content.length),null,msg.author.id,msg.channel.id)}else{meme(msg.content.substr(6, msg.content.length),msg.attachments.map((u)=>{return u.proxy_url}),msg.author.id,msg.channel.id)};break}
       case '!avatar':{var avatars='';msg.mentions.forEach((m)=>{avatars+=m.avatarURL.replace('size=128','size=512')+'\n'});bot.createMessage(msg.channel.id,avatars);break}
       case '!background':{ // requires docker run -p 127.0.0.1:5000:5000 danielgatis/rembg s
         if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){
@@ -1664,7 +1757,8 @@ socket.on('error', (error) => {
   }
   rendering=false
 })
-
+//const globalPromiseRejectionHandler = (event) => {console.log('Unhandled promise rejection reason: ', event.reason)}
+//window.onunhandledrejection = globalPromiseRejectionHandler
 // Actual start of execution flow
 bot.connect()
 if(!models){socket.emit('requestSystemConfig')}
