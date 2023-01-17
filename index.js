@@ -13,7 +13,10 @@ const moment = require('moment')
 const { ImgurClient } = require('imgur')
 const imgur = new ImgurClient({ clientId: config.imgurClientID})
 const imgbb = require("imgbb-uploader")
-const DIG = require("discord-image-generation")
+//const DIG = require("discord-image-generation")
+const sharp = require("sharp")
+const GIF = require("sharp-gif2")
+const Diff = require("diff")
 const log = console.log.bind(console)
 function debugLog(m){if(config.showDebug){log(m)}}
 const dJSON = require('dirty-json')
@@ -53,7 +56,7 @@ const bot = new Eris.CommandClient(config.discordBotKey, {
   prefix: "!",
   reconnect: 'auto',
   compress: true,
-  getAllUsers: false, //drastically affects startup time if true, only used for richlist function atm
+  getAllUsers: false, //drastically affects startup time if true
 })
 const defaultSize = parseInt(config.defaultSize)||512
 const defaultSteps = parseInt(config.defaultSteps)||50
@@ -62,6 +65,7 @@ const maxSteps = parseInt(config.maxSteps)||100
 const maxIterations = parseInt(config.maxIterations)||10
 const defaultMaxDiscordFileSize=parseInt(config.defaultMaxDiscordFileSize)||8000000  // TODO detect server boost status and increase this if boosted
 const basePath = config.basePath
+const maxAnimateImages = 100 // Only will fetch most recent X images for animating
 var rembg=config.rembg||'http://127.0.0.1:5000?url='
 var defaultModel=config.defaultModel||'stable-diffusion-1.5'
 var currentModel='notInitializedYet'
@@ -164,14 +168,19 @@ var slashCommands = [
         lexicaSearch(query,i.channel.id)
       }
     }
-  },
-  {
+  }
+]
+// If credits are active, add recharge otherwise don't include it
+if(!creditsDisabled)
+{
+  slashCommands.push({
     name: 'recharge',
     description: 'Recharge your render credits with Hive, HBD or Bitcoin over lightning network',
     cooldown: 500,
     execute: (i) => {if (i.member) {rechargePrompt(i.member.id,i.channel.id)} else if (i.user){rechargePrompt(i.user.id,i.channel.id)}}
-  }
-]
+  })
+}
+
 
 // Functions
 
@@ -204,7 +213,7 @@ function request(request){
   }
   if (!args.steps||!Number.isInteger(args.steps)||args.steps>maxSteps){args.steps=defaultSteps} // default 50
   if (!args.seed||!Number.isInteger(args.seed)||args.seed<1||args.seed>4294967295){args.seed=getRandomSeed()}
-  if (!args.strength||args.strength>=1||args.strength<=0){args.strength=0.75}
+  if (!args.strength||args.strength>=1||args.strength<=0){args.strength=0.7}
   if (!args.scale||args.scale>200||args.scale<1){args.scale=defaultScale}
   if (!args.sampler){args.sampler=defaultSampler}
   if (args.n){args.number=args.n}
@@ -293,7 +302,12 @@ function queueStatus() {
     var renderPercentEmoji=':hourglass_flowing_sand:'
     if(renderPercent>50){renderPercentEmoji=':hourglass:'}
     statusMsg+='\n'+renderPercentEmoji+' `'+progressUpdate['currentStatus'].replace('common:status','')+'` '
-    if (progressUpdate['currentStatusHasSteps']===true){statusMsg+='`'+renderPercent+'% Step '+progressUpdate['currentStep']+'/'+progressUpdate['totalSteps']+'`'}
+    if (progressUpdate['currentStatusHasSteps']===true){
+      statusMsg+='`'+renderPercent+'% Step '+progressUpdate['currentStep']+'/'+progressUpdate['totalSteps']+'`'
+      if (progressUpdate['totalIterations']>1){
+        statusMsg+=' Iteration `'+progressUpdate['currentIteration']+'/'+progressUpdate['totalIterations']+'`'
+      }
+    }
     var statusObj={content:statusMsg}
     if(next&&next.channel!=='webhook'){var chan=next.channel}else{var chan=config.channelID}
     if(dialogs.queue!==null){
@@ -686,7 +700,10 @@ async function addRenderApi(id){
 async function postRender(render){
   try{fs.readFile(render.filename, null, function(err, data){
     if(err){console.error(err)}else{
-      filename=render.filename.split('\\')[render.filename.split('\\').length-1].replace(".png","")
+      // TODO: OS agnostic folder seperators
+      // NOTE: filename being wrong wasn't breaking because slashes get replaced automatically in createMessage, but makes filename long/ugly
+      filename=render.filename.split('\\')[render.filename.split('\\').length-1].replace(".png","") // win
+      //filename=render.filename.split('/')[render.filename.split('/').length-1].replace(".png","") // lin
       var job=queue[queue.findIndex(x=>x.id===render.id)]
       var msg=':brain:<@'+job.userid+'>'
       msg+=':straight_ruler:`'+render.width+'x'+render.height+'`'
@@ -694,7 +711,7 @@ async function postRender(render){
       if(job.gfpgan_strength!==0){msg+=':magic_wand:`gfpgan face fix('+job.gfpgan_strength+')`'}
       if(job.codeformer_strength!==0){msg+=':magic_wand:`codeformer face fix(' + job.codeformer_strength + ')`'}
       if(job.seamless===true){msg+=':knot:**`Seamless Tiling`**'}
-      if(job.hires_fix===true){msg+=':telescope:**`High Resolution Fix`**'}
+      if(job.hires_fix===true){msg+=':telescope:**`High Resolution Fix ('+job.strength+')`**'}
       if(job.perlin!==0){msg+=':oyster:**`Perlin '+job.perlin+'`**'}
       if(job.threshold!==0){msg+=':door:**`Threshold '+job.threshold+'`**'}
       if(job.attachments.length>0){msg+=':paperclip:` attached template`:muscle:`'+job.strength+'`'}
@@ -702,7 +719,8 @@ async function postRender(render){
       if(job.variation_amount!==0){msg+=':microbe:**`Variation '+job.variation_amount+'`**'}
       //var jobResult = job.renders[render.resultNumber]
       if(render.variations){msg+=':linked_paperclips:with variants `'+render.variations+'`'}
-      msg+=':seedling:`'+render.seed+'`:scales:`'+job.scale+'`:recycle:`'+job.steps+'`'
+      // Added spaces to make it easier to double click the seed to copy/paste, otherwise discord selects whole line
+      msg+=':seedling: `'+render.seed+'` :scales:`'+job.scale+'`:recycle:`'+job.steps+'`'
       msg+=':stopwatch:`'+timeDiff(job.timestampRequested, moment())+'s`'
       if(showFilename){msg+=':file_cabinet:`'+filename+'`'}
       msg+=':eye:`'+job.sampler+'`'
@@ -814,23 +832,93 @@ async function meme(prompt,urls,userid,channel){
   cmd = prompt.split(' ')[0]
   param = undefined
   switch(cmd){
-    case 'blur': var img = await new DIG.Blur(params[1]).getImage(urls[0]);break
-    case 'gay': var img = await new DIG.Gay().getImage(urls[0]);break
-    case 'greyscale': var img = await new DIG.Greyscale().getImage(urls[0]);break
-    case 'invert': var img = await new DIG.Invert().getImage(urls[0]);break
-    case 'sepia': var img = await new DIG.Sepia().getImage(urls[0]);break
+    case 'blur':{var image=await jimp.read(urls[0]);image.blur(10);img=await image.getBufferAsync(jimp.MIME_PNG);break}
+    case 'greyscale':{var image=await jimp.read(urls[0]);image.greyscale();img=await image.getBufferAsync(jimp.MIME_PNG);break}
+    case 'invert':{var image=await jimp.read(urls[0]);image.invert();img=await image.getBufferAsync(jimp.MIME_PNG);break}
     case 'animateseed':{
-      let urlseed=[]
-      queue.filter((j)=>j.seed==params[1]&&j.userid===userid).forEach((j)=>{j.results.forEach((r)=>{urlseed.push(config.basePath+r.url.replace('outputs/',''))})})
-      if (urlseed.length>1){var img = await new DIG.Blink().getImage(...urlseed)}
+      //debugLog('Seed match count:' + queue.filter((j)=>j.seed==params[1]).length)
+      let urlseed=[] // prompt image urls
+      let promptseed = [] // prompt texts
+      let delay = parseInt(params[2])||1000 // delay between frames
+      // If command was replying to an image, consider that our stopping point.
+      // So collect every image url for seed until we reach that end point
+      var donemark = false // did we hit the last frame
+      var stopUrl = null // image url that is our last frame to animate
+      if (urls && urls.length > 0) { stopUrl = urls[0].split('/')[urls[0].split('/').length-1] }
+      queue.filter((j)=>j.seed==params[1]).slice(-1 * maxAnimateImages).forEach((j) => { // Use slice to cap maximum frames, preferring more recent images
+        j.results.forEach((r) => {
+          // TODO: early exit feels awkward, maybe just do a normal loop with break?
+          if (donemark) {return} // We're stopping early
+          fileOnly = r.url.replace('outputs/','')
+          if (stopUrl == fileOnly) {donemark=true} // this is the last one
+          var seedUrl = config.basePath+fileOnly // TODO: Review OS compat path operations
+          urlseed.push(seedUrl)
+          promptseed.push(r.metadata.image.prompt[0].prompt)
+        })
+      })
+      if (urlseed.length>1) // At least two images to work with
+      {
+        let styledprompts = [promptseed[0]] // prefill first prompt
+        for (var i = 1; i < promptseed.length;i++) // start on second prompt
+        {
+          const diff = Diff.diffWords(promptseed[i - 1], promptseed[i]) // Find differences between previous prompt and this one, Chunks into unchanged/added/removed
+          var updateprompt = ""
+          diff.forEach((part) => { // Bring all chunks back together with styling based on type
+            if (part.added) {updateprompt += "<span foreground='green'><b><big>" + part.value + "</big></b></span>"}
+            else if (part.removed) {updateprompt += "<span foreground='red'><s>" + part.value + "</s></span>"}
+            else {updateprompt += part.value}
+          })
+          styledprompts.push(updateprompt)      	
+        }
+        // TODO: Better finisher ideas? Repeating last prompt in blue to signify the end
+        styledprompts.push("<span foreground='blue'>" + promptseed[promptseed.length - 1] + "</span>")
+        urlseed.push(urlseed[urlseed.length - 1])
+      	let frameList = []
+      	for (var i = 0;i < urlseed.length;i++)
+      	{
+      		var res = await sharp(urlseed[i]).extend({bottom: 200,background: 'white'}) // Add blank area for prompt text at bottom
+          res = sharp(await res.toBuffer()) // metadata will give wrong height value after our extend, reload it. Not too expensive
+          var metadata = await res.metadata()
+          // Create styled prompt text overlay
+          // TODO: Some height padding would be nice. Not as easy as width padding cuz of alignment
+          // WARN: Had no issue with font, but read about extra steps sometimes being necessary
+          styledprompts[i]=styledprompts[i].replace('&','') // stop crash from invalid markup
+          const overlay = await sharp({
+              text: {
+                  text: styledprompts[i],
+                  rgba: true,
+                  width: metadata.width - 20,
+                  height: 200, 
+                  font: 'Arial',
+              },
+          }).png().toBuffer()
+          res = await res.composite([{ input: overlay, gravity: 'south' }]) // Combine the prompt overlay with prompt image
+          frameList.push(res)
+      	}
+        // rgb444 format is way faster, slightly worse quality
+        // default takes almost a minute for 15 frames, versus a handful of seconds
+        // Does makes background a bit off-white sometimes
+      	var image = await GIF.createGif({delay:delay, format:"rgb444"}).addFrame(frameList).toSharp()
+      	img = await image.toBuffer()
+      }
+      break
     }
     case 'animate':
     case 'blink': {
       if (urls.length>1){
-        var img = await new DIG.Blink().getImage(...urls)
+        let delay = parseInt(params[1]) || 1000 // delay between frames
+        frameList = []
+        try {
+          for (var i = 0; i < urls.length;i++){const input = (await axios({ url: urls[i], responseType: "arraybuffer" })).data;frameList.push(sharp(input))}
+          var image = await GIF.createGif({delay:delay,format:"rgb444"}).addFrame(frameList).toSharp()
+          img = await image.toBuffer()
+        }catch(err){console.error(err)}
       }
       break
-      } // Can take up to 10 images (discord limit) and make animations
+    }
+    /*
+    case 'gay': var img = await new DIG.Gay().getImage(urls[0]);break
+    case 'sepia': var img = await new DIG.Sepia().getImage(urls[0]);break
     case 'triggered': var img = await new DIG.Triggered().getImage(urls[0]);break
     case 'ad': var img = await new DIG.Ad().getImage(urls[0]);break
     case 'affect': var img = await new DIG.Affect().getImage(urls[0]);break
@@ -861,7 +949,7 @@ async function meme(prompt,urls,userid,channel){
     case 'trash': var img = await new DIG.Trash().getImage(urls[0]);break
     case 'wanted': {if (urls.length==1){var img = await new DIG.Wanted().getImage(urls[0], '$')};break} // takes image + currency sign, hardcoding $
     case 'circle': var img = await new DIG.Circle().getImage(urls[0]);break
-    case 'color': var img = await new DIG.Color().getImage(params[1]);break // take hex color code
+    case 'color': var img = await new DIG.Color().getImage(params[1]);break // take hex color code*/
   }
   if (img&&cmd){
     var msg = '<@'+userid+'> used `!meme '+prompt+'`'
@@ -1354,7 +1442,18 @@ bot.on("messageCreate", (msg) => {
       case '!random':{request({cmd: msg.content.substr(8,msg.content.length)+getRandom('prompt'), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments});break}
       case '!recharge':rechargePrompt(msg.author.id,msg.channel.id);break
       case '!lexica':lexicaSearch(msg.content.substr(8, msg.content.length),msg.channel.id);break
-      case '!meme':{if (msg.content.startsWith('!meme lisapresentation')){meme(msg.content.substr(6, msg.content.length),urls,msg.author.id,msg.channel.id)}else{meme(msg.content.substr(6, msg.content.length),msg.attachments.map((u)=>{return u.proxy_url}),msg.author.id,msg.channel.id)};break}
+      case '!meme':{
+        if (msg.content.startsWith('!meme lisapresentation')){
+          meme(msg.content.substr(6, msg.content.length),null,msg.author.id,msg.channel.id)
+        }else if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){
+          meme(msg.content.substr(6, msg.content.length),msg.attachments.map((u)=>{return u.proxy_url}),msg.author.id,msg.channel.id)
+        }else if (msg.referencedMessage){
+          meme(msg.content.substr(6, msg.content.length),msg.referencedMessage.attachments.map((u)=>{return u.proxy_url}),msg.author.id,msg.channel.id)
+        }else if (msg.content.startsWith('!meme animateseed')){
+          {meme(msg.content.substr(6, msg.content.length),null,msg.author.id,msg.channel.id)}
+        }else{debugLog("Nothing to work with for meme")}
+        break
+      }
       case '!avatar':{var avatars='';msg.mentions.forEach((m)=>{avatars+=m.avatarURL.replace('size=128','size=512')+'\n'});bot.createMessage(msg.channel.id,avatars);break}
       case '!background':{ // requires docker run -p 127.0.0.1:5000:5000 danielgatis/rembg s
         if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){
@@ -1561,7 +1660,6 @@ bot.on("messageCreate", (msg) => {
       case '!cancel':{cancelRenders();break}
       case '!pause':{bot.editStatus('dnd');paused=true;rendering=true;chat(':pause_button: Bot is paused, requests will still be accepted and queued for when I return');break}
       case '!resume':{socket.emit('requestSystemConfig');paused=false;rendering=false;bot.editStatus('online');chat(':play_pause: Bot is back online');processQueue();break}
-      case '!richlist':{getRichList();break}
       case '!checkpayments':{checkNewPayments();break}
       case '!restart':{log('Admin restarted bot'.bgRed.white);exit(0)}
       case '!creditdisabled':{log('Credits have been disabled'.bgRed.white);creditsDisabled=true;bot.createMessage(msg.channel.id,'Credits have been disabled');break}
@@ -1641,19 +1739,17 @@ socket.on("intermediateResult", (data) => {
   if(buf!==intermediateImagePrior){ // todo look at image difference % instead
     jimp.read(buf, (err,img)=>{
       side=Math.max(img.bitmap.width,img.bitmap.height)
-      scale=Math.round(512/side)
+      scale=Math.round(448/side)
       //debugLog('width:'+img.bitmap.width+' height:'+img.bitmap.height+' side:'+side+' upscale:'+scale)
       //img.scale(scale, jimp.RESIZE_BILINEAR) // better quality, slower
       img.scale(scale, jimp.RESIZE_NEAREST_NEIGHBOR) // fastest but bad quality
       img.getBuffer(img.getMIME(),(err,img2)=>{
         intermediateImage=img2
         intermediateImagePrior=buf
-        queueStatus()
+        if(!queueStatusLock){queueStatus()}
       })
     })
-  } else {
-    debugLog('not upscaling cos same')
-  }
+  }else{debugLog('not upscaling cos same')}
 })
 socket.on('error', (error) => {
   log('Api socket error'.bgRed);log(error)
@@ -1664,7 +1760,6 @@ socket.on('error', (error) => {
   }
   rendering=false
 })
-
 // Actual start of execution flow
 bot.connect()
 if(!models){socket.emit('requestSystemConfig')}
