@@ -836,6 +836,7 @@ async function meme(prompt,urls,userid,channel){
     case 'greyscale':{var image=await jimp.read(urls[0]);image.greyscale();img=await image.getBufferAsync(jimp.MIME_PNG);break}
     case 'invert':{var image=await jimp.read(urls[0]);image.invert();img=await image.getBufferAsync(jimp.MIME_PNG);break}
     case 'animateseed':{
+      if(params.length<2){return} // bugfix crash on animateseed with no seed
       //debugLog('Seed match count:' + queue.filter((j)=>j.seed==params[1]).length)
       let urlseed=[] // prompt image urls
       let promptseed = [] // prompt texts
