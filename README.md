@@ -25,7 +25,6 @@ A discord bot built to interface with the [InvokeAI](https://github.com/invoke-a
 - Expanding, fading, inpainting and outpainting support
 - Mask an image with a text prompt for inpainting
 
-
 ## Screenshots:
 
 Tweak menu with advanced controls
@@ -113,7 +112,7 @@ That's it! See the getting started guide - https://peakd.com/@ausbitbank/our-new
 Recommend at least 8gb video ram, lots of storage space and joining the server above for support (see #bot-help)
 
 You'll need to have https://github.com/invoke-ai/InvokeAI installed and working on your system first, as well as nodejs and npm.
-Launch invokeai from its directory with `python .\scripts\invoke.py --web --outdir=out --model "stable-diffusion-1.5" --max_loaded_models 6` to launch the api server for the bot.
+Launch invokeai from its directory using invoke.bat (or invoke.sh on linux), and selecting option 2 for the browser based / web ui
 
 To install bot dependancies : `npm install` or `yarn install`
 
@@ -130,7 +129,7 @@ Rename `.env.example` to `.env` and enter your own details:
   - Settings > Bot > Add Bot
   - (If necessary: Reset Token), Copy
   - Enable the ᴍᴇssᴀɢᴇ ᴄᴏɴᴛᴇɴᴛ ɪɴᴛᴇɴᴛ Privileged Gateway Intent [per @zsoltime on SO](https://stackoverflow.com/a/73037243).
-    - ![image](https://user-images.githubusercontent.com/115931/189581611-673c32d7-19ce-4710-8911-1e71481fe257.png)
+    - ![image](https://media.discordapp.net/attachments/1023961603319808110/1044993662876135515/image.png)
 
 Run with `npm start` or `yarn start`
 
