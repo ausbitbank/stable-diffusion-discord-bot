@@ -50,7 +50,7 @@ if(config.hivePaymentAddress.length>0 && !creditsDisabled){
   cron.schedule('0 */12 * * *', () => { log('Recharging users with no credit every 12 hrs'.bgCyan.bold); freeRecharge() }) // Comment this out if you don't want free regular topups of low balance users
 }
 const bot = new Eris.CommandClient(config.discordBotKey, {
-  intents: ["guilds", "guildMessages", "messageContent", "guildMembers", "directMessages", "guildMessageReactions"],
+  intents: ["guilds", "guildMessages", "messageContent", "guildMembers", "directMessages", "guildMessageReactions", "directMessageReactions"],
   description: "Just a slave to the art, maaan",
   owner: "ausbitbank",
   prefix: "!",
@@ -82,12 +82,19 @@ var rendering = false
 var dialogs = {queue: null} // Track and replace our own messages to reduce spam
 // load text files from txt directory, usable as {filename} in prompts, will return a random line from file
 var randoms=[]
+var randomsCache=[]
 try{
   fs.readdir('txt',(err,files)=>{
     if(err){log('Unable to read txt file directory'.bgRed);log(err)}
-    files.forEach((file)=>{if (file.includes('.txt')){randoms.push(file.replace('.txt',''))}})
-      debugLog('Enabled randomisers:')
-      debugLog(randoms)
+    files.forEach((file)=>{
+      if (file.includes('.txt')){
+        var name=file.replace('.txt','')
+        randoms.push(name)
+        randomsCache.push(fs.readFileSync('txt/'+file,'utf-8').split(/r?\n/))
+      }
+    })
+    debugLog('Enabled randomisers:')
+    debugLog(randoms)
   })
 }catch(err){log('Unable to read txt file directory'.bgRed);log(err)}
 if(randoms.includes('prompt')){randoms.splice(randoms.indexOf('prompt'),1);randoms.splice(0,0,'prompt')} // Prompt should be interpreted first
@@ -213,7 +220,7 @@ function request(request){
   }
   if (!args.steps||!Number.isInteger(args.steps)||args.steps>maxSteps){args.steps=defaultSteps} // default 50
   if (!args.seed||!Number.isInteger(args.seed)||args.seed<1||args.seed>4294967295){args.seed=getRandomSeed()}
-  if (!args.strength||args.strength>=1||args.strength<=0){args.strength=0.7}
+  if (!args.strength||args.strength>1||args.strength<=0){args.strength=0.7}
   if (!args.scale||args.scale>200||args.scale<1){args.scale=defaultScale}
   if (!args.sampler){args.sampler=defaultSampler}
   if (args.n){args.number=args.n}
@@ -600,7 +607,7 @@ function generationResult(data){
     postRender(postRenderObject)
   }else{rendering=false}
   if(job&&job.results.length>=job.number){job.status='done';rendering=false;processQueue()}
-  if(dialogs.queue!==null){dialogs.queue.delete().catch((err)=>{}).then(()=>{dialogs.queue=null;intermediateImage=null;queueStatusLock=false})}
+  if(dialogs.queue!==null){dialogs.queue.delete().catch((err)=>{}).then(()=>{dialogs.queue=null;intermediateImage=null})}//;queueStatusLock=false
 }
 function initialImageUploaded(data){
   var url=data.url
@@ -970,11 +977,9 @@ function timeDiff(date1,date2) { return date2.diff(date1, 'seconds') }
 function getRandom(what){
   if(randoms.includes(what)){
     try{
-      var lines=fs.readFileSync('txt/'+what+'.txt','utf-8').split(/r?\n/);
+      var lines=randomsCache[randoms.indexOf(what)]
       return lines[Math.floor(Math.random()*lines.length)]
-    }catch(err){
-      console.error(err)
-    }
+    }catch(err){console.error(err)}
   }else{
     debugLog('Randomiser ' +what+ ' not found')
     return what
@@ -1356,7 +1361,11 @@ bot.on("messageReactionAdd", async (msg,emoji,reactor) => {
 //bot.on("warn", (msg,id) => {if (msg!=={Error: 'Unknown guild text channel type: 15'}){log('warn'.bgRed);log(msg,id)}})
 //bot.on("debug", (msg,id) => {log(msg,id)})
 bot.on("disconnect", () => {log('disconnected'.bgRed)})
-bot.on("error", (err,id) => {log('error'.bgRed); log(err,id)})
+bot.on("error", async (err) => {
+ console.log(moment().format(), "--- BEGIN: ERROR ---")
+ console.error(err)
+ console.log(moment().format(), "--- END: ERROR ---")
+})
 //bot.on("channelCreate", (channel) => {log(channel)})
 //bot.on("channelDelete", (channel) => {log(channel)})
 bot.on("guildCreate", (guild) => {var m='joined new guild: '+guild.name;log(m.bgRed);directMessageUser(config.adminID,m)}) // todo send invite to admin
@@ -1723,7 +1732,7 @@ socket.on("progressUpdate", (data) => {
   //debugLog('progressUpdate')
   progressUpdate=data
   if(['common:statusProcessing Complete'].includes(data['currentStatus'])){//'common:statusGeneration Complete'
-    intermediateImage=null;queueStatusLock=false
+    intermediateImage=null//;queueStatusLock=false
     if(dialogs.queue!==null){
       dialogs.queue.delete().catch((err)=>{debugLog(err)}).then(()=>{
         dialogs.queue=null;intermediateImage=null;queueStatusLock=false
