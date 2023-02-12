@@ -234,7 +234,7 @@ function request(request){
   if (!args.with_variations){args.with_variations=[]}else{log(args.with_variations)}//; args.with_variations=args.with_variations.toString()
   if (!args.threshold){args.threshold=0}
   if (!args.perlin||args.perlin>1||args.perlin<0){args.perlin=0}
-  if (!args.model||args.model===undefined||!Object.keys(models).includes(args.model)){args.model=defaultModel}else{args.model=args.model.toLowerCase()}
+  if (!args.model||args.model===undefined||!Object.keys(models).includes(args.model)){args.model=defaultModel}else{args.model=args.model}
   args.timestamp=moment()
   args.prompt=sanitize(args._.join(' '))
   if (args.prompt.length===0){args.prompt=getRandom('prompt');log('empty prompt found, adding random')}
@@ -493,10 +493,10 @@ function scheduleInit(){
     })
   })
 }
-function getUser(id){var user=bot.users.get(id);if(user){return user}else{return null}}
-function getUsername(id){var user=getUser(id);log(user);if(user!==null&&user.username){return user.username}else{return null}}
+function getUser(id){var user=bot.users.get(id);log(user);if(user){return user}else{return null}}
+function getUsername(id){var user=getUser(id);if(user!==null&&user.username){return user.username}else{return null}}
 function getRichList(){
-  var u=users.filter(u=>u.credits>11).sort((a,b)=>b.credits-a.credits)
+  var u=users.filter(u=>parseInt(u.credits)>100).sort((a,b)=>b.credits-a.credits)
   var richlistMsg='Rich List\n'
   u.forEach(u=>{richlistMsg+=getUsername(u.id)+':coin:`'+u.credits+'`\n'})
   log(richlistMsg)
@@ -640,7 +640,8 @@ async function emitRenderApi(job){
       "strength": job.strength,
       "fit": true,
       "progress_latents": true,
-      "generation_mode": 'txt2img'
+      "generation_mode": 'txt2img',
+      "infill_method": 'patchmatch'
   }
   if(job.text_mask){
     var mask_strength=0.5
@@ -1206,8 +1207,8 @@ bot.on("interactionCreate", async (interaction) => {
       var newCmd=''
       var postProcess=false
       switch(interaction.data.custom_id.split('-')[0].replace('twk','')){
-        case 'scalePlus': newJob.scale=newJob.scale+5;break
-        case 'scaleMinus': newJob.scale=newJob.scale-5;break
+        case 'scalePlus': newJob.scale=newJob.scale+1;break
+        case 'scaleMinus': newJob.scale=newJob.scale-1;break
         case 'stepsPlus': newJob.steps=newJob.steps+10;break
         case 'stepsMinus': newJob.steps=newJob.steps-10;break
         case 'aspectPortrait': newJob.height=defaultSize+192;newJob.width=defaultSize;break
@@ -1344,13 +1345,13 @@ bot.on("messageReactionAdd", async (msg,emoji,reactor) => {
       case '⭐':
       case '❤️': log('Positive emojis'.green+emoji.name); break
       case '✉️': log('sending image to dm'.dim);directMessageUser(targetUserId,{content: msg.content, embeds: embeds});break // todo debug occasional error about reactor.user.id undefined here
+      case '🙈':
       case '👎':
       case '⚠️':
-      case '🙈':
       case '❌':
       case '💩': {
         log('Negative emojis'.red+emoji.name.red)
-        if(msg.content.includes(reactor.user.id)){msg.delete().catch(() => {})}
+        if(msg.content.includes(reactor.user.id)||reactor.user.id===config.adminID){msg.delete().catch(() => {})}
         break
       }
     }
@@ -1699,6 +1700,7 @@ bot.on("messageCreate", (msg) => {
         bot.guilds.forEach((g)=>{log({id: g.id, name: g.name, ownerID: g.ownerID, description: g.description, memberCount: g.memberCount})})
         break
       }
+      case '!richlist':{getRichList();break}
       case '!leaveguild':{bot.leaveGuild(msg.content.split(' ')[1]);break}
       case '!getmessages':{var cid=msg.content.split(' ')[1];if(cid){bot.getMessages(cid).then(x=>{x.reverse();x.forEach((y)=>{log(y.author.username.bgBlue+': '+y.content);y.attachments.map((u)=>{return u.proxy_url}).forEach((a)=>{log(a)})})})};break}
       case '!updateslashcommands':{bot.getCommands().then(cmds=>{bot.commands = new Collection();for (const c of slashCommands) {bot.commands.set(c.name, c);bot.createCommand({name: c.name,description: c.description,options: c.options ?? [],type: Constants.ApplicationCommandTypes.CHAT_INPUT})}});break}
