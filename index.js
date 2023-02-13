@@ -1636,7 +1636,7 @@ bot.on("messageCreate", (msg) => {
               case 'cached':{newMsg+=':orange_circle:';break}
               case 'active':{newMsg+=':green_circle:';break}
             }
-            newMsg+='`'+m+'`'
+            newMsg+='`'+m+'`  '
             newMsg+=models[m].description+'\n'
             if(newMsg.length>=1500){try{chatChan(msg.channel.id,newMsg);newMsg=''}catch(err){log(err)}}
           })
