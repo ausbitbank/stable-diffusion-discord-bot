@@ -41,14 +41,34 @@ const hive = require('@hiveio/hive-js')
 const { exit } = require('process')
 if(config.creditsDisabled==='true'){var creditsDisabled=true}else{var creditsDisabled=false}
 if(config.showFilename==='true'){var showFilename=true}else{var showFilename=false}
-if(config.hivePaymentAddress.length>0 && !creditsDisabled){
-  hive.config.set('alternative_api_endpoints',['https://rpc.ausbit.dev','https://api.deathwing.me','https://api.c0ff33a.uk','https://hived.emre.sh'])
-  var hiveUsd = 0.4
-  getPrices()
-  cron.schedule('0,15,30,45 * * * *', () => { log('Checking account history every 15 minutes'.grey); checkNewPayments() })
-  cron.schedule('0,30 * * * *', () => { log('Updating hive price every 30 minutes'.grey); getPrices() })
-  cron.schedule('0 */12 * * *', () => { log('Recharging users with no credit every 12 hrs'.bgCyan.bold); freeRecharge() }) // Comment this out if you don't want free regular topups of low balance users
-}
+
+// Schedule repeated tasks
+if (config.hivePaymentAddress.length > 0 && !creditsDisabled) {
+  // Configure Hive blockchain endpoint and get Hive USD price
+  hive.config.set('alternative_api_endpoints', [
+    'https://rpc.ausbit.dev',
+    'https://api.deathwing.me',
+    'https://api.c0ff33a.uk',
+    'https://hived.emre.sh'
+  ]);
+  let hiveUsd = 0.4; // default Hive USD price
+  let lastHiveUsd = 0.4; // last known Hive USD price
+  getPrices();
+
+ // Schedule payment checks, Hive USD price updates, and regular top-ups for low balance users
+  cron.schedule('0,15,30,45 * * * *', () => {
+    log('Checking account history every 15 minutes'.grey);
+    checkNewPayments();
+  });
+  cron.schedule('0,30 * * * *', () => {
+    log('Updating hive price every 30 minutes'.grey);
+    getPrices();
+  });
+  cron.schedule('0 */12 * * *', () => { // Comment this out if you don't want free regular topups of low balance users
+    log('Recharging users with no credit every 12 hrs'.bgCyan.bold);
+    freeRecharge();
+  }); 
+  
 const bot = new Eris.CommandClient(config.discordBotKey, {
   intents: ["guilds", "guildMessages", "messageContent", "guildMembers", "directMessages", "guildMessageReactions", "directMessageReactions"],
   description: "Just a slave to the art, maaan",
@@ -501,12 +521,33 @@ function getRichList(){
   u.forEach(u=>{richlistMsg+=getUsername(u.id)+':coin:`'+u.credits+'`\n'})
   log(richlistMsg)
 }
-function getPrices () { // TODO fallback to getting costs from hive internal market
-  var url='https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=hive&order=market_cap_asc&per_page=1&page=1&sparkline=false'
-  axios.get(url)
-    .then((response)=>{hiveUsd=response.data[0].current_price;log('HIVE: $'+hiveUsd)})
-    .catch(()=>{log('Failed to load data from coingecko api'.red.bold);hiveUsd=0.5})
+
+  /**
+   * Gets the latest Hive USD price
+   */
+  function getPrices() {
+    axios.get('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=hive&order=market_cap_asc&per_page=1&page=1&sparkline=false')
+      .then(response => {
+        hiveUsd = response.data[0].current_price;
+        log('HIVE: $' + hiveUsd);
+      })
+      .catch(() => {
+        log('Failed to load data from coingecko api'.red.bold);
+        axios.get('https://api.hive-engine.com/rpc/contracts/{"contractName":"market","contractAction":"getTicker","contractPayload":{"symbol":"SWAP.HIVE"}}')
+          .then(response => {
+            if (response.data && response.data.latest) {
+              hiveUsd = response.data.latest;
+              lastHiveUsd = hiveUsd;
+            }
+          })
+          .catch(error => {
+            log(`Failed to get Hive USD price: ${error}. Using last known price of ${lastHiveUsd}.`.red);
+            hiveUsd = lastHiveUsd;
+          });
+      });
+  }
 }
+
 function getLightningInvoiceQr(memo){
   var appname=config.hivePaymentAddress+'_discord' // TODO should this be an .env variable?
   return 'https://api.v4v.app/v1/new_invoice_hive?hive_accname='+config.hivePaymentAddress+'&amount=1&currency=HBD&usd_hbd=false&app_name='+appname+'&expiry=300&message='+memo+'&qr_code=png'
