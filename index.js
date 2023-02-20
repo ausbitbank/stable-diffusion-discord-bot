@@ -25,7 +25,6 @@ const debounce = require('debounce')
 var jimp = require('jimp')
 const FormData = require('form-data')
 const io = require("socket.io-client")
-const socket = io(config.apiUrl,{reconnect: true})
 var paused=false
 var queue = []
 var users = []
@@ -49,15 +48,36 @@ if(config.hivePaymentAddress.length>0 && !creditsDisabled){
   cron.schedule('0,30 * * * *', () => { log('Updating hive price every 30 minutes'.grey); getPrices() })
   cron.schedule('0 */12 * * *', () => { log('Recharging users with no credit every 12 hrs'.bgCyan.bold); freeRecharge() }) // Comment this out if you don't want free regular topups of low balance users
 }
+
+// Create the Discord bot
 const bot = new Eris.CommandClient(config.discordBotKey, {
-  intents: ["guilds", "guildMessages", "messageContent", "guildMembers", "directMessages", "guildMessageReactions", "directMessageReactions"],
-  description: "Just a slave to the art, maaan",
-  owner: "ausbitbank",
-  prefix: "!",
-  reconnect: 'auto',
-  compress: true,
-  getAllUsers: false, //drastically affects startup time if true
-})
+    intents: [
+      'guilds',
+      'guildMessages',
+      'messageContent',
+      'guildMembers',
+      'directMessages',
+      'guildMessageReactions',
+      'directMessageReactions'
+    ],
+    description: 'Just a slave to the art, maaan',
+    owner: 'ausbit',
+    prefix: '!',
+    reconnect: 'auto',
+    compress: true,
+    getAllUsers: false, //drastically affects startup time if true
+  });
+  
+  bot.on('error', (err) => {
+    console.error('Failed to create the Discord bot:', err);
+  });
+   
+  // Setting up the Discord bot and socket connection
+  const socket = io(config.apiUrl, {reconnect: true})
+  socket.on('connect_error', (error) => {
+    console.error('Failed to connect to the WebSocket server:', error)
+  })
+
 const defaultSize = parseInt(config.defaultSize)||512
 const defaultSteps = parseInt(config.defaultSteps)||50
 const defaultScale = parseFloat(config.defaultScale)||7.5
