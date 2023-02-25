@@ -44,6 +44,7 @@ if(config.showFilename==='true'){var showFilename=true}else{var showFilename=fal
 if(config.hivePaymentAddress.length>0 && !creditsDisabled){
   hive.config.set('alternative_api_endpoints',['https://api.hive.blog','https://api.deathwing.me','https://api.c0ff33a.uk','https://hived.emre.sh'])
   var hiveUsd = 0.4
+  var lastHiveUsd = hiveUsd
   getPrices()
   cron.schedule('0,15,30,45 * * * *', () => { log('Checking account history every 15 minutes'.grey); checkNewPayments() })
   cron.schedule('0,30 * * * *', () => { log('Updating hive price every 30 minutes'.grey); getPrices() })
@@ -504,8 +505,8 @@ function getRichList(){
 function getPrices () { // TODO fallback to getting costs from hive internal market
   var url='https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=hive&order=market_cap_asc&per_page=1&page=1&sparkline=false'
   axios.get(url)
-    .then((response)=>{hiveUsd=response.data[0].current_price;log('HIVE: $'+hiveUsd)})
-    .catch(()=>{log('Failed to load data from coingecko api'.red.bold);hiveUsd=0.5})
+    .then((response)=>{hiveUsd=response.data[0].current_price;lastHiveUsd=hiveUsd;log('HIVE: $'+hiveUsd)})
+    .catch(()=>{log('Failed to load data from coingecko api'.red.bold);hiveUsd=lastHiveUsd})
 }
 function getLightningInvoiceQr(memo){
   var appname=config.hivePaymentAddress+'_discord' // TODO should this be an .env variable?
