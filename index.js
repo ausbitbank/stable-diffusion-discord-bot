@@ -42,7 +42,7 @@ const { exit } = require('process')
 if(config.creditsDisabled==='true'){var creditsDisabled=true}else{var creditsDisabled=false}
 if(config.showFilename==='true'){var showFilename=true}else{var showFilename=false}
 if(config.hivePaymentAddress.length>0 && !creditsDisabled){
-  hive.config.set('alternative_api_endpoints',['https://rpc.ausbit.dev','https://api.deathwing.me','https://api.c0ff33a.uk','https://hived.emre.sh'])
+  hive.config.set('alternative_api_endpoints',['https://api.hive.blog','https://api.deathwing.me','https://api.c0ff33a.uk','https://hived.emre.sh'])
   var hiveUsd = 0.4
   getPrices()
   cron.schedule('0,15,30,45 * * * *', () => { log('Checking account history every 15 minutes'.grey); checkNewPayments() })
@@ -105,7 +105,7 @@ var slashCommands = [
     name: 'dream',
     description: 'Create a new image from your prompt',
     options: [
-      {type: 3, name: 'prompt', description: 'what would you like to see ?', required: true, min_length: 1, max_length:750 },
+      {type: 3, name: 'prompt', description: 'what would you like to see ?', required: true, min_length: 1, max_length:1500 },
       {type: 4, name: 'width', description: 'width of the image in pixels (250-~1024)', required: false, min_value: 256, max_value: 1280 },
       {type: 4, name: 'height', description: 'height of the image in pixels (250-~1024)', required: false, min_value: 256, max_value: 1280 },
       {type: 4, name: 'steps', description: 'how many steps to render for (10-250)', required: false, min_value: 5, max_value: 250 },
@@ -308,7 +308,7 @@ function queueStatus() {
     var renderPercent=((parseInt(progressUpdate['currentStep'])/parseInt(progressUpdate['totalSteps']))*100).toFixed(2)
     var renderPercentEmoji=':hourglass_flowing_sand:'
     if(renderPercent>50){renderPercentEmoji=':hourglass:'}
-    statusMsg+='\n'+renderPercentEmoji+' `'+progressUpdate['currentStatus'].replace('common:status','')+'` '
+    statusMsg+='\n'+renderPercentEmoji+' `'+progressUpdate['currentStatus'].replace('common.status','')+'` '
     if (progressUpdate['currentStatusHasSteps']===true){
       statusMsg+='`'+renderPercent+'% Step '+progressUpdate['currentStep']+'/'+progressUpdate['totalSteps']+'`'
       if (progressUpdate['totalIterations']>1){
@@ -657,7 +657,7 @@ async function emitRenderApi(job){
   if(job.gfpgan_strength!==0){facefix={type:'gfpgan',strength:job.gfpgan_strength}}
   if (job.codeformer_strength===undefined){job.codeformer_strength=0}
   if(job.codeformer_strength!==0){facefix={type:'codeformer',strength:job.codeformer_strength,codeformer_fidelity:1}}
-  if(job.upscale_level!==''){upscale={level:job.upscale_level,strength:job.upscale_strength}}
+  if(job.upscale_level!==''){upscale={level:job.upscale_level,strength:job.upscale_strength,denoise_str: 0.75}}
   if(job.init_img){postObject.init_img=job.init_img}
   if(job&&job.model&&currentModel&&job.model!==currentModel){debugLog('job.model is different to currentModel, switching');requestModelChange(job.model)}
   [postObject,upscale,facefix,job].forEach((o)=>{
@@ -1733,7 +1733,7 @@ var progressUpdate = {currentStep: 0,totalSteps: 0,currentIteration: 0,totalIter
 socket.on("progressUpdate", (data) => {
   //debugLog('progressUpdate')
   progressUpdate=data
-  if(['common:statusProcessing Complete'].includes(data['currentStatus'])){//'common:statusGeneration Complete'
+  if(['common.statusProcessing Complete'].includes(data['currentStatus'])){//'common:statusGeneration Complete'
     intermediateImage=null//;queueStatusLock=false
     if(dialogs.queue!==null){
       dialogs.queue.delete().catch((err)=>{debugLog(err)}).then(()=>{
