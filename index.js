@@ -1445,11 +1445,18 @@ bot.on("messageCreate", (msg) => {
       }
     })
   }
+  var lines = msg.content.split('\n')
+  lines.forEach(line => {
+   var c = line.split(' ')[0]
+    switch(c){
+      case '!dream':{request({cmd: line.substr(7), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})}
+    }
+  })   
   var c=msg.content.split(' ')[0]
   if (msg.author.id!==bot.id&&authorised(msg,msg.channel.id,msg.guildID,)){ // Work anywhere its authorized // (msg.channel.id===config.channelID||!msg.guildID) // interaction.member,interaction.channel.id,interaction.guildID
     switch(c){
       case '!help':{bot.createMessage(msg.channel.id,'To create art type `!dream your idea here`\nSee these links for more info:\nhttps://peakd.com/@ausbitbank/our-new-stable-diffusion-discord-bot\nhttps://github.com/ausbitbank/stable-diffusion-discord-bot');break}
-      case '!dream':{request({cmd: msg.content.substr(7, msg.content.length), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments});break}
+      //case '!dream':{request({cmd: msg.content.substr(7, msg.content.length), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments});break}
       case '!prompt':
       case '!random':{request({cmd: msg.content.substr(8,msg.content.length)+getRandom('prompt'), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments});break}
       case '!recharge':rechargePrompt(msg.author.id,msg.channel.id);break
