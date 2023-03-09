@@ -1445,13 +1445,15 @@ bot.on("messageCreate", (msg) => {
       }
     })
   }
-  var lines = msg.content.split('\n')
-  lines.forEach(line => {
-   var c = line.split(' ')[0]
-    switch(c){
-      case '!dream':{request({cmd: line.substr(7), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})}
-    }
-  })   
+  if (msg.author.id !== bot.id && authorised(msg, msg.channel.id, msg.guildID)) {
+    var lines = msg.content.split('\n')
+    lines.forEach(line => {
+      var c = line.split(' ')[0]
+      switch (c) {
+        case '!dream':request({cmd: line.substr(7), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments});break
+      }
+    })
+  } 
   var c=msg.content.split(' ')[0]
   if (msg.author.id!==bot.id&&authorised(msg,msg.channel.id,msg.guildID,)){ // Work anywhere its authorized // (msg.channel.id===config.channelID||!msg.guildID) // interaction.member,interaction.channel.id,interaction.guildID
     switch(c){
