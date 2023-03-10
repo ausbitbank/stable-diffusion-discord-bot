@@ -1447,13 +1447,18 @@ bot.on("messageCreate", (msg) => {
   }
   if (msg.author.id !== bot.id && authorised(msg, msg.channel.id, msg.guildID)) {
     var lines = msg.content.split('\n')
+    var re = /^(\d+\.\s*)?(!dream.*)$/
     lines.forEach(line => {
-      var c = line.split(' ')[0]
-      switch (c) {
-        case '!dream':request({cmd: line.substr(7), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments});break
+      var match = line.match(re)
+      if (match !== null) {
+        var c = match[2].split(' ')[0]
+        switch (c) {
+          case '!dream':request({cmd: match[2].substr(7), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
+            break
+        }
       }
     })
-  } 
+  }
   var c=msg.content.split(' ')[0]
   if (msg.author.id!==bot.id&&authorised(msg,msg.channel.id,msg.guildID,)){ // Work anywhere its authorized // (msg.channel.id===config.channelID||!msg.guildID) // interaction.member,interaction.channel.id,interaction.guildID
     switch(c){
