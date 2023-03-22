@@ -1440,7 +1440,7 @@ bot.on("messageCreate", (msg) => {
               var infostring = `!dream ` + newJob.prompt + newWidth + newHeight + newSteps + newSeed + newScale + newSampler + newModel
               infostring += newJob.strength !== 0.7 ? newStrength : ''
               infostring += newJob.perlin !== 0 ? newPerlin : ''
-              infostring += newJob.seamless !== false ? newSeamless : ''
+              infostring += newJob.seamless !== false ? ' --seamless' : ''
               infostring += newJob.hires_fix !== false ? ' --hires_fix' : ''
               infostring += newJob.variation_amount !== 0 ? ` --variation_amount` + newJob.variation_amount : ''
               infostring += newJob.upscale_level !== '' ? newUpscale_level + newUpscale_strength : ''
