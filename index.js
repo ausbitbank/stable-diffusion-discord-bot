@@ -178,7 +178,7 @@ var slashCommands = [
     }
   }
 ]
-// If credits are active, add recharge otherwise don't include it
+// If credits are active, add /recharge otherwise don't include it
 if(!creditsDisabled)
 {
   slashCommands.push({
@@ -276,6 +276,8 @@ function request(request){
   if(args.invert_mask===true||args.invert_mask==='True'){newJob.invert_mask=true}else{newJob.invert_mask=false}
   if(args.seamless===true||args.seamless==='True'){newJob.seamless=true}else{newJob.seamless=false}
   if(args.hires_fix===true||args.hires_fix==='True'){newJob.hires_fix=true}else{newJob.hires_fix=false}
+  if(args.symv){newJob.symv=args.symv}
+  if(args.symh){newJob.symh=args.symh}
   if(newJob.channel==='webhook'&&request.webhook){newJob.webhook=request.webhook}
   if(creditsDisabled){newJob.cost=0}else{newJob.cost=costCalculator(newJob)}
   queue.push(newJob)
@@ -605,6 +607,10 @@ function generationResult(data){
     // remove redundant data before pushing to db results
     delete (data.metadata.prompt);delete (data.metadata.seed);delete (data.metadata.model_list);delete (data.metadata.app_id);delete (data.metadata.app_version); delete (data.attentionMaps)
     job.results.push(data)
+    if(data.tokens){
+      debugLog('Tokens: ' + data.tokens.length)
+      debugLog(data.tokens)
+    }
     postRender(postRenderObject)
   }else{rendering=false}
   if(job&&job.results.length>=job.number){job.status='done';rendering=false;processQueue()}
@@ -659,6 +665,7 @@ async function emitRenderApi(job){
   if (job.codeformer_strength===undefined){job.codeformer_strength=0}
   if(job.codeformer_strength!==0){facefix={type:'codeformer',strength:job.codeformer_strength,codeformer_fidelity:1}}
   if(job.upscale_level!==''){upscale={level:job.upscale_level,strength:job.upscale_strength,denoise_str: 0.75}}
+  if(job.symh||job.symv){postObject.h_symmetry_time_pct=job.symh;postObject.v_symmetry_time_pct=job.symv}
   if(job.init_img){postObject.init_img=job.init_img}
   if(job&&job.model&&currentModel&&job.model!==currentModel){debugLog('job.model is different to currentModel, switching');requestModelChange(job.model)}
   [postObject,upscale,facefix,job].forEach((o)=>{
@@ -726,6 +733,7 @@ async function postRender(render){
       if(job.attachments.length>0){msg+=':paperclip:` attached template`:muscle:`'+job.strength+'`'}
       if(job.text_mask){msg+=':mask:`'+job.text_mask+'`'}
       if(job.variation_amount!==0){msg+=':microbe:**`Variation '+job.variation_amount+'`**'}
+      if(job.symv||job.symh){msg+=':mirror: `v'+job.symv+',h'+job.symh+'`'}
       //var jobResult = job.renders[render.resultNumber]
       if(render.variations){msg+=':linked_paperclips:with variants `'+render.variations+'`'}
       // Added spaces to make it easier to double click the seed to copy/paste, otherwise discord selects whole line
