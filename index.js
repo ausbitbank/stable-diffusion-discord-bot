@@ -1450,7 +1450,7 @@ bot.on("messageCreate", (msg) => {
               infostring += newJob.perlin !== 0 ? newPerlin : ''
               infostring += newJob.seamless !== false ? ' --seamless' : ''
               infostring += newJob.hires_fix !== false ? ' --hires_fix' : ''
-              infostring += newJob.variation_amount !== 0 ? ` --variation_amount` + newJob.variation_amount : ''
+              infostring += newJob.variation_amount !== 0 ? ` --variation_amount ` + newJob.variation_amount : ''
               infostring += newJob.upscale_level !== '' ? newUpscale_level + newUpscale_strength : ''
               infostring += newJob.threshold !== 0 ? newThreshold : ''
               infostring += newJob.gfpgan_strength !== 0 ? newGfpgan_strength : ''
