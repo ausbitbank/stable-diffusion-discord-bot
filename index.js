@@ -1411,27 +1411,63 @@ bot.on("messageCreate", (msg) => {
           msg.content = msg.content.replace('<@'+m.id+'>','').replace('!dream','')
           msg.content='!dream '+msg.content
         } else if (msg.referencedMessage.author.id===bot.application.id) { // just a response to a message from arty, confirm before render
-          if(msg.referencedMessage.components&&msg.referencedMessage.components[0]&&msg.referencedMessage.components[0].components[0]&&msg.referencedMessage.components[0].components[0].custom_id.startsWith('refresh-')){// only works with normal renders
-            var jobid = msg.referencedMessage.components[0].components[0].custom_id.split('-')[1]
-            var newJob=JSON.parse(JSON.stringify(queue[jobid-1]))
-            msg.content=msg.content.replace('<@'+m.id+'>','').replace('!dream','')
-            if (msg.content.startsWith('+')){
-              msg.content='!dream '+msg.content.substring(1,msg.content.length)+' '+newJob.prompt
+          var jobid = msg.referencedMessage.components[0].components[0].custom_id.split('-')[1]
+          var newJob = JSON.parse(JSON.stringify(queue[jobid - 1]))
+          var newSeed = msg.content.includes('--seed') ? '' : ' --seed ' + newJob.seed
+          var newModel = msg.content.includes('--model') ? '' : ' --model ' + newJob.model
+          var newSampler = msg.content.includes('--sampler') ? '' : ' --sampler ' + newJob.sampler
+          var initSampler = msg.content.includes('--sampler') ? '' : ' --sampler ddim '
+          var newSteps = msg.content.includes('--steps') ? '' : ' --steps ' + newJob.steps
+          var newScale = msg.content.includes('--scale') ? '' : ' --scale ' + newJob.scale
+          var newHeight = msg.content.includes('--height') ? '' : ' --height ' +newJob.height
+          var newWidth = msg.content.includes('--width') ? '' :  ' --width ' + newJob.width
+          var newStrength = msg.content.includes('--strength') ? '' : ' --strength ' + newJob.strength
+          var newPerlin = msg.content.includes('--perlin') ? '' : ' --perlin ' + newJob.perlin
+          var newSeamless = msg.content.includes('--seamless') && !msg.content.includes('--seamless false') ? ' --seamless ' : ''
+          var newThreshold = msg.content.includes('--threshold') ? '' : ' --threshold ' + newJob.threshold
+          var newGfpgan_strength = msg.content.includes('--gfpgan_strength') ? '' : ' --gfpgan_strength ' + newJob.gfpgan_strength
+          var newCodeformer_strength = msg.content.includes('--codeformer_strength') ? '' : ' --codeformer_strength ' + newJob.codeformer_strength
+          var newUpscale_level = msg.content.includes('--upscale_level') ? '' : ' --upscale_level ' + newJob.upscale_level
+          var newUpscale_strength = msg.content.includes('--upscale_strength') ? '' : ' --upscale_strength ' + newJob.strength
+          var jobstring = newWidth + newHeight + newSteps + newSeed + newStrength + newScale + newSampler + newModel + newPerlin + newSeamless + newThreshold + newGfpgan_strength + newCodeformer_strength + newUpscale_level + newUpscale_strength
+          if (msg.referencedMessage.components && msg.referencedMessage.components[0] && msg.referencedMessage.components[0].components[0] && msg.referencedMessage.components[0].components[0].custom_id.startsWith('refresh-')) {
+            // only works with normal renders - modified to change only mentioned parameters, otherwise use the same from referenced job
+            msg.content = msg.content.replace('<@' + m.id + '>', '').replace('!dream', '')
+            if (msg.content.startsWith('+')) {
+              msg.content = '!dream ' + newJob.prompt + msg.content.substring(1, msg.content.length) +  jobstring
               //msg.attachments=msg.referencedMessage.attachments
-            } else if (msg.content.startsWith('..')){
-              msg.content='!dream '+newJob.prompt+' '+msg.content.substring(2,msg.content.length)
-              //msg.attachments=msg.referencedMessage.attachments
-            } else if (msg.content.startsWith('*')){
-              var newnum = parseInt(msg.content.substring(1,2))
-              msg.content='!dream '+newJob.prompt+' --number ' +newnum
-            } else if (msg.content.startsWith('-')){
-              newJob.prompt.replace(msg.content.substring(1,msg.content.length),'')
-              msg.content='!dream '+newJob.prompt
+            } else if (msg.content.startsWith('..')) {
+              msg.content = '!dream ' + newJob.prompt + jobstring + msg.content.substring(2, msg.content.length)
+            } else if (msg.content.startsWith('*')) {
+              var newnum = parseInt(msg.content.substring(1, 2))
+              msg.content = '!dream ' + jobstring + ' --number ' + newnum
+            } else if (msg.content.startsWith('-')) {
+              newJob.prompt = newJob.prompt.replace(msg.content.substring(1, msg.content.length), '')
+              msg.content = '!dream ' + newJob.prompt + jobstring
+            } else if (msg.content.startsWith('info')) {
+              var infostring = `!dream ` + newJob.prompt + newWidth + newHeight + newSteps + newSeed + newScale + newSampler + newModel
+              infostring += newJob.strength !== 0.7 ? newStrength : ''
+              infostring += newJob.perlin !== 0 ? newPerlin : ''
+              infostring += newJob.seamless !== false ? ' --seamless' : ''
+              infostring += newJob.hires_fix !== false ? ' --hires_fix' : ''
+              infostring += newJob.variation_amount !== 0 ? ` --variation_amount ` + newJob.variation_amount : ''
+              infostring += newJob.upscale_level !== '' ? newUpscale_level + newUpscale_strength : ''
+              infostring += newJob.threshold !== 0 ? newThreshold : ''
+              infostring += newJob.gfpgan_strength !== 0 ? newGfpgan_strength : ''
+              infostring += newJob.codeformer_strength !== 0 ? newCodeformer_strength : ''
+              var embed = { title: '*Long press to copy the command*', description: infostring, color: getRandomColorDec() }
+              bot.createMessage(msg.channel.id, { embed })
+            } else if (msg.content.startsWith('seed')) {
+              var embed = { title: '*Long press to copy the seed*', description: newSeed, color: getRandomColorDec() }
+              bot.createMessage(msg.channel.id, { embed })
             }
           }
           if (msg.content.startsWith('template')&&msg.referencedMessage.attachments){
             msg.attachments=msg.referencedMessage.attachments
-            msg.content='!dream '+msg.content.substring(9)
+            msg.content='!dream '+msg.content.substring(9) + ' ' + newModel + initSampler //use same model and DDIM sampler by default unless specified
+          } else if (msg.content.startsWith('inpaint')&&msg.referencedMessage.attachments){
+            msg.attachments=msg.referencedMessage.attachments
+              msg.content='!dream '+msg.content.substring(7) + ' ' + '--model' + ' inpainting ' + initSampler //use inpaint model and DDIM by default unless specified           
           } else if (msg.content.startsWith('background')||msg.content.startsWith('!background')){
             msg.content='!background'
             msg.attachments=msg.referencedMessage.attachments
