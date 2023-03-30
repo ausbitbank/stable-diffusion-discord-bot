@@ -969,15 +969,17 @@ async function meme(prompt,urls,userid,channel){
     case 'circle': var img = await new DIG.Circle().getImage(urls[0]);break
     case 'color': var img = await new DIG.Color().getImage(params[1]);break // take hex color code*/
   }
-  if (img&&cmd){
-    var msg = '<@'+userid+'> used `!meme '+prompt+'`'
-    if (!creditsDisabled){
-      chargeCredits(userid,0.05)
-      msg+=', it cost :coin:`0.05`/`'+creditsRemaining(userid)+'`'
+  try{
+    if(img&&cmd){
+      var msg = '<@'+userid+'> used `!meme '+prompt+'`'
+      if (!creditsDisabled){
+        chargeCredits(userid,0.05)
+        msg+=', it cost :coin:`0.05`/`'+creditsRemaining(userid)+'`'
+      }
+      var extension = ['blink','triggered','animate','animateseed'].includes(cmd) ? '.gif' : '.png'
+      bot.createMessage(channel, msg, {file: img, name: cmd+'-'+getRandomSeed()+extension})
     }
-    var extension = ['blink','triggered','animate','animateseed'].includes(cmd) ? '.gif' : '.png'
-    bot.createMessage(channel, msg, {file: img, name: cmd+'-'+getRandomSeed()+extension})
-  }
+  }catch(err){debugLog(err)}
 }
 meme=debounce(meme,1000,true)
 function shuffle(array) {for (let i = array.length - 1; i > 0; i--) {let j = Math.floor(Math.random() * (i + 1));[array[i], array[j]] = [array[j], array[i]]}} // fisher-yates shuffle
