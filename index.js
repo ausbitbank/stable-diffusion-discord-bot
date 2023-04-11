@@ -64,7 +64,7 @@ const defaultSteps = parseInt(config.defaultSteps)||50
 const defaultScale = parseFloat(config.defaultScale)||7.5
 const maxSteps = parseInt(config.maxSteps)||100
 const maxIterations = parseInt(config.maxIterations)||10
-const defaultMaxDiscordFileSize=parseInt(config.defaultMaxDiscordFileSize)||8000000  // TODO detect server boost status and increase this if boosted
+const defaultMaxDiscordFileSize=parseInt(config.defaultMaxDiscordFileSize)||25000000  // TODO detect server boost status and increase this if boosted
 const basePath = config.basePath
 const maxAnimateImages = 100 // Only will fetch most recent X images for animating
 var rembg=config.rembg||'http://127.0.0.1:5000?url='
