@@ -62,6 +62,7 @@ const bot = new Eris.CommandClient(config.discordBotKey, {
 const defaultSize = parseInt(config.defaultSize)||512
 const defaultSteps = parseInt(config.defaultSteps)||50
 const defaultScale = parseFloat(config.defaultScale)||7.5
+const defaultStrength = parseFloat(config.defaultStrength)||0.45
 const maxSteps = parseInt(config.maxSteps)||100
 const maxIterations = parseInt(config.maxIterations)||10
 const defaultMaxDiscordFileSize=parseInt(config.defaultMaxDiscordFileSize)||25000000  // TODO detect server boost status and increase this if boosted
@@ -71,6 +72,8 @@ var rembg=config.rembg||'http://127.0.0.1:5000?url='
 var defaultModel=config.defaultModel||'stable-diffusion-1.5'
 var currentModel='notInitializedYet'
 var models=null
+var lora=null
+var ti=null
 // load samplers from config
 var samplers=config.samplers.split(',')
 var samplersSlash=[]
@@ -221,7 +224,7 @@ function request(request){
   }
   if (!args.steps||!Number.isInteger(args.steps)||args.steps>maxSteps){args.steps=defaultSteps} // default 50
   if (!args.seed||!Number.isInteger(args.seed)||args.seed<1||args.seed>4294967295){args.seed=getRandomSeed()}
-  if (!args.strength||args.strength>1||args.strength<=0){args.strength=0.7}
+  if (!args.strength||args.strength>1||args.strength<=0){args.strength=defaultStrength}
   if (!args.scale||args.scale>200||args.scale<1){args.scale=defaultScale}
   if (!args.sampler){args.sampler=defaultSampler}
   if (args.n){args.number=args.n}
@@ -755,7 +758,7 @@ async function postRender(render){
       if(newMessage.components[0].components.length<5){newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Random", custom_id: "editRandom-"+job.id, emoji: { name: '🔀', id: null}, disabled: false })}
       if(newMessage.components[0].components.length===0){delete newMessage.components} // If no components are used there will be a discord api error so remove it
       var filesize=fs.statSync(render.filename).size
-      if(filesize<defaultMaxDiscordFileSize){ // Within discord 8mb filesize limit
+      if(filesize<defaultMaxDiscordFileSize){ // Within discord 25mb filesize limit
         try{bot.createMessage(job.channel, newMessage, {file: data, name: filename + '.png'}).then(m=>{}).catch((err)=>{log('caught error posting to discord in channel '.bgRed+job.channel);log(err)})}
         catch(err){console.error(err)}
       }else{
@@ -838,7 +841,7 @@ function lexicaSearch(query,channel){
       shuffle(filteredResults)
       filteredResults=filteredResults.slice(0,10)// shuffle and trim to 10 results // todo make this an option once lexica writes api docs
       filteredResults.forEach(i=>{reply.embeds.push({color: getRandomColorDec(),description: ':seedling:`'+i.seed+'` :straight_ruler:`'+i.width+'x'+i.height+'`',image:{url:i.srcSmall},footer:{text:i.prompt}})})
-      bot.createMessage(channel, reply)
+      sliceMsg(reply).forEach((m)=>{try{bot.createMessage(channel, m)}catch(err){debugLog(err)}})
     })
     .catch((error) => console.error(error))
 }
@@ -1049,6 +1052,12 @@ if(config.filewatcher==="true") {
   renders.on('add',file=>{process(file)})
 }
 function tidyNumber (x) {if (x) {var parts = x.toString().split('.');parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');return parts.join('.')}else{return null}}
+function sliceMsg(str) {
+  const chunkSize=1999 // max discord message is 2k characters
+  let chunks=[];let i=0;let len=str.length
+  while(i<len){chunks.push(str.slice(i, i += chunkSize))}
+  return chunks
+}
 
 // Initial discord bot setup and listeners
 bot.on("ready", async () => {
@@ -1128,7 +1137,7 @@ bot.on("interactionCreate", async (interaction) => {
       }
     } else if (interaction.data.custom_id.startsWith('edit-')) {
       id=interaction.data.custom_id.split('-')[1]
-      if(queue[id-1]){var newJob=JSON.parse(JSON.stringify(queue[id-1]))} // parse/stringify to deep copy and make sure we dont edit the original
+      if(queue[id-1]){var newJob=JSON.parse(JSON.stringify(queue[id-1]))}
       if(newJob){
         newJob.number=1
         if(newJob.webhook){delete newJob.webhook}
@@ -1137,10 +1146,26 @@ bot.on("interactionCreate", async (interaction) => {
         log('edit request failed'.bgRed)
         return interaction.editParent({components:[]}).catch((e) => {console.error(e)})
       }
+    } else if (interaction.data.custom_id.startsWith('editSteps-')) {
+      id=interaction.data.custom_id.split('-')[1];rn=interaction.data.custom_id.split('-')[2]
+      if(queue[id-1]){var newJob=JSON.parse(JSON.stringify(queue[id-1]))}
+      if(newJob){
+        newJob.number=1
+        if(newJob.webhook){delete newJob.webhook}
+        return interaction.createModal({custom_id:'twksteps-'+newJob.id,title:'Edit the steps (Max '+maxSteps+')',components:[{type:1,components:[{type:4,custom_id:'steps',label:'Steps',style:2,value:newJob.steps,required:true,min_length:1,max_length:3}]}]}).then((r)=>{}).catch((e)=>{console.error(e)})
+      }else{return interaction.editParent({components:[]}).catch((e) => {console.error(e)})}
+    } else if (interaction.data.custom_id.startsWith('editScale-')) {
+      id=interaction.data.custom_id.split('-')[1];rn=interaction.data.custom_id.split('-')[2]
+      if(queue[id-1]){var newJob=JSON.parse(JSON.stringify(queue[id-1]))}
+      if(newJob){
+        newJob.number=1
+        if(newJob.webhook){delete newJob.webhook}
+        return interaction.createModal({custom_id:'twkscale-'+newJob.id,title:'Edit the scale',components:[{type:1,components:[{type:4,custom_id:'scale',label:'Scale',style:2,value:String(newJob.scale),required:true,min_length:1,max_length:4}]}]}).then((r)=>{}).catch((e)=>{console.error(e)})
+      }else{return interaction.editParent({components:[]}).catch((e) => {console.error(e)})}
     } else if (interaction.data.custom_id.startsWith('tweak-')) {
       id=interaction.data.custom_id.split('-')[1]
       rn=interaction.data.custom_id.split('-')[2]
-      if(queue[id-1]){var newJob=JSON.parse(JSON.stringify(queue[id-1]))} // parse/stringify to deep copy and make sure we dont edit the original
+      if(queue[id-1]){var newJob=JSON.parse(JSON.stringify(queue[id-1]))}
       if (newJob) {
         newJob.number = 1
         if (newJob.webhook){delete newJob.webhook}
@@ -1151,15 +1176,14 @@ bot.on("interactionCreate", async (interaction) => {
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Portrait", custom_id: "twkaspectPortrait-"+id+'-'+rn, emoji: { name: '↕️', id: null}, disabled: false },
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Square", custom_id: "twkaspectSquare-"+id+'-'+rn, emoji: { name: '🔳', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Landscape", custom_id: "twkaspectLandscape-"+id+'-'+rn, emoji: { name: '↔️', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Model", custom_id: "chooseModel-"+id+'-'+rn, emoji: { name: '💾', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Sampler", custom_id: "chooseSampler-"+id+'-'+rn, emoji: { name: '👁️', id: null}, disabled: false }
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Landscape", custom_id: "twkaspectLandscape-"+id+'-'+rn, emoji: { name: '↔️', id: null}, disabled: false }
               ]},
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Scale - 1", custom_id: "twkscaleMinus-"+id+'-'+rn, emoji: { name: '⚖️', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Scale + 1", custom_id: "twkscalePlus-"+id+'-'+rn, emoji: { name: '⚖️', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Steps - 10", custom_id: "twkstepsMinus-"+id+'-'+rn, emoji: { name: '♻️', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Steps + 10", custom_id: "twkstepsPlus-"+id+'-'+rn, emoji: { name: '♻️', id: null}, disabled: false }
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Scale", custom_id: "editScale-"+id+'-'+rn, emoji: { name: '⚖️', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Steps", custom_id: "editSteps-"+id+'-'+rn, emoji: { name: '♻️', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Embeds", custom_id: "chooseEmbeds-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Model", custom_id: "chooseModel-"+id+'-'+rn, emoji: { name: '💾', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Sampler", custom_id: "chooseSampler-"+id+'-'+rn, emoji: { name: '👁️', id: null}, disabled: false }
               ]},
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Upscale 2x", custom_id: "twkupscale2-"+id+'-'+rn, emoji: { name: '🔍', id: null}, disabled: false },
@@ -1220,8 +1244,10 @@ bot.on("interactionCreate", async (interaction) => {
       switch(interaction.data.custom_id.split('-')[0].replace('twk','')){
         case 'scalePlus': newJob.scale=newJob.scale+1;break
         case 'scaleMinus': newJob.scale=newJob.scale-1;break
-        case 'stepsPlus': newJob.steps=newJob.steps+10;break
-        case 'stepsMinus': newJob.steps=newJob.steps-10;break
+        //case 'stepsPlus': newJob.steps=newJob.steps+10;break
+        //case 'stepsMinus': newJob.steps=newJob.steps-10;break
+        case 'scale': var newscale=parseFloat(interaction.data.components[0].components[0].value);if(!isNaN(newscale)){newJob.scale=newscale};break
+        case 'steps': var newsteps=parseInt(interaction.data.components[0].components[0].value);if(!isNaN(newsteps)){newJob.steps=newsteps};break
         case 'aspectPortrait': newJob.height=defaultSize+192;newJob.width=defaultSize;break
         case 'aspectLandscape': newJob.width=defaultSize+192;newJob.height=defaultSize;break
         case 'aspectSquare': newJob.width=defaultSize;newJob.height=defaultSize;break
@@ -1265,7 +1291,7 @@ bot.on("interactionCreate", async (interaction) => {
         for(let i=0;i<allModelKeys.length;i+=maxModelAmount) {
           var modelBatch=allModelKeys.slice(i,i+maxModelAmount)
           changeModelResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'changeModel'+i+'-'+id+'-'+rn,placeholder:'Choose a model/checkpoint',min_values:1,max_values:1,options:[]}]})
-          modelBatch.forEach((m)=>{changeModelResponse.components[changeModelResponse.components.length-1].components[0].options.push({label: m,value: m,description: models[m].description})})
+          modelBatch.forEach((m)=>{changeModelResponse.components[changeModelResponse.components.length-1].components[0].options.push({label: m,value: m,description: models[m].description.substring(0,99)})})
         }
         return interaction.editParent(changeModelResponse).then((r)=>{}).catch((e)=>{console.error(e)})
       }
@@ -1304,7 +1330,7 @@ bot.on("interactionCreate", async (interaction) => {
     } else if (interaction.data.custom_id.startsWith('chooseSampler')) {
       id=interaction.data.custom_id.split('-')[1]
       rn=interaction.data.custom_id.split('-')[2]
-      var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
+      var newJob=JSON.parse(JSON.stringify(queue[id-1]))
       if(newJob&&models){
         var changeSamplerResponse={content:':eye: **Sampler Menu**\nUse this menu to change the sampler being used',flags:64,components:[{type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'changeSampler-'+id+'-'+rn,placeholder:'Choose a sampler',min_values:1,max_values:1,options:[]}]}]}
         samplers.forEach((s)=>{changeSamplerResponse.components[0].components[0].options.push({label: s,value: s})})
@@ -1313,7 +1339,7 @@ bot.on("interactionCreate", async (interaction) => {
     } else if (interaction.data.custom_id.startsWith('changeSampler')) {
       id=interaction.data.custom_id.split('-')[1]
       rn=interaction.data.custom_id.split('-')[2]
-      var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
+      var newJob=JSON.parse(JSON.stringify(queue[id-1]))
       var result=newJob.results[rn]
       if(result){debugLog('setting seed from batch result:'+result.metadata.image.seed);newJob.seed=result.metadata.image.seed}
       var newSampler=interaction.data.values[0]
@@ -1325,6 +1351,54 @@ bot.on("interactionCreate", async (interaction) => {
           request({cmd: getCmd(newJob), userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
         }
         return interaction.editParent({content:':eye: ** Sampler '+interaction.data.values[0]+'** selected',components:[]}).catch((e) => {console.error(e)})
+      }
+    } else if (interaction.data.custom_id.startsWith('chooseEmbeds')) {
+      id=interaction.data.custom_id.split('-')[1]
+      rn=interaction.data.custom_id.split('-')[2]
+      var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
+      if(newJob&&lora&&ti){
+        var changeEmbedResponse={content:':eye: **Embeds Menu**\n:pill: Embeddings are a way to supplement the current model with extra styles, characters or abilities.',flags:64,components:[]}
+        for(let i=0;i<lora.length;i+=25){
+          changeEmbedResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'addLora'+i+'-'+id+'-'+rn,placeholder:'Add a LORA',min_values:1,max_values:1,options:[]}]})
+          lora.slice(i,i+25).forEach((l)=>{changeEmbedResponse.components[changeEmbedResponse.components.length-1].components[0].options.push({label: l,value: l,description: l})})
+        }
+        for(let i=0;i<ti.length;i+=25){
+          changeEmbedResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'addTi'+i+'-'+id+'-'+rn,placeholder:'Add a Textual Inversion',min_values:1,max_values:1,options:[]}]})
+          ti.slice(i,i+25).forEach((i)=>{changeEmbedResponse.components[changeEmbedResponse.components.length-1].components[0].options.push({label: i,value: i,description: i})})
+        }
+        return interaction.editParent(changeEmbedResponse).then((r)=>{}).catch((e)=>{console.error(e)})
+      }
+    } else if (interaction.data.custom_id.startsWith('addLora')) {
+      id=interaction.data.custom_id.split('-')[1]
+      rn=interaction.data.custom_id.split('-')[2]
+      var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
+      var result=newJob.results[rn]
+      if(result){newJob.seed=result.metadata.image.seed}
+      var newLora=interaction.data.values[0]
+      if(newJob&&newLora){
+        newJob.prompt+=' useLora('+newLora+',1)' // add lora to prompt
+        if(interaction.member){
+          request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
+        } else if (interaction.user){
+          request({cmd: getCmd(newJob), userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
+        }
+        return interaction.editParent({content:':eye: ** LORA embed '+interaction.data.values[0]+'** selected',components:[]}).catch((e) => {console.error(e)})
+      }
+    } else if (interaction.data.custom_id.startsWith('addTi')) {
+      id=interaction.data.custom_id.split('-')[1]
+      rn=interaction.data.custom_id.split('-')[2]
+      var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
+      var result=newJob.results[rn]
+      if(result){newJob.seed=result.metadata.image.seed}
+      var newTi=interaction.data.values[0]
+      if(newJob&&newTi){
+        newJob.prompt+=' \<'+newTi+'\>' // add lora to prompt
+        if(interaction.member){
+          request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
+        } else if (interaction.user){
+          request({cmd: getCmd(newJob), userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
+        }
+        return interaction.editParent({content:':eye: ** Textual inversion '+interaction.data.values[0]+'** selected',components:[]}).catch((e) => {console.error(e)})
       }
     }
   }
@@ -1437,7 +1511,6 @@ bot.on("messageCreate", (msg) => {
             msg.content = msg.content.replace('<@' + m.id + '>', '').replace('!dream', '')
             if (msg.content.startsWith('+')) {
               msg.content = '!dream ' + newJob.prompt + msg.content.substring(1, msg.content.length) +  jobstring
-              //msg.attachments=msg.referencedMessage.attachments
             } else if (msg.content.startsWith('..')) {
               msg.content = '!dream ' + newJob.prompt + jobstring + msg.content.substring(2, msg.content.length)
             } else if (msg.content.startsWith('*')) {
@@ -1462,6 +1535,16 @@ bot.on("messageCreate", (msg) => {
             } else if (msg.content.startsWith('seed')) {
               var embed = { title: '*Long press to copy the seed*', description: newSeed, color: getRandomColorDec() }
               bot.createMessage(msg.channel.id, { embed })
+            } else if (msg.content.startsWith('models')){
+                var modelsToTest=[]
+                var modelsToTestString=msg.content.substring(7)
+                var modelKeys=Object.keys(models)
+                if(modelsToTestString==='all'){modelsToTest=modelKeys}else{modelsToTestString.split(' ').forEach(m=>{if(modelKeys.includes(m)){modelsToTest.push(m)}})}
+                debugLog(modelsToTest.length*newJob.cost) // batch cost
+                modelsToTest.forEach(m=>{
+                  newJob.model=m
+                  request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
+                })
             }
           }
           if (msg.content.startsWith('template')&&msg.referencedMessage.attachments){
@@ -1469,7 +1552,7 @@ bot.on("messageCreate", (msg) => {
             msg.content='!dream '+msg.content.substring(9) + ' ' + newModel + initSampler //use same model and DDIM sampler by default unless specified
           } else if (msg.content.startsWith('inpaint')&&msg.referencedMessage.attachments){
             msg.attachments=msg.referencedMessage.attachments
-              msg.content='!dream '+msg.content.substring(7) + ' ' + '--model' + ' inpainting ' + initSampler //use inpaint model and DDIM by default unless specified           
+              msg.content='!dream '+msg.content.substring(7) + ' ' + '--model' + ' inpainting ' + initSampler //use inpaint model by default unless specified           
           } else if (msg.content.startsWith('background')||msg.content.startsWith('!background')){
             msg.content='!background'
             msg.attachments=msg.referencedMessage.attachments
@@ -1532,7 +1615,7 @@ bot.on("messageCreate", (msg) => {
           var attachmentsUrls = msg.attachments.map((u)=>{return u.proxy_url})
           attachmentsUrls.forEach((url)=>{
             log('Removing background from '+url)
-            axios.get(rembg+encodeURIComponent(url),{responseType: 'arraybuffer'})//axios.get('http://127.0.0.1:5000?url='+encodeURIComponent(msg.attachments.map((u)=>{return u.proxy_url})),{responseType: 'arraybuffer'})
+            axios.get(rembg+encodeURIComponent(url),{responseType: 'arraybuffer'})
               .then((response)=>{
                 var newMsg='<@'+msg.author.id+'> used `!background`'
                 if (!creditsDisabled){
@@ -1719,10 +1802,30 @@ bot.on("messageCreate", (msg) => {
               })
             })
           })
+        }
+        break
       }
-      break
+      case '!embeds':{
+        socket.emit("getLoraModels")
+        socket.emit("getTextualInversionTriggers")
+        newMsg=':pill: Embeddings are a way to supplement the current model. Add to prompt\n'
+        if(lora&&lora.length>0){newMsg+='**LORA**:\n'+lora.map(x=>`\`useLora(${x})\``).join(' , ')+'\n'}
+        if(ti&&ti.length>0){newMsg=newMsg+'**Textual inversions**:\n'+ti.map(x=>`\`\<${x}\>\``).join(' , ')+'\n Everything in https://huggingface.co/sd-concepts-library is also available'}
+        sliceMsg(newMsg).forEach((m)=>{try{bot.createMessage(msg.channel.id, m)}catch(err){debugLog(err)}})
+        break
+      }
+      case '!meta':{
+        if (msg.attachments.length===1&&msg.attachments[0].content_type.startsWith('image/')){
+          var attachmentsUrls = msg.attachments.map((u)=>{return u.proxy_url})
+          jimp.read(attachmentsUrls[0], (err,img)=>{
+            if(err){debugLog(err)}
+            var newMsg = img.getMetadata()
+            debugLog(newMsg)
+            try{bot.createMessage(msg.channel.id, newMsg)}catch(err){debugLog(err)}
+          })
+        }
+      }
     }
-  }
   if (msg.author.id===config.adminID) { // admins only
     if (c.startsWith('!')){log('admin command: '.bgRed+c)}
     switch(c){
@@ -1824,6 +1927,8 @@ socket.on("intermediateResult", (data) => {
     })
   }else{debugLog('not upscaling cos same')}
 })
+socket.on("foundLoras", (answer) =>{lora=answer.map(item=>item.name);debugLog('Enabled LORAS:');debugLog(lora)})
+socket.on("foundTextualInversionTriggers", (answer) =>{ti=answer.local_triggers.map(item=>item.name).map(str => str.replace('<', '').replace('>', ''));debugLog('Enabled Textual Inversions');debugLog(ti)})
 socket.on('error', (error) => {
   log('Api socket error'.bgRed);log(error)
   var nowJob=queue[queue.findIndex((j)=>j.status==="rendering")]
@@ -1836,3 +1941,5 @@ socket.on('error', (error) => {
 // Actual start of execution flow
 bot.connect()
 if(!models){socket.emit('requestSystemConfig')}
+socket.emit("getLoraModels")
+socket.emit("getTextualInversionTriggers")
