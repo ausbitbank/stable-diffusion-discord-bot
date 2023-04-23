@@ -195,6 +195,13 @@ if(!creditsDisabled)
 
 // Functions
 
+function auto2invoke(text) {
+  const regex = /\(([^)]+):([^)]+)\)/g
+  return text.replace(regex, function(match, $1, $2) {
+    return '('+$1+')' + $2
+  })
+}
+
 function request(request){
   // request = { cmd: string, userid: int, username: string, discriminator: int, bot: false, channelid: int, attachments: {}, }
   if (request.cmd.includes('{')) { request.cmd = replaceRandoms(request.cmd) } // swap randomizers
@@ -242,6 +249,7 @@ function request(request){
   args.timestamp=moment()
   args.prompt=sanitize(args._.join(' '))
   if (args.prompt.length===0){args.prompt=getRandom('prompt');log('empty prompt found, adding random')}
+  args.prompt = auto2invoke(args.prompt)
   var newJob={
     id: queue.length+1,
     status: 'new',
