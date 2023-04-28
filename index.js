@@ -10,15 +10,16 @@ const axios = require('axios')
 var parseArgs = require('minimist')
 const chokidar = require('chokidar')
 const moment = require('moment')
-const { ImgurClient } = require('imgur')
-const imgur = new ImgurClient({ clientId: config.imgurClientID})
-const imgbb = require("imgbb-uploader")
+// const { ImgurClient } = require('imgur')
+// const imgur = new ImgurClient({ clientId: config.imgurClientID})
+// const imgbb = require("imgbb-uploader")
 //const DIG = require("discord-image-generation")
 const sharp = require("sharp")
 const GIF = require("sharp-gif2")
 const Diff = require("diff")
 const log = console.log.bind(console)
 function debugLog(m){if(config.showDebug){log(m)}}
+const loop = (times, callback) => {[...Array(times)].forEach((item, i) => callback(i))}
 const dJSON = require('dirty-json')
 var colors = require('colors')
 const debounce = require('debounce')
@@ -610,10 +611,10 @@ function generationResult(data){
     // remove redundant data before pushing to db results
     delete (data.metadata.prompt);delete (data.metadata.seed);delete (data.metadata.model_list);delete (data.metadata.app_id);delete (data.metadata.app_version); delete (data.attentionMaps)
     job.results.push(data)
-    if(data.tokens){
+    /*if(data.tokens){
       debugLog('Tokens: ' + data.tokens.length)
       debugLog(data.tokens)
-    }
+    }*/
     postRender(postRenderObject)
   }else{rendering=false}
   if(job&&job.results.length>=job.number){job.status='done';rendering=false;processQueue()}
@@ -761,7 +762,11 @@ async function postRender(render){
       if(filesize<defaultMaxDiscordFileSize){ // Within discord 25mb filesize limit
         try{bot.createMessage(job.channel, newMessage, {file: data, name: filename + '.png'}).then(m=>{}).catch((err)=>{log('caught error posting to discord in channel '.bgRed+job.channel);log(err)})}
         catch(err){console.error(err)}
-      }else{
+      } else {
+        log('Image '+filename+' was too big for discord, failed to post to channel '+job.channel)
+      }
+      // Disabled imgur and imgbb uploads (discord limits raised, no longer required + TOS changes for imgur make it awkward)
+      /*}else{
         if(imgurEnabled()&&filesize<10000000){
           bot.createMessage(job.channel,'<@'+job.userid + '> your image was too big for discord, uploading to imgur now..')
           try { imgurupload(render.filename).then(upload => { bot.createMessage(job.channel,{ content: msg, embeds: [{image: {url: upload.link}, description:job.prompt}]}) }) }
@@ -771,7 +776,7 @@ async function postRender(render){
           chat('<@' + job.userid + '> your file was too big for discord, uploading to imgbb now..')
           try { imgbbupload(render.filename).then(upload => { log(upload); bot.createMessage(job.channel,{ content: msg, embeds: [{image: {url: upload.url}, description:job.prompt}]}) }) }
           catch (err) { console.error(err); bot.createMessage(job.channel,'Sorry <@' + job.userid + '> imgbb uploading failed, contact an admin for your image `' + filename + '.png`') }*/
-        } else {
+        /*} else {
           try {
             bot.createMessage(job.channel,'<@' + job.userid + '> your image was too big for discord and imgur, uploading to oshi.at now..')
             log('uploading via oshi.at api')
@@ -785,10 +790,10 @@ async function postRender(render){
               bot.createMessage(job.channel,{ content: msg+'\n '+(filesize/1000000).toFixed(2)+'MB image uploaded to oshi.at : '+oshiimg, embeds: [{description:job.prompt, color: getRandomColorDec()}]})
             })
             .catch((error) => console.error(error))
-          }catch (err){console.error(err);bot.createMessage(job.channel,'Sorry <@' + job.userid + '> but your image was too big for all available image hosts, contact an admin for your image `' + filename + '.png`')}
+          }catch (err){console.error(err);bot.createMessage(job.channel,'Sorry <@' + job.userid + '> but your image was too big for all available image hosts, contact an admin for your image `' + filename + '.png`')} 
         }
+      }*/
       }
-    }
     })
   }
   catch(err) {console.error(err)}
@@ -1055,7 +1060,7 @@ function tidyNumber (x) {if (x) {var parts = x.toString().split('.');parts[0] = 
 function sliceMsg(str) {
   const chunkSize=1999 // max discord message is 2k characters
   let chunks=[];let i=0;let len=str.length
-  while(i<len){chunks.push(str.slice(i, i += chunkSize))}
+  while (i < len) {chunks.push(str.slice(i, i += chunkSize))}
   return chunks
 }
 
@@ -1176,14 +1181,16 @@ bot.on("interactionCreate", async (interaction) => {
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Portrait", custom_id: "twkaspectPortrait-"+id+'-'+rn, emoji: { name: '↕️', id: null}, disabled: false },
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Square", custom_id: "twkaspectSquare-"+id+'-'+rn, emoji: { name: '🔳', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Landscape", custom_id: "twkaspectLandscape-"+id+'-'+rn, emoji: { name: '↔️', id: null}, disabled: false }
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Landscape", custom_id: "twkaspectLandscape-"+id+'-'+rn, emoji: { name: '↔️', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Model", custom_id: "chooseModel-"+id+'-'+rn, emoji: { name: '💾', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Sampler", custom_id: "chooseSampler-"+id+'-'+rn, emoji: { name: '👁️', id: null}, disabled: false }
               ]},
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Scale", custom_id: "editScale-"+id+'-'+rn, emoji: { name: '⚖️', id: null}, disabled: false },
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Steps", custom_id: "editSteps-"+id+'-'+rn, emoji: { name: '♻️', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Embeds", custom_id: "chooseEmbeds-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Model", custom_id: "chooseModel-"+id+'-'+rn, emoji: { name: '💾', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Sampler", custom_id: "chooseSampler-"+id+'-'+rn, emoji: { name: '👁️', id: null}, disabled: false }
+                // {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Embeds", custom_id: "chooseEmbeds-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Textual Inversions", custom_id: "chooseTi-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Loras", custom_id: "chooseLora-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false },
               ]},
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Upscale 2x", custom_id: "twkupscale2-"+id+'-'+rn, emoji: { name: '🔍', id: null}, disabled: false },
@@ -1358,6 +1365,7 @@ bot.on("interactionCreate", async (interaction) => {
       var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
       if(newJob&&lora&&ti){
         var changeEmbedResponse={content:':eye: **Embeds Menu**\n:pill: Embeddings are a way to supplement the current model with extra styles, characters or abilities.',flags:64,components:[]}
+        debugLog('Loras: '+lora.length+'\nTextual Inversions: '+ti.length)
         for(let i=0;i<lora.length;i+=25){
           changeEmbedResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'addLora'+i+'-'+id+'-'+rn,placeholder:'Add a LORA',min_values:1,max_values:1,options:[]}]})
           lora.slice(i,i+25).forEach((l)=>{changeEmbedResponse.components[changeEmbedResponse.components.length-1].components[0].options.push({label: l,value: l,description: l})})
@@ -1368,15 +1376,41 @@ bot.on("interactionCreate", async (interaction) => {
         }
         return interaction.editParent(changeEmbedResponse).then((r)=>{}).catch((e)=>{console.error(e)})
       }
+    } else if (interaction.data.custom_id.startsWith('chooseTi')) {
+      id=interaction.data.custom_id.split('-')[1]
+      rn=interaction.data.custom_id.split('-')[2]
+      var newJob=JSON.parse(JSON.stringify(queue[id-1]))
+      if(newJob&&lora&&ti){
+        var changeEmbedResponse={content:':eye: **Embeds Menu**\n:pill: LORA Embeddings are a way to supplement the current model with extra styles, characters or abilities.',flags:64,components:[]}
+        debugLog('Loras: '+lora.length)
+        for(let i=0;i<ti.length;i+=25){
+          changeEmbedResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'addTi'+i+'-'+id+'-'+rn,placeholder:'Add a Textual Inversion',min_values:1,max_values:1,options:[]}]})
+          ti.slice(i,i+25).forEach((i)=>{changeEmbedResponse.components[changeEmbedResponse.components.length-1].components[0].options.push({label: i,value: i,description: i})})
+        }
+        return interaction.editParent(changeEmbedResponse).then((r)=>{}).catch((e)=>{console.error(e)})
+      }
+    } else if (interaction.data.custom_id.startsWith('chooseLora')) {
+      id=interaction.data.custom_id.split('-')[1]
+      rn=interaction.data.custom_id.split('-')[2]
+      var newJob=JSON.parse(JSON.stringify(queue[id-1]))
+      if(newJob&&lora&&ti){
+        var changeEmbedResponse={content:':eye: **Textual Inversions Menu**\n:pill: Textual Inversion embeddings are a way to supplement the current model with extra styles, characters or abilities.',flags:64,components:[]}
+        debugLog('Textual Inversions: '+ti.length)
+        for(let i=0;i<lora.length;i+=25){
+          changeEmbedResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'addLora'+i+'-'+id+'-'+rn,placeholder:'Add a LORA',min_values:1,max_values:1,options:[]}]})
+          lora.slice(i,i+25).forEach((l)=>{changeEmbedResponse.components[changeEmbedResponse.components.length-1].components[0].options.push({label: l,value: l,description: l})})
+        }
+        return interaction.editParent(changeEmbedResponse).then((r)=>{}).catch((e)=>{console.error(e)})
+      }
     } else if (interaction.data.custom_id.startsWith('addLora')) {
       id=interaction.data.custom_id.split('-')[1]
       rn=interaction.data.custom_id.split('-')[2]
-      var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
+      var newJob=JSON.parse(JSON.stringify(queue[id-1]))
       var result=newJob.results[rn]
       if(result){newJob.seed=result.metadata.image.seed}
       var newLora=interaction.data.values[0]
       if(newJob&&newLora){
-        newJob.prompt+=' useLora('+newLora+',1)' // add lora to prompt
+        newJob.prompt+=' useLora('+newLora+',0.8)' // add lora to prompt
         if(interaction.member){
           request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
         } else if (interaction.user){
@@ -1387,12 +1421,47 @@ bot.on("interactionCreate", async (interaction) => {
     } else if (interaction.data.custom_id.startsWith('addTi')) {
       id=interaction.data.custom_id.split('-')[1]
       rn=interaction.data.custom_id.split('-')[2]
-      var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
+      var newJob=JSON.parse(JSON.stringify(queue[id-1]))
       var result=newJob.results[rn]
       if(result){newJob.seed=result.metadata.image.seed}
       var newTi=interaction.data.values[0]
       if(newJob&&newTi){
-        newJob.prompt+=' \<'+newTi+'\>' // add lora to prompt
+        newJob.prompt+=' \<'+newTi+'\>' // add ti to prompt
+        if(interaction.member){
+          request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
+        } else if (interaction.user){
+          request({cmd: getCmd(newJob), userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
+        }
+        return interaction.editParent({content:':eye: ** Textual inversion '+interaction.data.values[0]+'** selected',components:[]}).catch((e) => {console.error(e)})
+      }
+    } else if (interaction.data.custom_id.startsWith('chooseAspect')) {
+      id=interaction.data.custom_id.split('-')[1]
+      rn=interaction.data.custom_id.split('-')[2]
+      var newJob=JSON.parse(JSON.stringify(queue[id-1]))
+      var aspectRatios = ['1:1','3:4','4:3','9:5','5:9','9:16','16:9']
+      if(newJob){
+        var changeAspectResponse={content:':eye: **Aspect Ratios**\n Different aspect ratios will give different compositions.',flags:64,components:[]}
+        //
+        for(let i=0;i<ti.length;i+=25){
+          changeAspectResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'addAspect'+i+'-'+id+'-'+rn,placeholder:'Change aspect ratio',min_values:1,max_values:1,options:[]}]})
+          aspectRatios.forEach((i)=>{
+            var w=i.split(':')[0];var h=i.split(':')[1];var l
+            if (i='1:1'){l='square'}else if(w>h){l='landscape'}else{l='portrait'}
+            changeAspectResponse.components[changeAspectResponse.components.length-1].components[0].options.push({label: i,value: i,description: l})
+          })
+        }
+        return interaction.editParent(changeAspectResponse).then((r)=>{}).catch((e)=>{console.error(e)})
+      }
+    } else if (interaction.data.custom_id.startsWith('addAspect')) {
+      id=interaction.data.custom_id.split('-')[1]
+      rn=interaction.data.custom_id.split('-')[2]
+      var newJob=JSON.parse(JSON.stringify(queue[id-1]))
+      var result=newJob.results[rn]
+      if(result){newJob.seed=result.metadata.image.seed}
+      var newAspect=interaction.data.values[0]
+      if(newJob){
+        var oldPixelCount=newJob.width*newJob.height
+        // Take aspect ratio
         if(interaction.member){
           request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
         } else if (interaction.user){
@@ -1545,6 +1614,15 @@ bot.on("messageCreate", (msg) => {
                   newJob.model=m
                   request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
                 })
+            } else if (msg.content.startsWith('samplers')){
+                var samplersToTest=[]
+                var samplersToTestString=msg.content.substring(7)
+                if(samplersToTestString==='all'){samplersToTest=samplers;debugLog(samplersToTest)}else{samplersToTestString.split(' ').forEach(s=>{if(samplers.includes(s)){samplersToTest.push(s)}})}
+                debugLog(samplers.length*newJob.cost) // batch cost
+                samplersToTest.forEach(s=>{
+                  newJob.sampler=s
+                  request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
+                })
             }
           }
           if (msg.content.startsWith('template')&&msg.referencedMessage.attachments){
@@ -1558,6 +1636,9 @@ bot.on("messageCreate", (msg) => {
             msg.attachments=msg.referencedMessage.attachments
           } else if (msg.content.startsWith('crop')||msg.content.startsWith('!crop')){
             msg.content='!crop'
+            msg.attachments=msg.referencedMessage.attachments
+          } else if (msg.content.startsWith('split')||msg.content.startsWith('!split')){
+            msg.content='!'+msg.content
             msg.attachments=msg.referencedMessage.attachments
           } else if (msg.content.startsWith('expand')||msg.content.startsWith('!expand')){
             msg.content=msg.content.split(' ')[0]
@@ -1636,7 +1717,7 @@ bot.on("messageCreate", (msg) => {
             log('cropping '+url)
             jimp.read(url,(err,img)=>{
               if(err){log('Error during cropping'.bgRed);log(err)}
-              img.autocrop()
+              try{img.autocrop()}catch(err){debugLog(err)}
               var newMsg='<@'+msg.author.id+'> used `!crop`'
               if(!creditsDisabled){
                 chargeCredits(msg.author.id,0.05)
@@ -1731,6 +1812,52 @@ bot.on("messageCreate", (msg) => {
         }
         break
       }
+      case '!split':{
+        if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){
+          var attachmentsUrls = msg.attachments.map((u)=>{return u.proxy_url})
+          attachmentsUrls.forEach((url)=>{
+            log('splitting '+url)
+            var splitCmd=msg.content.split(' ')
+            var splitColumns=Math.min(splitCmd[1] ? splitCmd[1]:4,20)
+            var splitRows=Math.min(splitCmd[2] ? splitCmd[2]:1,20)
+            var splitSegments=[]
+            jimp.read(url,(err,img)=>{
+              if(err){log('Error during splitting'.bgRed);log(err)}
+              var width=img.getWidth()
+              var height=img.getHeight()
+              loop(splitColumns,c=>{
+                c++
+                debugLog(c)
+                loop(splitRows,r=>{
+                  r++
+                  debugLog(r)
+                  var cropWidth=width/splitColumns // crop is this wide
+                  var cropHeight=height/splitRows // crop is this high
+                  var cropX=Math.max(Math.min((cropWidth*c)-(cropWidth),width),0) // crop starts x pixels from left border
+                  var cropY=Math.max(Math.min((cropHeight*r)-(cropHeight),height),0) // crop starts y pixels from top border
+                  debugLog('Img width: '+width+'\nImg height: '+height)
+                  debugLog('Cropping: x '+cropX+' y '+cropY+' width '+cropWidth+' height '+cropHeight)
+                  var segment=null
+                  try{segment=img.crop(cropX,cropY,cropWidth,cropHeight)}catch(err){debugLog(err)}
+                  if(segment){splitSegments.push(segment)}
+                })
+              })
+              splitSegments.forEach((s)=>{
+                s.getBuffer(jimp.MIME_PNG, (err,buffer)=>{
+                  if(err){log(err)}
+                    var newMsg='<@'+msg.author.id+'> used `'+c+'`'
+                    if(!creditsDisabled){
+                      chargeCredits(msg.author.id,0.01)
+                      newMsg+=', it cost :coin:`0.01`/`'+creditsRemaining(msg.author.id)+'`'
+                    }
+                    try{bot.createMessage(msg.channel.id, newMsg, {file: buffer, name: 'split.png'})}catch(err){debugLog(err)}
+                })
+              })
+            }).catch(err=>{debugLog('Error reading image: ' + err)})
+          })
+        }
+        break
+      }
       case '!textTop':
       case '!textBottom':
       case '!textCenter':
@@ -1809,8 +1936,8 @@ bot.on("messageCreate", (msg) => {
         socket.emit("getLoraModels")
         socket.emit("getTextualInversionTriggers")
         newMsg=':pill: Embeddings are a way to supplement the current model. Add to prompt\n'
-        if(lora&&lora.length>0){newMsg+='**LORA**:\n'+lora.map(x=>`\`useLora(${x})\``).join(' , ')+'\n'}
-        if(ti&&ti.length>0){newMsg=newMsg+'**Textual inversions**:\n'+ti.map(x=>`\`\<${x}\>\``).join(' , ')+'\n Everything in https://huggingface.co/sd-concepts-library is also available'}
+        if(lora&&lora.length>0){newMsg+='**LORA**:\n'+lora.map(x=>`useLora(${x})`).join(' , ')+'\n'}
+        if(ti&&ti.length>0){newMsg=newMsg+'**Textual inversions**:\n'+ti.map(x=>`\<${x}\>`).join(' , ')+'\n Everything in https://huggingface.co/sd-concepts-library is also available'}
         sliceMsg(newMsg).forEach((m)=>{try{bot.createMessage(msg.channel.id, m)}catch(err){debugLog(err)}})
         break
       }
@@ -1836,7 +1963,7 @@ bot.on("messageCreate", (msg) => {
       case '!pause':{bot.editStatus('dnd');paused=true;rendering=true;chat(':pause_button: Bot is paused, requests will still be accepted and queued for when I return');break}
       case '!resume':{socket.emit('requestSystemConfig');paused=false;rendering=false;bot.editStatus('online');chat(':play_pause: Bot is back online');processQueue();break}
       case '!checkpayments':{checkNewPayments();break}
-      case '!restart':{log('Admin restarted bot'.bgRed.white);exit(0)}
+      case '!restart':{log('Admin triggered bot on queue empty'.bgRed.white);exit(0)}
       case '!creditdisabled':{log('Credits have been disabled'.bgRed.white);creditsDisabled=true;bot.createMessage(msg.channel.id,'Credits have been disabled');break}
       case '!creditenabled':{log('Credits have been enabled'.bgRed.white);creditsDisabled=false;bot.createMessage(msg.channel.id,'Credits have been enabled');break}
       case '!credit':{
