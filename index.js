@@ -400,8 +400,8 @@ function userCreditCheck(userID,amount) { // Check if a user can afford a specif
   if(parseFloat(user.credits)>=parseFloat(amount)||creditsDisabled){return true}else{return false}
 }
 function costCalculator(job) {                 // Pass in a render, get a cost in credits
-  var cost=1                                   // a normal render base cost, 512x512 50 steps
-  //var pixelBase=262144                         // 512x512 reference pixel size
+  var cost=1                                   // a normal render base cost, 512x512 30 steps
+  //var pixelBase=262144                       // 512x512 reference pixel size
   var pixelBase=defaultSize*defaultSize        // reference pixel size
   var pixels=job.width*job.height              // How many pixels does this render use?
   cost=(pixels/pixelBase)*cost                 // premium or discount for resolution relative to default
@@ -2000,7 +2000,8 @@ bot.on("messageCreate", (msg) => {
         var newMsg='**Currently loaded randomisers**\n'
         for (r in randoms){newMsg+='`{'+randoms[r]+'}`='+getRandom(randoms[r])+'\n'}
         if(newMsg.length<=2000){newMsg.length=1999} //max discord msg length of 2k
-        try{chatChan(msg.channel.id,newMsg)}catch(err){log(err)}
+        //try{chatChan(msg.channel.id,newMsg)}catch(err){log(err)}
+        sliceMsg(newMsg).forEach((m)=>{try{bot.createMessage(msg.channel.id, m)}catch(err){debugLog(err)}})
         break
       }
       case '!schedule':{
