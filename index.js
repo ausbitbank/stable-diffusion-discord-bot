@@ -1004,7 +1004,7 @@ function getRandom(what){
     debugLog('Randomiser ' +what+ ' not found')
     return what
   }
-  }
+}
 function replaceRandoms(input){
   var output=input
   randoms.forEach(x=>{
@@ -1014,12 +1014,17 @@ function replaceRandoms(input){
     var howManyReplacements=output.split(wordToReplace).length-1 // todo can we improve this?
     for (let i=0;i<howManyReplacements;i++){ // to support multiple {x} of the same type in the same prompt
       var wordToReplacePosition=output.indexOf(wordToReplace) // where the first {x} starts (does this need +1?)
-      if (wordToReplacePosition!==-1){ // only continue if a match was found
+      if (wordToReplacePosition!==-1&&wordToReplacePosition > 0 && wordToReplacePosition < output.length - wordToReplaceLength){ // only continue if a match was found
         var wordToReplacePositionEnd=wordToReplacePosition+wordToReplaceLength
         before=output.substr(0,wordToReplacePosition)
         replacement=getRandom(x)
         after=output.substr(wordToReplacePositionEnd)
         output=before+replacement+after
+      } else if (wordToReplacePosition === 0) {
+        replacement = getRandom(x)
+        output = replacement + output.substr(wordToReplaceLength)
+      } else if (wordToReplacePositionEnd === output.length) {
+        output = output.substr(0, wordToReplacePositionEnd - wordToReplaceLength) + getRandom(x)
       }
     }
   })
@@ -1041,7 +1046,6 @@ async function imgbbupload(file) {
     .catch((error)=>console.error(error))
 } */
 function partialMatches(strings, search) {
-  debugLog('partialMatches '+strings+' , '+search)
   let results = []
   for(let i=0;i<strings.length;i++){
     if (searchString(strings[i], search)) {
