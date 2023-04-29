@@ -1040,18 +1040,21 @@ async function imgbbupload(file) {
     .then((response)=>{debugLog(response);return response})
     .catch((error)=>console.error(error))
 } */
-function partialMatches(strings, search) { 
-  let results = [] 
-  for(let i=0;i<strings.length;i++){ 
-    if (searchString(strings[i], search)) { 
-      results.push(strings[i]) 
-    } 
-  } 
+function partialMatches(strings, search) {
+  debugLog('partialMatches '+strings+' , '+search)
+  let results = []
+  for(let i=0;i<strings.length;i++){
+    if (searchString(strings[i], search)) {
+      results.push(strings[i])
+    }
+  }
   return results 
 } 
 
 function searchString(str, searchTerm) {
-  return str.match(new RegExp('.' + searchTerm + '.')); 
+  let searchTermLowerCase = searchTerm.toLowerCase() 
+  let strLowerCase = str.toLowerCase() 
+  return strLowerCase.includes(searchTermLowerCase) 
 }
 
 function process (file){// Monitor new files entering watchFolder, post image with filename.
@@ -1640,18 +1643,22 @@ bot.on("messageCreate", (msg) => {
                 })
             } else if (msg.content.startsWith('loras')){
                 var lorasToTest=[]
-                var lorasToTestString=msg.content.substring(7)
-                if(lorasToTestString==='all'){lorasToTest=lora;debugLog(lorasToTest)}else{lorasToTestString.split(' ').forEach(l=>{partialMatches(lora,l).forEach((l)=>{lorasToTest.push(l)})})}
+                var lorasToTestString=msg.content.substring(6)
+                if(lorasToTestString==='all'){lorasToTest=lora;debugLog(lorasToTest)}else{lorasToTestString.split(' ').forEach(l=>{partialMatches(lora,l).forEach((m)=>{lorasToTest.push(m)})})}
                 var basePrompt=newJob.prompt
+                debugLog(lorasToTest)
                 lorasToTest.forEach(l=>{
                   newJob.prompt=basePrompt+' withLora('+l+',0.8)'
                   request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
                 })
             } else if (msg.content.startsWith('tis')){
                 var tisToTest=[]
-                var tisToTestString=msg.content.substring(7)
-                if(tisToTestString==='all'){tisToTest=ti;debugLog(tisToTest)}else{tisToTestString.split(' ').forEach(t=>{partialMatches(ti,t).forEach((t)=>{tisToTest.push(t)})})}
+                var tisToTestString=msg.content.substring(4)
+                if(tisToTestString==='all'){tisToTest=ti;debugLog(tisToTest)}else{tisToTestString.split(' ').forEach(t=>{
+                  partialMatches(ti,t).forEach((m)=>{tisToTest.push(m)})
+                })}
                 var basePrompt=newJob.prompt
+                debugLog(tisToTest)
                 tisToTest.forEach(t=>{
                   newJob.prompt=basePrompt+' <'+t+'>'
                   request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
