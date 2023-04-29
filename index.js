@@ -1403,8 +1403,7 @@ bot.on("interactionCreate", async (interaction) => {
       rn=interaction.data.custom_id.split('-')[2]
       var newJob=JSON.parse(JSON.stringify(queue[id-1]))
       if(newJob&&lora&&ti){
-        var changeEmbedResponse={content:':eye: **Embeds Menu**\n:pill: LORA Embeddings are a way to supplement the current model with extra styles, characters or abilities.',flags:64,components:[]}
-        debugLog('Loras: '+lora.length)
+        var changeEmbedResponse={content:':eye: **Textual Inversions Menu**\n:pill: Textual Inversions are a way to supplement the current model with extra styles, characters or abilities.',flags:64,components:[]}
         for(let i=0;i<ti.length;i+=25){
           changeEmbedResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'addTi'+i+'-'+id+'-'+rn,placeholder:'Add a Textual Inversion',min_values:1,max_values:1,options:[]}]})
           ti.slice(i,i+25).forEach((i)=>{changeEmbedResponse.components[changeEmbedResponse.components.length-1].components[0].options.push({label: i,value: i,description: i})})
@@ -1416,8 +1415,7 @@ bot.on("interactionCreate", async (interaction) => {
       rn=interaction.data.custom_id.split('-')[2]
       var newJob=JSON.parse(JSON.stringify(queue[id-1]))
       if(newJob&&lora&&ti){
-        var changeEmbedResponse={content:':eye: **Textual Inversions Menu**\n:pill: Textual Inversion embeddings are a way to supplement the current model with extra styles, characters or abilities.',flags:64,components:[]}
-        debugLog('Textual Inversions: '+ti.length)
+        var changeEmbedResponse={content:':eye: **Lora Menu**\n:pill: Loras are a way to supplement the current model with extra styles, characters or abilities.',flags:64,components:[]}
         for(let i=0;i<lora.length;i+=25){
           changeEmbedResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'addLora'+i+'-'+id+'-'+rn,placeholder:'Add a LORA',min_values:1,max_values:1,options:[]}]})
           lora.slice(i,i+25).forEach((l)=>{changeEmbedResponse.components[changeEmbedResponse.components.length-1].components[0].options.push({label: l,value: l,description: l})})
