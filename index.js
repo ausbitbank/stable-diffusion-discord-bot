@@ -846,7 +846,7 @@ function lexicaSearch(query,channel){
       shuffle(filteredResults)
       filteredResults=filteredResults.slice(0,10)// shuffle and trim to 10 results // todo make this an option once lexica writes api docs
       filteredResults.forEach(i=>{reply.embeds.push({color: getRandomColorDec(),description: ':seedling:`'+i.seed+'` :straight_ruler:`'+i.width+'x'+i.height+'`',image:{url:i.srcSmall},footer:{text:i.prompt}})})
-      sliceMsg(reply).forEach((m)=>{try{bot.createMessage(channel, m)}catch(err){debugLog(err)}})
+      try{bot.createMessage(channel, reply)}catch(err){debugLog(err)}
     })
     .catch((error) => console.error(error))
 }
@@ -1025,6 +1025,7 @@ function replaceRandoms(input){
   })
   return output
 }
+/*
 function imgurEnabled(){if(config.imgurClientID.length>0){return true}else{return false}}
 async function imgurupload(file) {
   log('uploading via imgur api')
@@ -1038,7 +1039,21 @@ async function imgbbupload(file) {
   imgbb(config.imgbbClientID, file)
     .then((response)=>{debugLog(response);return response})
     .catch((error)=>console.error(error))
+} */
+function partialMatches(strings, search) { 
+  let results = [] 
+  for(let i=0;i<strings.length;i++){ 
+    if (searchString(strings[i], search)) { 
+      results.push(strings[i]) 
+    } 
+  } 
+  return results 
+} 
+
+function searchString(str, searchTerm) {
+  return str.match(new RegExp('.' + searchTerm + '.')); 
 }
+
 function process (file){// Monitor new files entering watchFolder, post image with filename.
   try {
     if (file.endsWith('.png')||file.endsWith('jpg')){
@@ -1410,7 +1425,7 @@ bot.on("interactionCreate", async (interaction) => {
       if(result){newJob.seed=result.metadata.image.seed}
       var newLora=interaction.data.values[0]
       if(newJob&&newLora){
-        newJob.prompt+=' useLora('+newLora+',0.8)' // add lora to prompt
+        newJob.prompt+=' withLora('+newLora+',0.8)' // add lora to prompt
         if(interaction.member){
           request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
         } else if (interaction.user){
@@ -1621,6 +1636,24 @@ bot.on("messageCreate", (msg) => {
                 debugLog(samplers.length*newJob.cost) // batch cost
                 samplersToTest.forEach(s=>{
                   newJob.sampler=s
+                  request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
+                })
+            } else if (msg.content.startsWith('loras')){
+                var lorasToTest=[]
+                var lorasToTestString=msg.content.substring(7)
+                if(lorasToTestString==='all'){lorasToTest=lora;debugLog(lorasToTest)}else{lorasToTestString.split(' ').forEach(l=>{partialMatches(lora,l).forEach((l)=>{lorasToTest.push(l)})})}
+                var basePrompt=newJob.prompt
+                lorasToTest.forEach(l=>{
+                  newJob.prompt=basePrompt+' withLora('+l+',0.8)'
+                  request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
+                })
+            } else if (msg.content.startsWith('tis')){
+                var tisToTest=[]
+                var tisToTestString=msg.content.substring(7)
+                if(tisToTestString==='all'){tisToTest=ti;debugLog(tisToTest)}else{tisToTestString.split(' ').forEach(t=>{partialMatches(ti,t).forEach((t)=>{tisToTest.push(t)})})}
+                var basePrompt=newJob.prompt
+                tisToTest.forEach(t=>{
+                  newJob.prompt=basePrompt+' <'+t+'>'
                   request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
                 })
             }
@@ -1936,7 +1969,7 @@ bot.on("messageCreate", (msg) => {
         socket.emit("getLoraModels")
         socket.emit("getTextualInversionTriggers")
         newMsg=':pill: Embeddings are a way to supplement the current model. Add to prompt\n'
-        if(lora&&lora.length>0){newMsg+='**LORA**:\n'+lora.map(x=>`useLora(${x})`).join(' , ')+'\n'}
+        if(lora&&lora.length>0){newMsg+='**LORA**:\n'+lora.map(x=>`withLora(${x})`).join(' , ')+'\n'}
         if(ti&&ti.length>0){newMsg=newMsg+'**Textual inversions**:\n'+ti.map(x=>`\<${x}\>`).join(' , ')+'\n Everything in https://huggingface.co/sd-concepts-library is also available'}
         sliceMsg(newMsg).forEach((m)=>{try{bot.createMessage(msg.channel.id, m)}catch(err){debugLog(err)}})
         break
@@ -2019,7 +2052,7 @@ socket.on("generationResult", (data) => {generationResult(data)})
 socket.on("postprocessingResult", (data) => {postprocessingResult(data)})
 socket.on("initialImageUploaded", (data) => {debugLog('got init image uploaded');initialImageUploaded(data)})
 socket.on("imageUploaded", (data) => {debugLog('got image uploaded');initialImageUploaded(data)})
-socket.on("systemConfig", (data) => {debugLog('systemConfig received');currentModel=data.model_weights;models=data.model_list})
+socket.on("systemConfig", (data) => {debugLog('systemConfig received');currentModel=data.model_weights;models=data.model_list;debugLog(data)})
 socket.on("modelChanged", (data) => {currentModel=data.model_name;models=data.model_list;debugLog('modelChanged to '+currentModel)})
 var progressUpdate = {currentStep: 0,totalSteps: 0,currentIteration: 0,totalIterations: 0,currentStatus: 'Initializing',isProcessing: false,currentStatusHasSteps: true,hasError: false}
 socket.on("progressUpdate", (data) => {
