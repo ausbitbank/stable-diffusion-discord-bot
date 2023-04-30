@@ -10,15 +10,16 @@ const axios = require('axios')
 var parseArgs = require('minimist')
 const chokidar = require('chokidar')
 const moment = require('moment')
-const { ImgurClient } = require('imgur')
-const imgur = new ImgurClient({ clientId: config.imgurClientID})
-const imgbb = require("imgbb-uploader")
+// const { ImgurClient } = require('imgur')
+// const imgur = new ImgurClient({ clientId: config.imgurClientID})
+// const imgbb = require("imgbb-uploader")
 //const DIG = require("discord-image-generation")
 const sharp = require("sharp")
 const GIF = require("sharp-gif2")
 const Diff = require("diff")
 const log = console.log.bind(console)
 function debugLog(m){if(config.showDebug){log(m)}}
+const loop = (times, callback) => {[...Array(times)].forEach((item, i) => callback(i))}
 const dJSON = require('dirty-json')
 var colors = require('colors')
 const debounce = require('debounce')
@@ -407,8 +408,8 @@ function userCreditCheck(userID,amount) { // Check if a user can afford a specif
   if(parseFloat(user.credits)>=parseFloat(amount)||creditsDisabled){return true}else{return false}
 }
 function costCalculator(job) {                 // Pass in a render, get a cost in credits
-  var cost=1                                   // a normal render base cost, 512x512 50 steps
-  //var pixelBase=262144                         // 512x512 reference pixel size
+  var cost=1                                   // a normal render base cost, 512x512 30 steps
+  //var pixelBase=262144                       // 512x512 reference pixel size
   var pixelBase=defaultSize*defaultSize        // reference pixel size
   var pixels=job.width*job.height              // How many pixels does this render use?
   cost=(pixels/pixelBase)*cost                 // premium or discount for resolution relative to default
@@ -618,10 +619,10 @@ function generationResult(data){
     // remove redundant data before pushing to db results
     delete (data.metadata.prompt);delete (data.metadata.seed);delete (data.metadata.model_list);delete (data.metadata.app_id);delete (data.metadata.app_version); delete (data.attentionMaps)
     job.results.push(data)
-    if(data.tokens){
+    /*if(data.tokens){
       debugLog('Tokens: ' + data.tokens.length)
       debugLog(data.tokens)
-    }
+    }*/
     postRender(postRenderObject)
   }else{rendering=false}
   if(job&&job.results.length>=job.number){job.status='done';rendering=false;processQueue()}
@@ -769,7 +770,11 @@ async function postRender(render){
       if(filesize<defaultMaxDiscordFileSize){ // Within discord 25mb filesize limit
         try{bot.createMessage(job.channel, newMessage, {file: data, name: filename + '.png'}).then(m=>{}).catch((err)=>{log('caught error posting to discord in channel '.bgRed+job.channel);log(err)})}
         catch(err){console.error(err)}
-      }else{
+      } else {
+        log('Image '+filename+' was too big for discord, failed to post to channel '+job.channel)
+      }
+      // Disabled imgur and imgbb uploads (discord limits raised, no longer required + TOS changes for imgur make it awkward)
+      /*}else{
         if(imgurEnabled()&&filesize<10000000){
           bot.createMessage(job.channel,'<@'+job.userid + '> your image was too big for discord, uploading to imgur now..')
           try { imgurupload(render.filename).then(upload => { bot.createMessage(job.channel,{ content: msg, embeds: [{image: {url: upload.link}, description:job.prompt}]}) }) }
@@ -779,7 +784,7 @@ async function postRender(render){
           chat('<@' + job.userid + '> your file was too big for discord, uploading to imgbb now..')
           try { imgbbupload(render.filename).then(upload => { log(upload); bot.createMessage(job.channel,{ content: msg, embeds: [{image: {url: upload.url}, description:job.prompt}]}) }) }
           catch (err) { console.error(err); bot.createMessage(job.channel,'Sorry <@' + job.userid + '> imgbb uploading failed, contact an admin for your image `' + filename + '.png`') }*/
-        } else {
+        /*} else {
           try {
             bot.createMessage(job.channel,'<@' + job.userid + '> your image was too big for discord and imgur, uploading to oshi.at now..')
             log('uploading via oshi.at api')
@@ -793,10 +798,10 @@ async function postRender(render){
               bot.createMessage(job.channel,{ content: msg+'\n '+(filesize/1000000).toFixed(2)+'MB image uploaded to oshi.at : '+oshiimg, embeds: [{description:job.prompt, color: getRandomColorDec()}]})
             })
             .catch((error) => console.error(error))
-          }catch (err){console.error(err);bot.createMessage(job.channel,'Sorry <@' + job.userid + '> but your image was too big for all available image hosts, contact an admin for your image `' + filename + '.png`')}
+          }catch (err){console.error(err);bot.createMessage(job.channel,'Sorry <@' + job.userid + '> but your image was too big for all available image hosts, contact an admin for your image `' + filename + '.png`')} 
         }
+      }*/
       }
-    }
     })
   }
   catch(err) {console.error(err)}
@@ -849,7 +854,7 @@ function lexicaSearch(query,channel){
       shuffle(filteredResults)
       filteredResults=filteredResults.slice(0,10)// shuffle and trim to 10 results // todo make this an option once lexica writes api docs
       filteredResults.forEach(i=>{reply.embeds.push({color: getRandomColorDec(),description: ':seedling:`'+i.seed+'` :straight_ruler:`'+i.width+'x'+i.height+'`',image:{url:i.srcSmall},footer:{text:i.prompt}})})
-      sliceMsg(reply).forEach((m)=>{try{bot.createMessage(channel, m)}catch(err){debugLog(err)}})
+      try{bot.createMessage(channel, reply)}catch(err){debugLog(err)}
     })
     .catch((error) => console.error(error))
 }
@@ -1007,7 +1012,7 @@ function getRandom(what){
     debugLog('Randomiser ' +what+ ' not found')
     return what
   }
-  }
+}
 function replaceRandoms(input){
   var output=input
   randoms.forEach(x=>{
@@ -1017,17 +1022,23 @@ function replaceRandoms(input){
     var howManyReplacements=output.split(wordToReplace).length-1 // todo can we improve this?
     for (let i=0;i<howManyReplacements;i++){ // to support multiple {x} of the same type in the same prompt
       var wordToReplacePosition=output.indexOf(wordToReplace) // where the first {x} starts (does this need +1?)
-      if (wordToReplacePosition!==-1){ // only continue if a match was found
+      if (wordToReplacePosition!==-1&&wordToReplacePosition > 0 && wordToReplacePosition < output.length - wordToReplaceLength){ // only continue if a match was found
         var wordToReplacePositionEnd=wordToReplacePosition+wordToReplaceLength
         before=output.substr(0,wordToReplacePosition)
         replacement=getRandom(x)
         after=output.substr(wordToReplacePositionEnd)
         output=before+replacement+after
+      } else if (wordToReplacePosition === 0) {
+        replacement = getRandom(x)
+        output = replacement + output.substr(wordToReplaceLength)
+      } else if (wordToReplacePositionEnd === output.length) {
+        output = output.substr(0, wordToReplacePositionEnd - wordToReplaceLength) + getRandom(x)
       }
     }
   })
   return output
 }
+/*
 function imgurEnabled(){if(config.imgurClientID.length>0){return true}else{return false}}
 async function imgurupload(file) {
   log('uploading via imgur api')
@@ -1041,7 +1052,23 @@ async function imgbbupload(file) {
   imgbb(config.imgbbClientID, file)
     .then((response)=>{debugLog(response);return response})
     .catch((error)=>console.error(error))
+} */
+function partialMatches(strings, search) {
+  let results = []
+  for(let i=0;i<strings.length;i++){
+    if (searchString(strings[i], search)) {
+      results.push(strings[i])
+    }
+  }
+  return results 
+} 
+
+function searchString(str, searchTerm) {
+  let searchTermLowerCase = searchTerm.toLowerCase() 
+  let strLowerCase = str.toLowerCase() 
+  return strLowerCase.includes(searchTermLowerCase) 
 }
+
 function process (file){// Monitor new files entering watchFolder, post image with filename.
   try {
     if (file.endsWith('.png')||file.endsWith('jpg')){
@@ -1063,7 +1090,7 @@ function tidyNumber (x) {if (x) {var parts = x.toString().split('.');parts[0] = 
 function sliceMsg(str) {
   const chunkSize=1999 // max discord message is 2k characters
   let chunks=[];let i=0;let len=str.length
-  while(i<len){chunks.push(str.slice(i, i += chunkSize))}
+  while (i < len) {chunks.push(str.slice(i, i += chunkSize))}
   return chunks
 }
 
@@ -1184,14 +1211,16 @@ bot.on("interactionCreate", async (interaction) => {
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Portrait", custom_id: "twkaspectPortrait-"+id+'-'+rn, emoji: { name: '↕️', id: null}, disabled: false },
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Square", custom_id: "twkaspectSquare-"+id+'-'+rn, emoji: { name: '🔳', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Landscape", custom_id: "twkaspectLandscape-"+id+'-'+rn, emoji: { name: '↔️', id: null}, disabled: false }
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Landscape", custom_id: "twkaspectLandscape-"+id+'-'+rn, emoji: { name: '↔️', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Model", custom_id: "chooseModel-"+id+'-'+rn, emoji: { name: '💾', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Sampler", custom_id: "chooseSampler-"+id+'-'+rn, emoji: { name: '👁️', id: null}, disabled: false }
               ]},
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Scale", custom_id: "editScale-"+id+'-'+rn, emoji: { name: '⚖️', id: null}, disabled: false },
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Steps", custom_id: "editSteps-"+id+'-'+rn, emoji: { name: '♻️', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Embeds", custom_id: "chooseEmbeds-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Model", custom_id: "chooseModel-"+id+'-'+rn, emoji: { name: '💾', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Sampler", custom_id: "chooseSampler-"+id+'-'+rn, emoji: { name: '👁️', id: null}, disabled: false }
+                // {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Embeds", custom_id: "chooseEmbeds-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Textual Inversions", custom_id: "chooseTi-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Loras", custom_id: "chooseLora-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false },
               ]},
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Upscale 2x", custom_id: "twkupscale2-"+id+'-'+rn, emoji: { name: '🔍', id: null}, disabled: false },
@@ -1366,6 +1395,7 @@ bot.on("interactionCreate", async (interaction) => {
       var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
       if(newJob&&lora&&ti){
         var changeEmbedResponse={content:':eye: **Embeds Menu**\n:pill: Embeddings are a way to supplement the current model with extra styles, characters or abilities.',flags:64,components:[]}
+        debugLog('Loras: '+lora.length+'\nTextual Inversions: '+ti.length)
         for(let i=0;i<lora.length;i+=25){
           changeEmbedResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'addLora'+i+'-'+id+'-'+rn,placeholder:'Add a LORA',min_values:1,max_values:1,options:[]}]})
           lora.slice(i,i+25).forEach((l)=>{changeEmbedResponse.components[changeEmbedResponse.components.length-1].components[0].options.push({label: l,value: l,description: l})})
@@ -1376,15 +1406,39 @@ bot.on("interactionCreate", async (interaction) => {
         }
         return interaction.editParent(changeEmbedResponse).then((r)=>{}).catch((e)=>{console.error(e)})
       }
+    } else if (interaction.data.custom_id.startsWith('chooseTi')) {
+      id=interaction.data.custom_id.split('-')[1]
+      rn=interaction.data.custom_id.split('-')[2]
+      var newJob=JSON.parse(JSON.stringify(queue[id-1]))
+      if(newJob&&lora&&ti){
+        var changeEmbedResponse={content:':eye: **Textual Inversions Menu**\n:pill: Textual Inversions are a way to supplement the current model with extra styles, characters or abilities.',flags:64,components:[]}
+        for(let i=0;i<ti.length;i+=25){
+          changeEmbedResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'addTi'+i+'-'+id+'-'+rn,placeholder:'Add a Textual Inversion',min_values:1,max_values:1,options:[]}]})
+          ti.slice(i,i+25).forEach((i)=>{changeEmbedResponse.components[changeEmbedResponse.components.length-1].components[0].options.push({label: i,value: i,description: i})})
+        }
+        return interaction.editParent(changeEmbedResponse).then((r)=>{}).catch((e)=>{console.error(e)})
+      }
+    } else if (interaction.data.custom_id.startsWith('chooseLora')) {
+      id=interaction.data.custom_id.split('-')[1]
+      rn=interaction.data.custom_id.split('-')[2]
+      var newJob=JSON.parse(JSON.stringify(queue[id-1]))
+      if(newJob&&lora&&ti){
+        var changeEmbedResponse={content:':eye: **Lora Menu**\n:pill: Loras are a way to supplement the current model with extra styles, characters or abilities.',flags:64,components:[]}
+        for(let i=0;i<lora.length;i+=25){
+          changeEmbedResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'addLora'+i+'-'+id+'-'+rn,placeholder:'Add a LORA',min_values:1,max_values:1,options:[]}]})
+          lora.slice(i,i+25).forEach((l)=>{changeEmbedResponse.components[changeEmbedResponse.components.length-1].components[0].options.push({label: l,value: l,description: l})})
+        }
+        return interaction.editParent(changeEmbedResponse).then((r)=>{}).catch((e)=>{console.error(e)})
+      }
     } else if (interaction.data.custom_id.startsWith('addLora')) {
       id=interaction.data.custom_id.split('-')[1]
       rn=interaction.data.custom_id.split('-')[2]
-      var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
+      var newJob=JSON.parse(JSON.stringify(queue[id-1]))
       var result=newJob.results[rn]
       if(result){newJob.seed=result.metadata.image.seed}
       var newLora=interaction.data.values[0]
       if(newJob&&newLora){
-        newJob.prompt+=' useLora('+newLora+',1)' // add lora to prompt
+        newJob.prompt+=' withLora('+newLora+',0.8)' // add lora to prompt
         if(interaction.member){
           request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
         } else if (interaction.user){
@@ -1395,12 +1449,47 @@ bot.on("interactionCreate", async (interaction) => {
     } else if (interaction.data.custom_id.startsWith('addTi')) {
       id=interaction.data.custom_id.split('-')[1]
       rn=interaction.data.custom_id.split('-')[2]
-      var newJob=JSON.parse(JSON.stringify(queue[id-1])) // parse/stringify to deep copy and make sure we dont edit the original
+      var newJob=JSON.parse(JSON.stringify(queue[id-1]))
       var result=newJob.results[rn]
       if(result){newJob.seed=result.metadata.image.seed}
       var newTi=interaction.data.values[0]
       if(newJob&&newTi){
-        newJob.prompt+=' \<'+newTi+'\>' // add lora to prompt
+        newJob.prompt+=' \<'+newTi+'\>' // add ti to prompt
+        if(interaction.member){
+          request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
+        } else if (interaction.user){
+          request({cmd: getCmd(newJob), userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
+        }
+        return interaction.editParent({content:':eye: ** Textual inversion '+interaction.data.values[0]+'** selected',components:[]}).catch((e) => {console.error(e)})
+      }
+    } else if (interaction.data.custom_id.startsWith('chooseAspect')) {
+      id=interaction.data.custom_id.split('-')[1]
+      rn=interaction.data.custom_id.split('-')[2]
+      var newJob=JSON.parse(JSON.stringify(queue[id-1]))
+      var aspectRatios = ['1:1','3:4','4:3','9:5','5:9','9:16','16:9']
+      if(newJob){
+        var changeAspectResponse={content:':eye: **Aspect Ratios**\n Different aspect ratios will give different compositions.',flags:64,components:[]}
+        //
+        for(let i=0;i<ti.length;i+=25){
+          changeAspectResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'addAspect'+i+'-'+id+'-'+rn,placeholder:'Change aspect ratio',min_values:1,max_values:1,options:[]}]})
+          aspectRatios.forEach((i)=>{
+            var w=i.split(':')[0];var h=i.split(':')[1];var l
+            if (i='1:1'){l='square'}else if(w>h){l='landscape'}else{l='portrait'}
+            changeAspectResponse.components[changeAspectResponse.components.length-1].components[0].options.push({label: i,value: i,description: l})
+          })
+        }
+        return interaction.editParent(changeAspectResponse).then((r)=>{}).catch((e)=>{console.error(e)})
+      }
+    } else if (interaction.data.custom_id.startsWith('addAspect')) {
+      id=interaction.data.custom_id.split('-')[1]
+      rn=interaction.data.custom_id.split('-')[2]
+      var newJob=JSON.parse(JSON.stringify(queue[id-1]))
+      var result=newJob.results[rn]
+      if(result){newJob.seed=result.metadata.image.seed}
+      var newAspect=interaction.data.values[0]
+      if(newJob){
+        var oldPixelCount=newJob.width*newJob.height
+        // Take aspect ratio
         if(interaction.member){
           request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
         } else if (interaction.user){
@@ -1542,7 +1631,7 @@ bot.on("messageCreate", (msg) => {
               bot.createMessage(msg.channel.id, { embed })
             } else if (msg.content.startsWith('seed')) {
               var embed = { title: '*Long press to copy the seed*', description: newSeed, color: getRandomColorDec() }
-              bot.createMessage(msg.channel.id, { embed })
+              try{bot.createMessage(msg.channel.id, { embed })}catch(err){log(err)}
             } else if (msg.content.startsWith('models')){
                 var modelsToTest=[]
                 var modelsToTestString=msg.content.substring(7)
@@ -1553,6 +1642,59 @@ bot.on("messageCreate", (msg) => {
                   newJob.model=m
                   request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
                 })
+            } else if (msg.content.startsWith('samplers')){
+                var samplersToTest=[]
+                var samplersToTestString=msg.content.substring(7)
+                if(samplersToTestString==='all'){samplersToTest=samplers;debugLog(samplersToTest)}else{samplersToTestString.split(' ').forEach(s=>{if(samplers.includes(s)){samplersToTest.push(s)}})}
+                debugLog(samplers.length*newJob.cost) // batch cost
+                samplersToTest.forEach(s=>{
+                  newJob.sampler=s
+                  request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
+                })
+/*            } else if (msg.content.startsWith('loras')){
+                var lorasToTest=[]
+                var lorasToTestString=msg.content.substring(6)
+                if(lorasToTestString==='all'){lorasToTest=lora;debugLog(lorasToTest)}else{lorasToTestString.split(' ').forEach(l=>{partialMatches(lora,l).forEach((m)=>{lorasToTest.push(m)})})}
+                var basePrompt=newJob.prompt
+                debugLog(lorasToTest)
+                lorasToTest.forEach(l=>{
+                  newJob.prompt=basePrompt+' withLora('+l+',0.8)'
+                  request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
+                })
+            } else if (msg.content.startsWith('tis')){
+                var tisToTest=[]
+                var tisToTestString=msg.content.substring(4)
+                if(tisToTestString==='all'){tisToTest=ti;debugLog(tisToTest)}else{tisToTestString.split(' ').forEach(t=>{
+                  partialMatches(ti,t).forEach((m)=>{tisToTest.push(m)})
+                })}
+                var basePrompt=newJob.prompt
+                debugLog(tisToTest)
+                tisToTest.forEach(t=>{
+                  newJob.prompt=basePrompt+' <'+t+'>'
+                  request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
+                })*/
+            } else if (msg.content.startsWith('embeds')){
+                var tisToTest=[];var lorasToTest=[];var tisToTestString=msg.content.substring(7);var lorasToTestString=tisToTestString
+                if(tisToTestString==='all'){tisToTest=ti;debugLog(tisToTest)}else{tisToTestString.split(' ').forEach(t=>{
+                  partialMatches(ti,t).forEach((m)=>{tisToTest.push(m)})
+                })}
+                if(lorasToTestString==='all'){lorasToTest=lora;debugLog(lorasToTest)}else{lorasToTestString.split(' ').forEach(l=>{partialMatches(lora,l).forEach((m)=>{lorasToTest.push(m)})})}
+                var basePrompt=newJob.prompt
+                var totalTests=tisToTest.length+lorasToTest.length
+                var newMsg='Testing '+totalTests+' embeddings total at a cost of '+totalTests*newJob.cost+' :coin: '
+                if (tisToTest.length>0){newMsg+='\nTextual inversions: '+tisToTest.join(' , ')}
+                if (lorasToTest.length>0){newMsg+='\nLORAs: '+lorasToTest.join(' , ')}
+                if (totalTests>0){
+                  sliceMsg(newMsg).forEach((m)=>{try{bot.createMessage(msg.channel.id, m)}catch(err){debugLog(err)}})
+                  tisToTest.forEach(t=>{
+                    newJob.prompt=basePrompt+' <'+t+'>'
+                    request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
+                  })
+                  lorasToTest.forEach(l=>{
+                    newJob.prompt=basePrompt+' withLora('+l+',0.8)'
+                    request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
+                  })
+                } else {try{bot.createMessage(msg.channel.id, 'No results found for your search, see `!embeds`')}catch(err){debugLog(err)}}
             }
           }
           if (msg.content.startsWith('template')&&msg.referencedMessage.attachments){
@@ -1566,6 +1708,9 @@ bot.on("messageCreate", (msg) => {
             msg.attachments=msg.referencedMessage.attachments
           } else if (msg.content.startsWith('crop')||msg.content.startsWith('!crop')){
             msg.content='!crop'
+            msg.attachments=msg.referencedMessage.attachments
+          } else if (msg.content.startsWith('split')||msg.content.startsWith('!split')){
+            msg.content='!'+msg.content
             msg.attachments=msg.referencedMessage.attachments
           } else if (msg.content.startsWith('expand')||msg.content.startsWith('!expand')){
             msg.content=msg.content.split(' ')[0]
@@ -1644,7 +1789,7 @@ bot.on("messageCreate", (msg) => {
             log('cropping '+url)
             jimp.read(url,(err,img)=>{
               if(err){log('Error during cropping'.bgRed);log(err)}
-              img.autocrop()
+              try{img.autocrop()}catch(err){debugLog(err)}
               var newMsg='<@'+msg.author.id+'> used `!crop`'
               if(!creditsDisabled){
                 chargeCredits(msg.author.id,0.05)
@@ -1739,6 +1884,52 @@ bot.on("messageCreate", (msg) => {
         }
         break
       }
+      case '!split':{
+        if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){
+          var attachmentsUrls = msg.attachments.map((u)=>{return u.proxy_url})
+          attachmentsUrls.forEach((url)=>{
+            log('splitting '+url)
+            var splitCmd=msg.content.split(' ')
+            var splitColumns=Math.min(splitCmd[1] ? splitCmd[1]:4,20)
+            var splitRows=Math.min(splitCmd[2] ? splitCmd[2]:1,20)
+            var splitSegments=[]
+            jimp.read(url,(err,img)=>{
+              if(err){log('Error during splitting'.bgRed);log(err)}
+              var width=img.getWidth()
+              var height=img.getHeight()
+              loop(splitColumns,c=>{
+                c++
+                debugLog(c)
+                loop(splitRows,r=>{
+                  r++
+                  debugLog(r)
+                  var cropWidth=width/splitColumns // crop is this wide
+                  var cropHeight=height/splitRows // crop is this high
+                  var cropX=Math.max(Math.min((cropWidth*c)-(cropWidth),width),0) // crop starts x pixels from left border
+                  var cropY=Math.max(Math.min((cropHeight*r)-(cropHeight),height),0) // crop starts y pixels from top border
+                  debugLog('Img width: '+width+'\nImg height: '+height)
+                  debugLog('Cropping: x '+cropX+' y '+cropY+' width '+cropWidth+' height '+cropHeight)
+                  var segment=null
+                  try{segment=img.crop(cropX,cropY,cropWidth,cropHeight)}catch(err){debugLog(err)}
+                  if(segment){splitSegments.push(segment)}
+                })
+              })
+              splitSegments.forEach((s)=>{
+                s.getBuffer(jimp.MIME_PNG, (err,buffer)=>{
+                  if(err){log(err)}
+                    var newMsg='<@'+msg.author.id+'> used `'+c+'`'
+                    if(!creditsDisabled){
+                      chargeCredits(msg.author.id,0.01)
+                      newMsg+=', it cost :coin:`0.01`/`'+creditsRemaining(msg.author.id)+'`'
+                    }
+                    try{bot.createMessage(msg.channel.id, newMsg, {file: buffer, name: 'split.png'})}catch(err){debugLog(err)}
+                })
+              })
+            }).catch(err=>{debugLog('Error reading image: ' + err)})
+          })
+        }
+        break
+      }
       case '!textTop':
       case '!textBottom':
       case '!textCenter':
@@ -1817,8 +2008,8 @@ bot.on("messageCreate", (msg) => {
         socket.emit("getLoraModels")
         socket.emit("getTextualInversionTriggers")
         newMsg=':pill: Embeddings are a way to supplement the current model. Add to prompt\n'
-        if(lora&&lora.length>0){newMsg+='**LORA**:\n'+lora.map(x=>`\`useLora(${x})\``).join(' , ')+'\n'}
-        if(ti&&ti.length>0){newMsg=newMsg+'**Textual inversions**:\n'+ti.map(x=>`\`\<${x}\>\``).join(' , ')+'\n Everything in https://huggingface.co/sd-concepts-library is also available'}
+        if(lora&&lora.length>0){newMsg+='**LORA**:\n'+lora.map(x=>`withLora(${x})`).join(' , ')+'\n'}
+        if(ti&&ti.length>0){newMsg=newMsg+'**Textual inversions**:\n'+ti.map(x=>`\<${x}\>`).join(' , ')+'\n Everything in https://huggingface.co/sd-concepts-library is also available'}
         sliceMsg(newMsg).forEach((m)=>{try{bot.createMessage(msg.channel.id, m)}catch(err){debugLog(err)}})
         break
       }
@@ -1844,7 +2035,7 @@ bot.on("messageCreate", (msg) => {
       case '!pause':{bot.editStatus('dnd');paused=true;rendering=true;chat(':pause_button: Bot is paused, requests will still be accepted and queued for when I return');break}
       case '!resume':{socket.emit('requestSystemConfig');paused=false;rendering=false;bot.editStatus('online');chat(':play_pause: Bot is back online');processQueue();break}
       case '!checkpayments':{checkNewPayments();break}
-      case '!restart':{log('Admin restarted bot'.bgRed.white);exit(0)}
+      case '!restart':{log('Admin triggered bot on queue empty'.bgRed.white);exit(0)}
       case '!creditdisabled':{log('Credits have been disabled'.bgRed.white);creditsDisabled=true;bot.createMessage(msg.channel.id,'Credits have been disabled');break}
       case '!creditenabled':{log('Credits have been enabled'.bgRed.white);creditsDisabled=false;bot.createMessage(msg.channel.id,'Credits have been enabled');break}
       case '!credit':{
@@ -1881,7 +2072,8 @@ bot.on("messageCreate", (msg) => {
         var newMsg='**Currently loaded randomisers**\n'
         for (r in randoms){newMsg+='`{'+randoms[r]+'}`='+getRandom(randoms[r])+'\n'}
         if(newMsg.length<=2000){newMsg.length=1999} //max discord msg length of 2k
-        try{chatChan(msg.channel.id,newMsg)}catch(err){log(err)}
+        //try{chatChan(msg.channel.id,newMsg)}catch(err){log(err)}
+        sliceMsg(newMsg).forEach((m)=>{try{bot.createMessage(msg.channel.id, m)}catch(err){debugLog(err)}})
         break
       }
       case '!schedule':{
@@ -1899,7 +2091,7 @@ socket.on("generationResult", (data) => {generationResult(data)})
 socket.on("postprocessingResult", (data) => {postprocessingResult(data)})
 socket.on("initialImageUploaded", (data) => {debugLog('got init image uploaded');initialImageUploaded(data)})
 socket.on("imageUploaded", (data) => {debugLog('got image uploaded');initialImageUploaded(data)})
-socket.on("systemConfig", (data) => {debugLog('systemConfig received');currentModel=data.model_weights;models=data.model_list})
+socket.on("systemConfig", (data) => {debugLog('systemConfig received');currentModel=data.model_weights;models=data.model_list;debugLog(data)})
 socket.on("modelChanged", (data) => {currentModel=data.model_name;models=data.model_list;debugLog('modelChanged to '+currentModel)})
 var progressUpdate = {currentStep: 0,totalSteps: 0,currentIteration: 0,totalIterations: 0,currentStatus: 'Initializing',isProcessing: false,currentStatusHasSteps: true,hasError: false}
 socket.on("progressUpdate", (data) => {
