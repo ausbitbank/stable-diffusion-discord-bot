@@ -1516,20 +1516,19 @@ async function directMessageUser(id,msg,channel){ // try, fallback to channel
 
 async function sendToChannel(serverId, originalChannelId, messageId, msg) {
   const galleryChannel = allGalleryChannels[serverId]
-  if (!galleryChannel) {
-    log(`No gallery channel found for server ID: ${serverId}`)
-    return
-  }
-  const channel = bot.getChannel(galleryChannel)
+  if (!galleryChannel) {log(`No gallery channel found for server ID: ${serverId}`);return}
+  const channel = await bot.getChannel(galleryChannel)
+  var alreadyInGallery=false
+  if(channel.messages.length<50){await channel.getMessages({limit: 100})} // if theres less then 50 in the channel message cache, fetch 100
+  channel.messages.forEach(message=>{if(message.content=msg.content){alreadyInGallery=true;debugLog('found in gallery')}}) // look through eris message cache for channel for matching msg
   const messageLink = `https://discord.com/channels/${serverId}/${originalChannelId}/${messageId}`
   const components = [{ type: Constants.ComponentTypes.ACTION_ROW, components: [{ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.LINK, label: "Original message", url: messageLink, disabled: false }]}]
-  if (msg.reactions && msg.reactions.cache){ const existingReactions = msg.reactions.cache.filter(reaction => reaction.emoji.name === emoji && reaction.me)
-  } else { // todo fix logic and have optional minimum reactions before sending to gallery, handle add/remove reaction spam
+  if (!alreadyInGallery){
     if (msg && msg.embeds && msg.embeds.length > 0) {
       msg.embeds[0].description = ``
       await channel.createMessage({ content: msg.content, embeds: msg.embeds, components: components }).catch(() => {log(`Failed to send message to the specified channel for server ID: ${serverId}`)})
     } else {await channel.createMessage({ content: msg.content, components: components }).catch(() => {log(`Failed to send message to the specified channel for server ID: ${serverId}`)})}
-  }
+  } else {debugLog('Found identical existing star gallery message')}
 }
 
 bot.on("messageReactionAdd", async (msg,emoji,reactor) => {
@@ -1543,7 +1542,7 @@ bot.on("messageReactionAdd", async (msg,emoji,reactor) => {
       case '👍':
       case '⭐':
       case '❤️': log("sending image to gallery".dim);sendToChannel(msg.channel.guild.id, msg.channel.id, msg.id, { content: msg.content, embeds: embeds });break
-      case '✉️': log('sending image to dm'.dim);directMessageUser(targetUserId,{content: msg.content, embeds: embeds});break // todo debug occasional error about reactor.user.id undefined here
+      case '✉️': log('sending image to dm'.dim);directMessageUser(targetUserId,{content: msg.content, embeds: embeds});break
       case '🙈':
       case '👎':
       case '⚠️':
@@ -1551,6 +1550,7 @@ bot.on("messageReactionAdd", async (msg,emoji,reactor) => {
       case '💩': {
         log('Negative emojis'.red+emoji.name.red)
         if(msg.content.includes(reactor.user.id)||reactor.user.id===config.adminID){msg.delete().catch(() => {})}
+        // todo try and delete the file from disk too
         break
       }
     }
@@ -2108,7 +2108,7 @@ socket.on("generationResult", (data) => {generationResult(data)})
 socket.on("postprocessingResult", (data) => {postprocessingResult(data)})
 socket.on("initialImageUploaded", (data) => {debugLog('got init image uploaded');initialImageUploaded(data)})
 socket.on("imageUploaded", (data) => {debugLog('got image uploaded');initialImageUploaded(data)})
-socket.on("systemConfig", (data) => {debugLog('systemConfig received');currentModel=data.model_weights;models=data.model_list;debugLog(data)})
+socket.on("systemConfig", (data) => {debugLog('systemConfig received');currentModel=data.model_weights;models=data.model_list})
 socket.on("modelChanged", (data) => {currentModel=data.model_name;models=data.model_list;debugLog('modelChanged to '+currentModel)})
 var progressUpdate = {currentStep: 0,totalSteps: 0,currentIteration: 0,totalIterations: 0,currentStatus: 'Initializing',isProcessing: false,currentStatusHasSteps: true,hasError: false}
 socket.on("progressUpdate", (data) => {
