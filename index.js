@@ -1623,7 +1623,7 @@ bot.on("messageCreate", (msg) => {
               bot.createMessage(msg.channel.id, { embed })
             } else if (msg.content.startsWith('seed')) {
               var embed = { title: '*Long press to copy the seed*', description: newSeed, color: getRandomColorDec() }
-              bot.createMessage(msg.channel.id, { embed })
+              try{bot.createMessage(msg.channel.id, { embed })}catch(err){log(err)}
             } else if (msg.content.startsWith('models')){
                 var modelsToTest=[]
                 var modelsToTestString=msg.content.substring(7)
@@ -1643,7 +1643,7 @@ bot.on("messageCreate", (msg) => {
                   newJob.sampler=s
                   request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
                 })
-            } else if (msg.content.startsWith('loras')){
+/*            } else if (msg.content.startsWith('loras')){
                 var lorasToTest=[]
                 var lorasToTestString=msg.content.substring(6)
                 if(lorasToTestString==='all'){lorasToTest=lora;debugLog(lorasToTest)}else{lorasToTestString.split(' ').forEach(l=>{partialMatches(lora,l).forEach((m)=>{lorasToTest.push(m)})})}
@@ -1664,7 +1664,29 @@ bot.on("messageCreate", (msg) => {
                 tisToTest.forEach(t=>{
                   newJob.prompt=basePrompt+' <'+t+'>'
                   request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
-                })
+                })*/
+            } else if (msg.content.startsWith('embeds')){
+                var tisToTest=[];var lorasToTest=[];var tisToTestString=msg.content.substring(7);var lorasToTestString=tisToTestString
+                if(tisToTestString==='all'){tisToTest=ti;debugLog(tisToTest)}else{tisToTestString.split(' ').forEach(t=>{
+                  partialMatches(ti,t).forEach((m)=>{tisToTest.push(m)})
+                })}
+                if(lorasToTestString==='all'){lorasToTest=lora;debugLog(lorasToTest)}else{lorasToTestString.split(' ').forEach(l=>{partialMatches(lora,l).forEach((m)=>{lorasToTest.push(m)})})}
+                var basePrompt=newJob.prompt
+                var totalTests=tisToTest.length+lorasToTest.length
+                var newMsg='Testing '+totalTests+' embeddings total at a cost of '+totalTests*newJob.cost+' :coin: '
+                if (tisToTest.length>0){newMsg+='\nTextual inversions: '+tisToTest.join(' , ')}
+                if (lorasToTest.length>0){newMsg+='\nLORAs: '+lorasToTest.join(' , ')}
+                if (totalTests>0){
+                  sliceMsg(newMsg).forEach((m)=>{try{bot.createMessage(msg.channel.id, m)}catch(err){debugLog(err)}})
+                  tisToTest.forEach(t=>{
+                    newJob.prompt=basePrompt+' <'+t+'>'
+                    request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
+                  })
+                  lorasToTest.forEach(l=>{
+                    newJob.prompt=basePrompt+' withLora('+l+',0.8)'
+                    request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
+                  })
+                } else {try{bot.createMessage(msg.channel.id, 'No results found for your search, see `!embeds`')}catch(err){debugLog(err)}}
             }
           }
           if (msg.content.startsWith('template')&&msg.referencedMessage.attachments){
