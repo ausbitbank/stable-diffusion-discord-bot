@@ -69,6 +69,7 @@ const maxIterations = parseInt(config.maxIterations)||10
 const defaultMaxDiscordFileSize=parseInt(config.defaultMaxDiscordFileSize)||25000000  // TODO detect server boost status and increase this if boosted
 const basePath = config.basePath
 const maxAnimateImages = 100 // Only will fetch most recent X images for animating
+const allGalleryChannels = JSON.parse(fs.readFileSync('dbGalleryChannels.json', 'utf8'))||{}
 var rembg=config.rembg||'http://127.0.0.1:5000?url='
 var defaultModel=config.defaultModel||'stable-diffusion-1.5'
 var currentModel='notInitializedYet'
@@ -193,8 +194,13 @@ if(!creditsDisabled)
   })
 }
 
-
 // Functions
+function auto2invoke(text) { // convert auto1111 weight syntax to invokeai
+  const regex = /\(([^)]+):([^)]+)\)/g
+  return text.replace(regex, function(match, $1, $2) {
+    return '('+$1+')' + $2
+  })
+}
 
 function request(request){
   // request = { cmd: string, userid: int, username: string, discriminator: int, bot: false, channelid: int, attachments: {}, }
@@ -243,6 +249,7 @@ function request(request){
   args.timestamp=moment()
   args.prompt=sanitize(args._.join(' '))
   if (args.prompt.length===0){args.prompt=getRandom('prompt');log('empty prompt found, adding random')}
+  args.prompt = auto2invoke(args.prompt)
   var newJob={
     id: queue.length+1,
     status: 'new',
@@ -1507,17 +1514,35 @@ async function directMessageUser(id,msg,channel){ // try, fallback to channel
   })
 }
 
+async function sendToChannel(serverId, originalChannelId, messageId, msg) {
+  const galleryChannel = allGalleryChannels[serverId]
+  if (!galleryChannel) {
+    log(`No gallery channel found for server ID: ${serverId}`)
+    return
+  }
+  const channel = bot.getChannel(galleryChannel)
+  const messageLink = `https://discord.com/channels/${serverId}/${originalChannelId}/${messageId}`
+  const components = [{ type: Constants.ComponentTypes.ACTION_ROW, components: [{ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.LINK, label: "Original message", url: messageLink, disabled: false }]}]
+  if (msg.reactions && msg.reactions.cache){ const existingReactions = msg.reactions.cache.filter(reaction => reaction.emoji.name === emoji && reaction.me)
+  } else { // todo fix logic and have optional minimum reactions before sending to gallery, handle add/remove reaction spam
+    if (msg && msg.embeds && msg.embeds.length > 0) {
+      msg.embeds[0].description = ``
+      await channel.createMessage({ content: msg.content, embeds: msg.embeds, components: components }).catch(() => {log(`Failed to send message to the specified channel for server ID: ${serverId}`)})
+    } else {await channel.createMessage({ content: msg.content, components: components }).catch(() => {log(`Failed to send message to the specified channel for server ID: ${serverId}`)})}
+  }
+}
+
 bot.on("messageReactionAdd", async (msg,emoji,reactor) => {
   if (msg.author){targetUserId=reactor.user.id}else{msg=await bot.getMessage(msg.channel.id,msg.id);targetUserId=reactor.id}
   var embeds=false
   if (msg.embeds){embeds=dJSON.parse(JSON.stringify(msg.embeds))}
   if (embeds&&msg.attachments&&msg.attachments.length>0) {embeds.unshift({image:{url:msg.attachments[0].url}})}
   if (msg.author&&msg.author.id===bot.application.id){
-    switch(emoji.name){
+    switch(emoji.name){ // to use alongside starboard paste the following into starboard setup: star filters add content notmatch /^(?=.?:brain:.+?:straight_ruler:.+?:seedling:).$/
       case '😂':
       case '👍':
       case '⭐':
-      case '❤️': log('Positive emojis'.green+emoji.name); break
+      case '❤️': log("sending image to gallery".dim);sendToChannel(msg.channel.guild.id, msg.channel.id, msg.id, { content: msg.content, embeds: embeds });break
       case '✉️': log('sending image to dm'.dim);directMessageUser(targetUserId,{content: msg.content, embeds: embeds});break // todo debug occasional error about reactor.user.id undefined here
       case '🙈':
       case '👎':
