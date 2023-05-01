@@ -27,7 +27,8 @@ var jimp = require('jimp')
 const FormData = require('form-data')
 const io = require("socket.io-client")
 const socket = io(config.apiUrl,{reconnect: true})
-var paused=false
+const ExifReader = require('exifreader')
+var paused=false // unused?
 var queue = []
 var users = []
 var payments = []
@@ -373,7 +374,7 @@ function chat(msg){if(msg!==null&&msg!==''){try{bot.createMessage(config.channel
 function chatChan(channel,msg){if(msg!==null&&msg!==''){try{bot.createMessage(channel, msg)}catch(err){log('Failed to send with error:'.bgRed);log(err)}}}
 function sanitize(prompt){
   if(config.bannedWords.length>0){config.bannedWords.split(',').forEach((bannedWord,index)=>{prompt=prompt.replace(bannedWord,'')})}
-  return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ+()=!\"\&\*\[\]<>\\\/\- ,.\:]/g, '').replace('`','') // (/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '')
+  return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ+()=!\"\&\*\[\]<>\\\/\- ,.\:[\u2700-\u27BF]]/g, '').replace('`','') // (/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '')
 }
 function base64Encode(file){var body=fs.readFileSync(file);return body.toString('base64')}
 function authorised(who,channel,guild) {
@@ -428,8 +429,8 @@ function chargeCredits(userID,amount){
     var user=users.find(x=>x.id===userID)
     user.credits=(user.credits-amount).toFixed(2)
     dbWrite()
-    var z='charged id '+userID+' - '+amount+'/'
-    if(user.credits>90){z+=user.credits.bgBrightGreen.white}else if(user.credits>50){z+=user.credits.bgGreen.black}else if(user.credits>10){z+=user.credits.bgBlack.white}else{z+=user.credits.bgRed.white}
+    var z='charged id '+userID+' - '+amount.toFixed(2)+'/'
+    if(user.credits>90){z+=user.credits.bgBrightGreen.black}else if(user.credits>50){z+=user.credits.bgGreen.black}else if(user.credits>10){z+=user.credits.bgBlack.white}else{z+=user.credits.bgRed.white}
     log(z.dim.bold)
   }
 }
@@ -1068,6 +1069,25 @@ function searchString(str, searchTerm) {
   return strLowerCase.includes(searchTermLowerCase) 
 }
 
+async function metaDataMsg(imageurl,channel){
+  debugLog('attempting metadata extraction from '+imageurl)
+  try{var metadata = await ExifReader.load(imageurl)
+  }catch(err){log(err)}
+  var newMsg='Metadata for '+imageurl+' \n'
+  Object.keys(metadata).forEach((t)=>{
+    newMsg+='**'+t+'**:'
+    Object.keys(metadata[t]).forEach((k)=>{
+      if(k==='description'&&metadata[t][k]===metadata[t]['value']){
+      } else {
+        if(k==='value'){newMsg+='`'+metadata[t][k]+'`'}
+        if(k==='description'){newMsg+=' *'+metadata[t][k]+'*'}
+      }
+    })
+    newMsg+='\n'
+  })
+  if(newMsg.length>0){sliceMsg(newMsg).forEach((m)=>{try{bot.createMessage(channel, m)}catch(err){debugLog(err)}})}
+}
+
 function process (file){// Monitor new files entering watchFolder, post image with filename.
   try {
     if (file.endsWith('.png')||file.endsWith('jpg')){
@@ -1519,10 +1539,11 @@ async function sendToChannel(serverId, originalChannelId, messageId, msg) {
   if (!galleryChannel) {log(`No gallery channel found for server ID: ${serverId}`);return}
   const channel = await bot.getChannel(galleryChannel)
   var alreadyInGallery=false
-  if(channel.messages.length<50){await channel.getMessages({limit: 100})} // if theres less then 50 in the channel message cache, fetch 100
-  channel.messages.forEach(message=>{if(message.content=msg.content){alreadyInGallery=true;debugLog('found in gallery')}}) // look through eris message cache for channel for matching msg
+  //if(channel.messages.length<50){debugLog('fetching gallery message history');await channel.getMessages({limit: 100})} // if theres less then 50 in the channel message cache, fetch 100
+  // await channel.getMessages({limit: 100})
   const messageLink = `https://discord.com/channels/${serverId}/${originalChannelId}/${messageId}`
   const components = [{ type: Constants.ComponentTypes.ACTION_ROW, components: [{ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.LINK, label: "Original message", url: messageLink, disabled: false }]}]
+  channel.messages.forEach(message=>{if(message.content===msg.content){alreadyInGallery=true;debugLog('found in gallery')}}) // look through eris message cache for channel for matching msg
   if (!alreadyInGallery){
     if (msg && msg.embeds && msg.embeds.length > 0) {
       msg.embeds[0].description = ``
@@ -1668,34 +1689,12 @@ bot.on("messageCreate", (msg) => {
                   newJob.sampler=s
                   request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
                 })
-/*            } else if (msg.content.startsWith('loras')){
-                var lorasToTest=[]
-                var lorasToTestString=msg.content.substring(6)
-                if(lorasToTestString==='all'){lorasToTest=lora;debugLog(lorasToTest)}else{lorasToTestString.split(' ').forEach(l=>{partialMatches(lora,l).forEach((m)=>{lorasToTest.push(m)})})}
-                var basePrompt=newJob.prompt
-                debugLog(lorasToTest)
-                lorasToTest.forEach(l=>{
-                  newJob.prompt=basePrompt+' withLora('+l+',0.8)'
-                  request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
-                })
-            } else if (msg.content.startsWith('tis')){
-                var tisToTest=[]
-                var tisToTestString=msg.content.substring(4)
-                if(tisToTestString==='all'){tisToTest=ti;debugLog(tisToTest)}else{tisToTestString.split(' ').forEach(t=>{
-                  partialMatches(ti,t).forEach((m)=>{tisToTest.push(m)})
-                })}
-                var basePrompt=newJob.prompt
-                debugLog(tisToTest)
-                tisToTest.forEach(t=>{
-                  newJob.prompt=basePrompt+' <'+t+'>'
-                  request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
-                })*/
             } else if (msg.content.startsWith('embeds')){
                 var tisToTest=[];var lorasToTest=[];var tisToTestString=msg.content.substring(7);var lorasToTestString=tisToTestString
                 if(tisToTestString==='all'){tisToTest=ti;debugLog(tisToTest)}else{tisToTestString.split(' ').forEach(t=>{
                   partialMatches(ti,t).forEach((m)=>{tisToTest.push(m)})
                 })}
-                if(lorasToTestString==='all'){lorasToTest=lora;debugLog(lorasToTest)}else{lorasToTestString.split(' ').forEach(l=>{partialMatches(lora,l).forEach((m)=>{lorasToTest.push(m)})})}
+                if(lorasToTestString==='all'){lorasToTest=lora}else{lorasToTestString.split(' ').forEach(l=>{partialMatches(lora,l).forEach((m)=>{lorasToTest.push(m)})})}
                 var basePrompt=newJob.prompt
                 var totalTests=tisToTest.length+lorasToTest.length
                 var newMsg='Testing '+totalTests+' embeddings total at a cost of '+totalTests*newJob.cost+' :coin: '
@@ -1716,7 +1715,7 @@ bot.on("messageCreate", (msg) => {
           }
           if (msg.content.startsWith('template')&&msg.referencedMessage.attachments){
             msg.attachments=msg.referencedMessage.attachments
-            msg.content='!dream '+msg.content.substring(9) + ' ' + newModel + initSampler //use same model and DDIM sampler by default unless specified
+            msg.content='!dream '+msg.content.substring(9)
           } else if (msg.content.startsWith('inpaint')&&msg.referencedMessage.attachments){
             msg.attachments=msg.referencedMessage.attachments
               msg.content='!dream '+msg.content.substring(7) + ' ' + '--model' + ' inpainting ' + initSampler //use inpaint model by default unless specified           
@@ -1738,6 +1737,9 @@ bot.on("messageCreate", (msg) => {
             if (msg.content[0]!=='!'){msg.content='!'+msg.content}
             msg.attachments=msg.referencedMessage.attachments
           } else if (msg.content.startsWith('text')||msg.content.startsWith('!text')){
+            msg.attachments=msg.referencedMessage.attachments
+          } else if (msg.content.startsWith('metadata')){
+            msg.content='!metadata'
             msg.attachments=msg.referencedMessage.attachments
           }
         }
@@ -2018,6 +2020,13 @@ bot.on("messageCreate", (msg) => {
               })
             })
           })
+        }
+        break
+      }
+      case '!metadata':{
+        if (msg.attachments.length===1&&msg.attachments[0].content_type.startsWith('image/')){
+          var attachmentsUrls = msg.attachments.map((u)=>{return u.proxy_url})
+          metaDataMsg(attachmentsUrls[0],msg.channel.id)
         }
         break
       }
