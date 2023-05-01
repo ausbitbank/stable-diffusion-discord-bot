@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "A discord bot to request renders with Stable Diffusion, and upload the images",
   "exports": "./index.js",
+  "main": "./index.js",
   "scripts": {
     "start": "node index.js"
   },
@@ -30,6 +31,7 @@
     "discord-image-generation": "^1.4.14",
     "dotenv": "^16.0.2",
     "eris": "DonovanDMC/eris#ed41313d9df5ff7c31bc955e0888f9c6f732c963",
+    "exifreader": "^4.12.0",
     "form-data": "^4.0.0",
     "global": "^4.4.0",
     "https-proxy-agent": "^5.0.1",
