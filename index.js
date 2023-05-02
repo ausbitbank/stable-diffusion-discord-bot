@@ -74,6 +74,7 @@ const allGalleryChannels = JSON.parse(fs.readFileSync('dbGalleryChannels.json', 
 var rembg=config.rembg||'http://127.0.0.1:5000?url='
 var defaultModel=config.defaultModel||'stable-diffusion-1.5'
 var currentModel='notInitializedYet'
+var defaultModelInpaint=config.defaultModelInpaint||'inpainting'
 var models=null
 var lora=null
 var ti=null
@@ -1715,10 +1716,15 @@ bot.on("messageCreate", (msg) => {
           }
           if (msg.content.startsWith('template')&&msg.referencedMessage.attachments){
             msg.attachments=msg.referencedMessage.attachments
+            var newDimensions=' --width '+msg.referencedMessage.attachments[0].width+' --height '+msg.referencedMessage.attachments[0].height
             msg.content='!dream '+msg.content.substring(9)
-          } else if (msg.content.startsWith('inpaint')&&msg.referencedMessage.attachments){
+            if (!msg.content.includes('-- width')&&!msg.content.includes('--height')){msg.content+=newDimensions}
+          } else if (msg.content.startsWith('inpaint')&&msg.referencedMessage.attachments&&msg.referencedMessage.attachments[0]['content_type'].startsWith('image')){
             msg.attachments=msg.referencedMessage.attachments
-              msg.content='!dream '+msg.content.substring(7) + ' ' + '--model' + ' inpainting ' + initSampler //use inpaint model by default unless specified           
+            var newDimensions=' --width '+msg.referencedMessage.attachments[0].width+' --height '+msg.referencedMessage.attachments[0].height
+            msg.content='!dream '+msg.content.substring(7)
+            if(!msg.content.includes('-- model')){msg.content+=' --model '+defaultModelInpaint}
+            if (!msg.content.includes('-- width')&&!msg.content.includes('--height')){msg.content+=newDimensions}
           } else if (msg.content.startsWith('background')||msg.content.startsWith('!background')){
             msg.content='!background'
             msg.attachments=msg.referencedMessage.attachments
