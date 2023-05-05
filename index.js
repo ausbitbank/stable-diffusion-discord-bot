@@ -375,7 +375,8 @@ function chat(msg){if(msg!==null&&msg!==''){try{bot.createMessage(config.channel
 function chatChan(channel,msg){if(msg!==null&&msg!==''){try{bot.createMessage(channel, msg)}catch(err){log('Failed to send with error:'.bgRed);log(err)}}}
 function sanitize(prompt){
   if(config.bannedWords.length>0){config.bannedWords.split(',').forEach((bannedWord,index)=>{prompt=prompt.replace(bannedWord,'')})}
-  return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ+()=!\"\&\*\[\]<>\\\/\- ,.\:[\u2700-\u27BF]]/g, '').replace('`','') // (/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ()\*\[\] ,.\:]/g, '')
+  return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ+()=!\"\&\*\[\]<>\\\/\- ,.\:\u0023-\u0039\u200D\u20E3\u2194-\u2199\u21A9-\u21AA\u231A-\u231B\u23E9-\u23EC\u23F0\u23F3\u25AA-\u25AB\u25B6\u25C0\u25FB-\u25FE\u2600-\u2604\u260E\u2611\u2614-\u2615\u261D\u263A\u2648-\u2653\u2660\u2663\u2665-\u2666\u2668\u267B\u267F\u2693\u26A0-\u26A1\u26AA-\u26AB\u26BD-\u26BE\u26C4-\u26C5\u26CE\u26D1\u26D3-\u26D4\u26E9\u26F0-\u26F5\u26F7-\u26FA\u26FD\u2702\u2705\u2708-\u270D\u270F\u2712\u2714\u2716\u271D\u2721\u2733-\u2734\u2744\u2747\u274C-\u274D\u274E\u2753-\u2755\u2757\u2763-\u2764\u2795-\u2797\u27A1\u27B0\u27BF\u2934-\u2935\u2B05-\u2B07\u2B1B-\u2B1C\u2B50\u2B55\u3030\u303D\u3297\u3299]/g, '').replace('`','')
+  // return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ+()=!\"\&\*\[\]<>\\\/\- ,.\:[\u2700-\u27BF]]/g, '').replace('`','') // bugged
 }
 function base64Encode(file){var body=fs.readFileSync(file);return body.toString('base64')}
 function authorised(who,channel,guild) {
@@ -1238,9 +1239,9 @@ bot.on("interactionCreate", async (interaction) => {
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Scale", custom_id: "editScale-"+id+'-'+rn, emoji: { name: '⚖️', id: null}, disabled: false },
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Steps", custom_id: "editSteps-"+id+'-'+rn, emoji: { name: '♻️', id: null}, disabled: false },
-                // {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Embeds", custom_id: "chooseEmbeds-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false },
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Textual Inversions", custom_id: "chooseTi-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false },
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Loras", custom_id: "chooseLora-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Aspect Ratio", custom_id: "chooseAspect-"+id+'-'+rn, emoji: { name: '📐', id: null}, disabled: false },
               ]},
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Upscale 2x", custom_id: "twkupscale2-"+id+'-'+rn, emoji: { name: '🔍', id: null}, disabled: false },
@@ -1489,16 +1490,18 @@ bot.on("interactionCreate", async (interaction) => {
       var aspectRatios = ['1:1','3:4','4:3','9:5','5:9','9:16','16:9']
       if(newJob){
         var changeAspectResponse={content:':eye: **Aspect Ratios**\n Different aspect ratios will give different compositions.',flags:64,components:[]}
-        //
-        for(let i=0;i<ti.length;i+=25){
+        var oldPixelCount=newJob.width*newJob.height
+        for(let i=0;i<aspectRatios.length;i+=25){
           changeAspectResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'addAspect'+i+'-'+id+'-'+rn,placeholder:'Change aspect ratio',min_values:1,max_values:1,options:[]}]})
-          aspectRatios.forEach((i)=>{
-            var w=i.split(':')[0];var h=i.split(':')[1];var l
-            if (i='1:1'){l='square'}else if(w>h){l='landscape'}else{l='portrait'}
-            changeAspectResponse.components[changeAspectResponse.components.length-1].components[0].options.push({label: i,value: i,description: l})
+          aspectRatios.forEach((a)=>{
+            var w=parseInt(a.split(':')[0]);var h=parseInt(a.split(':')[1]);var d;
+            var newWidth=Math.round(Math.sqrt(oldPixelCount * w / h))
+            var newHeight=Math.round(newWidth * h / w)
+            if (a==='1:1'){d='square'}else if(w>h){d='landscape'}else{d='portrait'}
+            changeAspectResponse.components[changeAspectResponse.components.length-1].components[0].options.push({label: a,value: a,description: d+' '+newWidth+'x'+newHeight})
           })
         }
-        return interaction.editParent(changeAspectResponse).then((r)=>{}).catch((e)=>{console.error(e)})
+        return interaction.editParent(changeAspectResponse).then((r)=>{debugLog(r)}).catch((e)=>{console.error(e)})
       }
     } else if (interaction.data.custom_id.startsWith('addAspect')) {
       id=interaction.data.custom_id.split('-')[1]
@@ -1509,7 +1512,10 @@ bot.on("interactionCreate", async (interaction) => {
       var newAspect=interaction.data.values[0]
       if(newJob){
         var oldPixelCount=newJob.width*newJob.height
-        // Take aspect ratio
+        var newAspectWidth=newAspect.split(':')[0]
+        var newAspectHeight=newAspect.split(':')[1]
+        newJob.width=Math.round(Math.sqrt(oldPixelCount * newAspectWidth / newAspectHeight))
+        newJob.height=Math.round(newJob.width * newAspectHeight / newAspectWidth)
         if(interaction.member){
           request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
         } else if (interaction.user){
