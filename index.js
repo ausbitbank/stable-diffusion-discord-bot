@@ -197,7 +197,9 @@ if(!creditsDisabled)
 }
 
 // Functions
-function auto2invoke(text) { // convert auto1111 weight syntax to invokeai
+function auto2invoke(text) {
+  // convert auto1111 weight syntax to invokeai
+  // todo convert lora syntax eg <lora:add_detail:1> to withLora(add_detail,1)
   const regex = /\(([^)]+):([^)]+)\)/g
   return text.replace(regex, function(match, $1, $2) {
     return '('+$1+')' + $2
@@ -375,8 +377,7 @@ function chat(msg){if(msg!==null&&msg!==''){try{bot.createMessage(config.channel
 function chatChan(channel,msg){if(msg!==null&&msg!==''){try{bot.createMessage(channel, msg)}catch(err){log('Failed to send with error:'.bgRed);log(err)}}}
 function sanitize(prompt){
   if(config.bannedWords.length>0){config.bannedWords.split(',').forEach((bannedWord,index)=>{prompt=prompt.replace(bannedWord,'')})}
-  return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ+()=!\"\&\*\[\]<>\\\/\- ,.\:\u0023-\u0039\u200D\u20E3\u2194-\u2199\u21A9-\u21AA\u231A-\u231B\u23E9-\u23EC\u23F0\u23F3\u25AA-\u25AB\u25B6\u25C0\u25FB-\u25FE\u2600-\u2604\u260E\u2611\u2614-\u2615\u261D\u263A\u2648-\u2653\u2660\u2663\u2665-\u2666\u2668\u267B\u267F\u2693\u26A0-\u26A1\u26AA-\u26AB\u26BD-\u26BE\u26C4-\u26C5\u26CE\u26D1\u26D3-\u26D4\u26E9\u26F0-\u26F5\u26F7-\u26FA\u26FD\u2702\u2705\u2708-\u270D\u270F\u2712\u2714\u2716\u271D\u2721\u2733-\u2734\u2744\u2747\u274C-\u274D\u274E\u2753-\u2755\u2757\u2763-\u2764\u2795-\u2797\u27A1\u27B0\u27BF\u2934-\u2935\u2B05-\u2B07\u2B1B-\u2B1C\u2B50\u2B55\u3030\u303D\u3297\u3299]/g, '').replace('`','')
-  // return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ+()=!\"\&\*\[\]<>\\\/\- ,.\:[\u2700-\u27BF]]/g, '').replace('`','') // bugged
+  return prompt.replace(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ+()=!\"\&\*\[\]<>\\\/\- ,.\:\u0023-\u0039\u200D\u20E3\u2194-\u2199\u21A9-\u21AA\u231A-\u231B\u23E9-\u23EC\u23F0\u23F3\u25AA-\u25AB\u25B6\u25C0\u25FB-\u25FE\u2600-\u2604\u260E\u2611\u2614-\u2615\u261D\u263A\u2648-\u2653\u2660\u2663\u2665-\u2666\u2668\u267B\u267F\u2693\u26A0-\u26A1\u26AA-\u26AB\u26BD-\u26BE\u26C4-\u26C5\u26CE\u26D1\u26D3-\u26D4\u26E9\u26F0-\u26F5\u26F7-\u26FA\u26FD\u2702\u2705\u2708-\u270D\u270F\u2712\u2714\u2716\u271D\u2721\u2733-\u2734\u2744\u2747\u274C-\u274D\u274E\u2753-\u2755\u2757\u2763-\u2764\u2795-\u2797\u27A1\u27B0\u27BF\u2934-\u2935\u2B05-\u2B07\u2B1B-\u2B1C\u2B50\u2B55\u3030\u303D\u3297\u3299àáâãäåçèéêëìíîïñòóôõöøùúûüýÿ]/g, '').replace('`','')
 }
 function base64Encode(file){var body=fs.readFileSync(file);return body.toString('base64')}
 function authorised(who,channel,guild) {
