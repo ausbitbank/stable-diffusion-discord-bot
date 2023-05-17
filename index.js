@@ -44,7 +44,7 @@ const { exit } = require('process')
 if(config.creditsDisabled==='true'){var creditsDisabled=true}else{var creditsDisabled=false}
 if(config.showFilename==='true'){var showFilename=true}else{var showFilename=false}
 if(config.hivePaymentAddress.length>0 && !creditsDisabled){
-  hive.config.set('alternative_api_endpoints',['https://api.hive.blog','https://api.deathwing.me','https://api.c0ff33a.uk','https://hived.emre.sh'])
+  hive.config.set('alternative_api_endpoints',['https://rpc.ausbit.dev','https://api.hive.blog','https://api.deathwing.me','https://api.c0ff33a.uk','https://hived.emre.sh'])
   var hiveUsd = 0.4
   var lastHiveUsd = hiveUsd
   getPrices()
@@ -71,6 +71,7 @@ const defaultMaxDiscordFileSize=parseInt(config.defaultMaxDiscordFileSize)||2500
 const basePath = config.basePath
 const maxAnimateImages = 100 // Only will fetch most recent X images for animating
 const allGalleryChannels = JSON.parse(fs.readFileSync('dbGalleryChannels.json', 'utf8'))||{}
+const allNSFWChannels = JSON.parse(fs.readFileSync('dbNSFWChannels.json', 'utf8'))||{}
 var rembg=config.rembg||'http://127.0.0.1:5000?url='
 var defaultModel=config.defaultModel||'stable-diffusion-1.5'
 var currentModel='notInitializedYet'
@@ -114,8 +115,8 @@ var slashCommands = [
     description: 'Create a new image from your prompt',
     options: [
       {type: 3, name: 'prompt', description: 'what would you like to see ?', required: true, min_length: 1, max_length:1500 },
-      {type: 4, name: 'width', description: 'width of the image in pixels (250-~1024)', required: false, min_value: 256, max_value: 1280 },
-      {type: 4, name: 'height', description: 'height of the image in pixels (250-~1024)', required: false, min_value: 256, max_value: 1280 },
+      {type: 4, name: 'width', description: 'width of the image in pixels (250-~1024)', required: false, min_value: 256, max_value: 2048 },
+      {type: 4, name: 'height', description: 'height of the image in pixels (250-~1024)', required: false, min_value: 256, max_value: 2048 },
       {type: 4, name: 'steps', description: 'how many steps to render for (10-250)', required: false, min_value: 5, max_value: 250 },
       {type: 4, name: 'seed', description: 'seed (initial noise pattern)', required: false},
       {type: 10, name: 'strength', description: 'how much noise to add to your template image (0.1-0.9)', required: false, min_value:0.01, max_value:0.99},
@@ -513,12 +514,6 @@ function scheduleInit(){
 }
 function getUser(id){var user=bot.users.get(id);log(user);if(user){return user}else{return null}}
 function getUsername(id){var user=getUser(id);if(user!==null&&user.username){return user.username}else{return null}}
-function getRichList(){
-  var u=users.filter(u=>parseInt(u.credits)>100).sort((a,b)=>b.credits-a.credits)
-  var richlistMsg='Rich List\n'
-  u.forEach(u=>{richlistMsg+=getUsername(u.id)+':coin:`'+u.credits+'`\n'})
-  log(richlistMsg)
-}
 function getPrices () { // TODO fallback to getting costs from hive internal market
   var url='https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=hive&order=market_cap_asc&per_page=1&page=1&sparkline=false'
   axios.get(url)
@@ -856,7 +851,7 @@ function lexicaSearch(query,channel){
       log('Lexica search for :`'+query+'` gave '+r.data.images.length+' results, '+filteredResults.length+' after filtering')
       shuffle(filteredResults)
       filteredResults=filteredResults.slice(0,10)// shuffle and trim to 10 results // todo make this an option once lexica writes api docs
-      filteredResults.forEach(i=>{reply.embeds.push({color: getRandomColorDec(),description: ':seedling:`'+i.seed+'` :straight_ruler:`'+i.width+'x'+i.height+'`',image:{url:i.srcSmall},footer:{text:i.prompt}})})
+      filteredResults.forEach(i=>{reply.embeds.push({color: getRandomColorDec(),description: '',image:{url:i.srcSmall},footer:{text:i.prompt}})})
       try{bot.createMessage(channel, reply)}catch(err){debugLog(err)}
     })
     .catch((error) => console.error(error))
@@ -1461,6 +1456,7 @@ bot.on("interactionCreate", async (interaction) => {
       var newLora=interaction.data.values[0]
       if(newJob&&newLora){
         newJob.prompt+=' withLora('+newLora+',0.8)' // add lora to prompt
+        newJob.number=1
         if(interaction.member){
           request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
         } else if (interaction.user){
@@ -1477,6 +1473,7 @@ bot.on("interactionCreate", async (interaction) => {
       var newTi=interaction.data.values[0]
       if(newJob&&newTi){
         newJob.prompt+=' \<'+newTi+'\>' // add ti to prompt
+        newJob.number=1
         if(interaction.member){
           request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
         } else if (interaction.user){
@@ -1542,7 +1539,7 @@ async function directMessageUser(id,msg,channel){ // try, fallback to channel
   })
 }
 
-async function sendToChannel(serverId, originalChannelId, messageId, msg) {
+async function sendToGalleryChannel(serverId, originalChannelId, messageId, msg) {
   const galleryChannel = allGalleryChannels[serverId]
   if (!galleryChannel) {log(`No gallery channel found for server ID: ${serverId}`);return}
   const channel = await bot.getChannel(galleryChannel)
@@ -1560,6 +1557,19 @@ async function sendToChannel(serverId, originalChannelId, messageId, msg) {
   } else {debugLog('Found identical existing star gallery message')}
 }
 
+async function moveToNSFWChannel(serverId, originalChannelId, messageId, msg) {
+  // similar to above, but transplant as-is and remove original
+  const nsfwChannel = allNSFWChannels[serverId]
+  debugLog(nsfwChannel)
+  if (!nsfwChannel) {log(`No nsfw channel found for server ID: ${serverId}`);return}
+  const channel = await bot.getChannel(nsfwChannel)
+  embeds = msg.embeds
+  content = msg.content
+  components = msg.components
+  debugLog(msg)
+  try{await channel.createMessage({ content: msg.content, components: components, embeds: embeds }).catch((err) => {debugLog(err);log(`Failed to move message to the NSFW channel for server ID: ${serverId}`)})}catch(err){log(err)}
+}
+
 bot.on("messageReactionAdd", async (msg,emoji,reactor) => {
   if (msg.author){targetUserId=reactor.user.id}else{msg=await bot.getMessage(msg.channel.id,msg.id);targetUserId=reactor.id}
   var embeds=false
@@ -1570,9 +1580,9 @@ bot.on("messageReactionAdd", async (msg,emoji,reactor) => {
       case '😂':
       case '👍':
       case '⭐':
-      case '❤️': log("sending image to gallery".dim);sendToChannel(msg.channel.guild.id, msg.channel.id, msg.id, { content: msg.content, embeds: embeds });break
+      case '❤️': log("sending image to gallery".dim);sendToGalleryChannel(msg.channel.guild.id, msg.channel.id, msg.id, { content: msg.content, embeds: embeds });break
       case '✉️': log('sending image to dm'.dim);directMessageUser(targetUserId,{content: msg.content, embeds: embeds});break
-      case '🙈':
+      case '🙈': if(msg.content.includes(reactor.user.id)||reactor.user.id===config.adminID){log("moving image to nsfw channel".dim);moveToNSFWChannel(msg.channel.guild.id, msg.channel.id, msg.id, { content: msg.content, embeds: embeds, attachments: msg.attachments, components: msg.components });msg.delete().catch(() => {})};break
       case '👎':
       case '⚠️':
       case '❌':
@@ -1656,12 +1666,6 @@ bot.on("messageCreate", (msg) => {
               msg.content = '!dream ' + newJob.prompt + msg.content.substring(1, msg.content.length) +  jobstring
             } else if (msg.content.startsWith('..')) {
               msg.content = '!dream ' + newJob.prompt + jobstring + msg.content.substring(2, msg.content.length)
-            } else if (msg.content.startsWith('*')) {
-              var newnum = parseInt(msg.content.substring(1, 2))
-              msg.content = '!dream ' + jobstring + ' --number ' + newnum
-            } else if (msg.content.startsWith('-')) {
-              newJob.prompt = newJob.prompt.replace(msg.content.substring(1, msg.content.length), '')
-              msg.content = '!dream ' + newJob.prompt + jobstring
             } else if (msg.content.startsWith('info')) {
               var infostring = `!dream ` + newJob.prompt + newWidth + newHeight + newSteps + newSeed + newScale + newSampler + newModel
               infostring += newJob.strength !== 0.7 ? newStrength : ''
@@ -1778,8 +1782,6 @@ bot.on("messageCreate", (msg) => {
     switch(c){
       case '!help':{bot.createMessage(msg.channel.id,'To create art type `!dream your idea here`\nSee these links for more info:\nhttps://peakd.com/@ausbitbank/our-new-stable-diffusion-discord-bot\nhttps://github.com/ausbitbank/stable-diffusion-discord-bot');break}
       //case '!dream':{request({cmd: msg.content.substr(7, msg.content.length), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments});break}
-      case '!prompt':
-      case '!random':{request({cmd: msg.content.substr(8,msg.content.length)+getRandom('prompt'), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments});break}
       case '!recharge':rechargePrompt(msg.author.id,msg.channel.id);break
       case '!lexica':lexicaSearch(msg.content.substr(8, msg.content.length),msg.channel.id);break
       case '!meme':{
@@ -2047,31 +2049,19 @@ bot.on("messageCreate", (msg) => {
         socket.emit("getLoraModels")
         socket.emit("getTextualInversionTriggers")
         newMsg=':pill: Embeddings are a way to supplement the current model. Add to prompt\n'
-        if(lora&&lora.length>0){newMsg+='**LORA**:\n'+lora.map(x=>`withLora(${x})`).join(' , ')+'\n'}
-        if(ti&&ti.length>0){newMsg=newMsg+'**Textual inversions**:\n'+ti.map(x=>`\<${x}\>`).join(' , ')+'\n Everything in https://huggingface.co/sd-concepts-library is also available'}
+        if(lora&&lora.length>0){newMsg+='**LORA**:\nwithLora(loraname,weight)\n'+lora.join(' , ')+'\n'} // map(x=>`withLora(${x})`)
+        if(ti&&ti.length>0){newMsg=newMsg+'**Textual inversions**:\n'+ti.join(' , ')+'\n Everything in https://huggingface.co/sd-concepts-library is also available'} // ti.map(x=>`\<${x}\>`)
         sliceMsg(newMsg).forEach((m)=>{try{bot.createMessage(msg.channel.id, m)}catch(err){debugLog(err)}})
         break
-      }
-      case '!meta':{
-        if (msg.attachments.length===1&&msg.attachments[0].content_type.startsWith('image/')){
-          var attachmentsUrls = msg.attachments.map((u)=>{return u.proxy_url})
-          jimp.read(attachmentsUrls[0], (err,img)=>{
-            if(err){debugLog(err)}
-            var newMsg = img.getMetadata()
-            debugLog(newMsg)
-            try{bot.createMessage(msg.channel.id, newMsg)}catch(err){debugLog(err)}
-          })
-        }
       }
     }
   if (msg.author.id===config.adminID) { // admins only
     if (c.startsWith('!')){log('admin command: '.bgRed+c)}
     switch(c){
-      case '!dothething':{log(bot.users.get(msg.author.id).username);break}
       case '!wipequeue':{rendering=false;queue=[];dbWrite();log('admin wiped queue');break}
       case '!queue':{queueStatus();break}
       case '!cancel':{cancelRenders();break}
-      case '!pause':{bot.editStatus('dnd');paused=true;rendering=true;chat(':pause_button: Bot is paused, requests will still be accepted and queued for when I return');break}
+      case '!pause':{try{bot.editStatus('dnd')}catch(err){log(err)};paused=true;rendering=true;try{chat(':pause_button: Bot is paused, requests will still be accepted and queued for when I return')}catch(err){log(err)};break}
       case '!resume':{socket.emit('requestSystemConfig');paused=false;rendering=false;bot.editStatus('online');chat(':play_pause: Bot is back online');processQueue();break}
       case '!checkpayments':{checkNewPayments();break}
       case '!restart':{log('Admin triggered bot on queue empty'.bgRed.white);exit(0)}
@@ -2102,7 +2092,6 @@ bot.on("messageCreate", (msg) => {
         bot.guilds.forEach((g)=>{log({id: g.id, name: g.name, ownerID: g.ownerID, description: g.description, memberCount: g.memberCount})})
         break
       }
-      case '!richlist':{getRichList();break}
       case '!leaveguild':{bot.leaveGuild(msg.content.split(' ')[1]);break}
       case '!getmessages':{var cid=msg.content.split(' ')[1];if(cid){bot.getMessages(cid).then(x=>{x.reverse();x.forEach((y)=>{log(y.author.username.bgBlue+': '+y.content);y.attachments.map((u)=>{return u.proxy_url}).forEach((a)=>{log(a)})})})};break}
       case '!updateslashcommands':{bot.getCommands().then(cmds=>{bot.commands = new Collection();for (const c of slashCommands) {bot.commands.set(c.name, c);bot.createCommand({name: c.name,description: c.description,options: c.options ?? [],type: Constants.ApplicationCommandTypes.CHAT_INPUT})}});break}
@@ -2113,11 +2102,6 @@ bot.on("messageCreate", (msg) => {
         if(newMsg.length<=2000){newMsg.length=1999} //max discord msg length of 2k
         //try{chatChan(msg.channel.id,newMsg)}catch(err){log(err)}
         sliceMsg(newMsg).forEach((m)=>{try{bot.createMessage(msg.channel.id, m)}catch(err){debugLog(err)}})
-        break
-      }
-      case '!schedule':{
-        if (msg.content.split(' ')[1]==='on'){dbScheduleRead()}
-        if (msg.content.split(' ')[1]==='off'){dbScheduleRead()}
         break
       }
     }
