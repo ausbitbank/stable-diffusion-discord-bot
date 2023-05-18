@@ -595,36 +595,18 @@ function postprocessingResult(data){ // TODO unfinished, untested, awaiting new 
 function requestModelChange(newmodel){log('Requesting model change to '+newmodel);if(newmodel===undefined||newmodel==='undefined'){newmodel=defaultModel}socket.emit('requestModelChange',newmodel,()=>{log('requestModelChange loaded')})}
 function cancelRenders(){log('Cancelling current render'.bgRed);socket.emit('cancel');queue[queue.findIndex((q)=>q.status==='rendering')-1].status='cancelled';rendering=false}
 function generationResult(data){
-  //log('generation result')
-  //log(data)
   var url=data.url
   url=config.basePath+data.url.split('/')[data.url.split('/').length-1]
   var job=queue[queue.findIndex(j=>j.status==='rendering')] // TODO there has to be a better way to know if this is a job from the web interface or the discord bot // upcoming invokeai api release solves this
-  // todo detect all-black image result using jimp
-  /*try{
-    var img=jimp.read(data.url)
-    if(img){
-      log('loaded image from generationResult')
-      var p1=img.intToRGBA(img.getPixelColor(0,0))
-      var p2=img.intToRGBA(img.getPixelColor(img.bitmap.width/2,img.bitmap.height/2))
-      var p3=img.intToRGBA(img.getPixelColor(img.bitmap.width,img.bitmap.height))
-      log(p1,p2,p3)
-      if(p1===p2&&p2===p3){log('3 pixels match color, warn');data.warning=true}
-    }
-  }catch(err){log(err)}*/
   if(job){
     var postRenderObject={id:job.id,filename: url, seed: data.metadata.image.seed, resultNumber:job.results.length, width:data.metadata.image.width,height:data.metadata.image.height}
     // remove redundant data before pushing to db results
     delete (data.metadata.prompt);delete (data.metadata.seed);delete (data.metadata.model_list);delete (data.metadata.app_id);delete (data.metadata.app_version); delete (data.attentionMaps)
     job.results.push(data)
-    /*if(data.tokens){
-      debugLog('Tokens: ' + data.tokens.length)
-      debugLog(data.tokens)
-    }*/
     postRender(postRenderObject)
   }else{rendering=false}
-  if(job&&job.results.length>=job.number){job.status='done';rendering=false;processQueue()}
-  if(dialogs.queue!==null){dialogs.queue.delete().catch((err)=>{}).then(()=>{dialogs.queue=null;intermediateImage=null})}//;queueStatusLock=false
+  if(job&&job.results.length>=job.number){debugLog('Marking job done');job.status='done';dbWrite();rendering=false;processQueue()} else {debugLog('Not marking job done, waiting for more images')}
+  if(dialogs.queue!==null){dialogs.queue.delete().catch((err)=>{}).then(()=>{dialogs.queue=null;intermediateImage=null})}
 }
 function initialImageUploaded(data){
   var url=data.url
