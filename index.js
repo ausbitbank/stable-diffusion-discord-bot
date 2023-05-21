@@ -886,6 +886,7 @@ async function meme(prompt,urls,userid,channel){
     case 'invert':{var image=await jimp.read(urls[0]);image.invert();img=await image.getBufferAsync(jimp.MIME_PNG);break}
     case 'flip':{var image=await jimp.read(urls[0]);image.flip(false,true);img=await image.getBufferAsync(jimp.MIME_PNG);break}
     case 'mirror':{var image=await jimp.read(urls[0]);image.flip(true,false);img=await image.getBufferAsync(jimp.MIME_PNG);break}
+    case 'rotate':{var image=await jimp.read(urls[0]);var rotatedeg=parseInt(prompt.split(' ')[1])||90;image.rotate(rotatedeg);img=await image.getBufferAsync(jimp.MIME_PNG);break}
     case 'animateseed':{
       if(params.length<2){return} // bugfix crash on animateseed with no seed
       //debugLog('Seed match count:' + queue.filter((j)=>j.seed==params[1]).length)
