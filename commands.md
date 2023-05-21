@@ -79,8 +79,11 @@ You can also just @ mention the bot in place of the `!dream` command.
 # Using emoji's on a render:
 
 If anyone adds positive emojis (😂👍⭐❤️) to a render result, it will be copied over to the servers Star gallery channel (if configured in dbGalleryChannels.json)
+
 If someone adds an envelope ✉️ emoji it will be DM'd to them
+
 If the creator or bot admin adds a 🙈 / `:see_no_evil:` it will move the render to the servers NSFW channel (if configured in dbNFSWChannels.json)
+
 If the creator or bot admin adds a negative emoji (👎⚠️❌💩) it will be deleted
 
 # admin only commands
