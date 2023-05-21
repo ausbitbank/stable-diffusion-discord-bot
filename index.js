@@ -858,6 +858,24 @@ function lexicaSearch(query,channel){
 }
 lexicaSearch=debounce(lexicaSearch,1000,true)
 
+async function textOverlay(imageurl,text,gravity,channel,user){
+  // todo caption area as a percentage of image size, configurable colors
+  debugLog('Adding text overlay\nimage url: '+imageurl+'\ntext: '+text+'\ngravity: '+gravity+'\nchannel: '+channel+'\nuser: '+user)
+  var image=(await axios({ url: imageurl, responseType: "arraybuffer" })).data
+  try{
+    switch(gravity){
+      case 'south': {var res=await sharp(image);break} //.extend({bottom:125,background:'black'})
+      case 'north': {var res=await sharp(image);break} //.extend({top:125,background:'black'}
+    }
+    res = sharp(await res.toBuffer()) // metadata will give wrong height value after our extend, reload it. Not too expensive
+    var metadata = await res.metadata()
+    const overlay = await sharp({text: {text: '<span foreground="white">'+text+'</span>',rgba: true,width: metadata.width - 10,height: 125,font: 'Arial',}}).png().toBuffer()
+    res = await res.composite([{ input: overlay, gravity: gravity }]) // Combine the text overlay with original image
+    var buffer = await res.toBuffer()
+    bot.createMessage(channel, '<@'+user+'> used `!text`\n`'+text+'`', {file: buffer, name: text+'.png'})
+  }catch(err){log(err)}
+}
+
 async function meme(prompt,urls,userid,channel){
   params = prompt.split(' ')
   cmd = prompt.split(' ')[0]
@@ -1960,32 +1978,13 @@ bot.on("messageCreate", (msg) => {
         if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){
           var attachmentsUrls = msg.attachments.map((u)=>{return u.proxy_url})
           attachmentsUrls.forEach((url)=>{
-            var newTxt=msg.content.substr(c.length+1)
-            log('adding text: '+newTxt)
-            jimp.read(url,(err,img)=>{
-              if(err){log('Error during text addition'.bgRed);log(err)}
-              var newMsg='<@'+msg.author.id+'> used `!text`'
-              if (!creditsDisabled){
-                chargeCredits(msg.author.id,0.05)
-                newMsg+=', it cost :coin:`0.05`/`'+creditsRemaining(msg.author.id)+'`'
-              }
-              jimp.loadFont(jimp.FONT_SANS_32_BLACK).then(font => {
-                //var newTxtWidth=jimp.measureText(jimp.FONT_SANS_32_BLACK, newTxt)
-                //var newTxtHeight=jimp.measureTextHeight(jimp.FONT_SANS_32_BLACK, newTxt, 100)
-                var txtObj={text:newTxt,alignmentX:jimp.HORIZONTAL_ALIGN_CENTER,alignmentY:jimp.VERTICAL_ALIGN_TOP,background:0xffffff}
-                switch(c){
-                  case '!text':
-                  case '!textCenter':{txtObj.alignmentY=jimp.VERTICAL_ALIGN_MIDDLE;break}
-                  case '!textTop':{txtObj.alignmentY=jimp.VERTICAL_ALIGN_TOP;break}
-                  case '!textBottom':{txtObj.alignmentY=jimp.VERTICAL_ALIGN_BOTTOM;break}
-                }
-                img.print(font, 0, 0, txtObj, img.bitmap.width, img.bitmap.height)
-                img.getBuffer(jimp.MIME_PNG, (err,buffer)=>{
-                  if(err){log(err)}
-                  try{bot.createMessage(msg.channel.id, newMsg, {file: buffer, name: 'text.png'})}catch(err){log(err)}
-                })
-              })
-            })
+            var newTxt=msg.content.substr(c.length+1); var gravity=''
+            switch(c){
+              case '!text':
+              case '!textBottom':{gravity='south';break}
+              case '!textTop':{gravity='north';break}
+            }
+            textOverlay(url,newTxt,gravity,msg.channel.id,msg.author.id)
           })
         }
         break
