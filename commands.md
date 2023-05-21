@@ -76,6 +76,13 @@ You can also just @ mention the bot in place of the `!dream` command.
 
 `embeds search1 search 2` will search all the textual inversions and LORA's for your search terms, and test them all 1 by 1.
 
+# Using emoji's on a render:
+
+If anyone adds positive emojis (😂👍⭐❤️) to a render result, it will be copied over to the servers Star gallery channel (if configured in dbGalleryChannels.json)
+If someone adds an envelope ✉️ emoji it will be DM'd to them
+If the creator or bot admin adds a 🙈 / `:see_no_evil:` it will move the render to the servers NSFW channel (if configured in dbNFSWChannels.json)
+If the creator or bot admin adds a negative emoji (👎⚠️❌💩) it will be deleted
+
 # admin only commands
 
 `!wipequeue` the nuclear option, delete the full job queue (old and new) and start fresh
