@@ -3,7 +3,7 @@
 `!dream prompt` to create images
 `/dream prompt` as above
 
-Heres an example request with all options used manually
+Heres an example request with most options used manually
 
 `!dream a redneck Vitalik+ man wearing a tank top, sunglasses, drinking beer, doing a thumbs up gesture, dancing, laughing at his house being on fire, high quality, detailed, a beautiful retrowave artwork, trending on artstation withLora(vitalik,0.8) withLora(add_detail,1.2) [<neg-sketch-2>] --width 697 --height 929 --steps 30 --seed 951987030 --scale 7 --sampler ddim --model degenerate526urpm --hires_fix --upscale_level 2 --upscale_strength 0.5 --gfpgan_strength 0.5`
 
@@ -20,7 +20,7 @@ You can also just @ mention the bot in place of the `!dream` command.
 `!fade` and attach image to apply gradient transparency to edges
 (fadeleft/faderight/fadeup/fadedown also available)
 
-`!text your text here`  and attach image to add text to an image (WIP, crap)
+`!text your text here`  and attach image to add text to an image (alt: !textTopLeft/Top/TopRight/Left/Centre/Right/BottomLeft/Bottom/BottomRight)
 
 `!metadata` extract exif metadata from an attached image
 
@@ -51,8 +51,11 @@ You can also just @ mention the bot in place of the `!dream` command.
 
 `!meme invert` attach image to invert colors
 
-`!meme animateseed 123` (animate images with a specific seed, add prompt text to image, bugged atm?)
+`!meme flip` attach image to flip vertically
+`!meme mirror` attach image to flip horizontally
+`!meme rotate [degrees]` attach image to rotate, 90 degree default if no degrees are added
 
+`!meme animateseed 123` (animate images with a specific seed, add prompt text to image, bugged on certain prompts)
 
 
 # When replying to a render:
@@ -99,3 +102,5 @@ You can also just @ mention the bot in place of the `!dream` command.
 
 `!updateslashcommands` triggers a manual update of the application slash commands
 `!deleteslashcommands` manually deletes slash commands (to be used with above)
+
+`!text your text here` to add text to an image (alt: !textTopLeft/Top/TopRight/Left/Centre/Right/BottomLeft/Bottom/BottomRight)
