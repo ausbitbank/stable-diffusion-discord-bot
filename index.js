@@ -870,7 +870,7 @@ async function textOverlay(imageurl,text,gravity,channel,user){
     res = sharp(await res.toBuffer()) // metadata will give wrong height value after our extend, reload it. Not too expensive
     var metadata = await res.metadata()
     const overlay = await sharp({text: {text: '<span foreground="white">'+text+'</span>',rgba: true,width: metadata.width - 10,height: 125,font: 'Arial',}}).png().toBuffer()
-    res = await res.composite([{ input: overlay, gravity: gravity }]) // Combine the text overlay with original image
+    res = await res.composite([{ input: overlay, gravity: gravity, blend: 'difference' }]) // Combine the text overlay with original image
     var buffer = await res.toBuffer()
     bot.createMessage(channel, '<@'+user+'> used `!text`\n`'+text+'`', {file: buffer, name: text+'.png'})
   }catch(err){log(err)}
@@ -884,6 +884,8 @@ async function meme(prompt,urls,userid,channel){
     case 'blur':{var image=await jimp.read(urls[0]);image.blur(10);img=await image.getBufferAsync(jimp.MIME_PNG);break}
     case 'greyscale':{var image=await jimp.read(urls[0]);image.greyscale();img=await image.getBufferAsync(jimp.MIME_PNG);break}
     case 'invert':{var image=await jimp.read(urls[0]);image.invert();img=await image.getBufferAsync(jimp.MIME_PNG);break}
+    case 'flip':{var image=await jimp.read(urls[0]);image.flip(false,true);img=await image.getBufferAsync(jimp.MIME_PNG);break}
+    case 'mirror':{var image=await jimp.read(urls[0]);image.flip(true,false);img=await image.getBufferAsync(jimp.MIME_PNG);break}
     case 'animateseed':{
       if(params.length<2){return} // bugfix crash on animateseed with no seed
       //debugLog('Seed match count:' + queue.filter((j)=>j.seed==params[1]).length)
@@ -2077,7 +2079,8 @@ bot.on("messageCreate", (msg) => {
       }
       case '!guilds':{
         debugLog('Guild count: '+bot.guilds.size)
-        bot.guilds.forEach((g)=>{log({id: g.id, name: g.name, ownerID: g.ownerID, description: g.description, memberCount: g.memberCount})})
+        var guilds = bot.guilds.sort((a, b) => a.memberCount - b.memberCount)
+        guilds.forEach((g)=>{log({id: g.id, name: g.name, ownerID: g.ownerID, description: g.description, memberCount: g.memberCount})})
         break
       }
       case '!leaveguild':{bot.leaveGuild(msg.content.split(' ')[1]);break}
