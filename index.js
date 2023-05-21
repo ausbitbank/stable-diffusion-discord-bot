@@ -474,6 +474,19 @@ function dbWrite(){
     fs.writeFileSync('dbUsers.json',JSON.stringify({users:users}))
     fs.writeFileSync('dbPayments.json',JSON.stringify({payments:payments}))
   }catch(err){log('Failed to write db files'.bgRed);log(err)}}
+/*function dbWrite() { // todo test this (attempting to avoid file corruption during interuption eg: power failure)
+  const data = {queue: queue,users: users,payments: payments}
+  const files = ['dbQueue.json','dbUsers.json','dbPayments.json']
+  files.forEach((file) => {
+    const dataExists = fs.existsSync(file)
+    const dataIsDifferent = dataExists && JSON.stringify(data[file]) !== fs.readFileSync(file, 'utf8')
+    if (dataIsDifferent) {
+      fs.writeFileSync(`${file}.tmp.json`, JSON.stringify(data[file]))
+      fs.renameSync(`${file}.tmp.json`, file)
+    }
+  })
+}*/
+
 function dbRead() {
   try{
     queue=JSON.parse(fs.readFileSync('dbQueue.json')).queue
@@ -514,11 +527,16 @@ function scheduleInit(){
 }
 function getUser(id){var user=bot.users.get(id);log(user);if(user){return user}else{return null}}
 function getUsername(id){var user=getUser(id);if(user!==null&&user.username){return user.username}else{return null}}
-function getPrices () { // TODO fallback to getting costs from hive internal market
+function getPrices () {
   var url='https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=hive&order=market_cap_asc&per_page=1&page=1&sparkline=false'
   axios.get(url)
     .then((response)=>{hiveUsd=response.data[0].current_price;lastHiveUsd=hiveUsd;log('HIVE: $'+hiveUsd)})
-    .catch(()=>{log('Failed to load data from coingecko api'.red.bold);hiveUsd=lastHiveUsd})
+    .catch(()=>{
+      log('Failed to load data from coingecko api, trying internal market'.red.bold)
+      axios.post('https://rpc.ausbit.dev/', {id: 1,jsonrpc: '2.0',method: 'condenser_api.get_ticker',params: []})
+        .then((hresponse)=>{hiveUsd=parseFloat(hresponse.data.result.latest);log('HIVE (internal market): $'+hiveUsd)})
+        .catch((err)=>{log('Failed to load data from hive market api');log(err);hiveUsd=lastHiveUsd})
+    })
 }
 function getLightningInvoiceQr(memo){
   var appname=config.hivePaymentAddress+'_discord' // TODO should this be an .env variable?
@@ -867,7 +885,8 @@ async function meme(prompt,urls,userid,channel){
           if (stopUrl == fileOnly) {donemark=true} // this is the last one
           var seedUrl = config.basePath+fileOnly // TODO: Review OS compat path operations
           urlseed.push(seedUrl)
-          promptseed.push(r.metadata.image.prompt[0].prompt)
+          //promptseed.push(r.metadata.image.prompt[0].prompt) // broken original
+          promptseed.push(r.metadata.image.prompt) // invoke metadata format changed since initial implementation
         })
       })
       if (urlseed.length>1) // At least two images to work with
@@ -875,17 +894,22 @@ async function meme(prompt,urls,userid,channel){
         let styledprompts = [promptseed[0]] // prefill first prompt
         for (var i = 1; i < promptseed.length;i++) // start on second prompt
         {
-          const diff = Diff.diffWords(promptseed[i - 1], promptseed[i]) // Find differences between previous prompt and this one, Chunks into unchanged/added/removed
-          var updateprompt = ""
-          diff.forEach((part) => { // Bring all chunks back together with styling based on type
-            if (part.added) {updateprompt += "<span foreground='green'><b><big>" + part.value + "</big></b></span>"}
-            else if (part.removed) {updateprompt += "<span foreground='red'><s>" + part.value + "</s></span>"}
-            else {updateprompt += part.value}
-          })
-          styledprompts.push(updateprompt)      	
+          try{
+            const diff = Diff.diffWords(promptseed[i - 1], promptseed[i]) // Find differences between previous prompt and this one, Chunks into unchanged/added/removed
+            var updateprompt = ""
+            diff.forEach((part) => { // Bring all chunks back together with styling based on type
+              var pv = part.value.replaceAll('&','').replaceAll('<',' ').replaceAll('>',' ') //.replaceAll('[','').replaceAll(']','') // Remove textual inversion brackets before adding markup
+              // todo still failing on prompts with [<neg-sketch-3>] due to invalid markup
+              if (part.added) {updateprompt += "<span foreground='green'><b><big>" + pv + "</big></b></span>"}
+              else if (part.removed) {updateprompt += "<span foreground='red'><s>" + pv + "</s></span>"}
+              else {updateprompt += pv}
+            })
+            styledprompts.push(updateprompt)
+          }catch(err){log(err)}
         }
         // TODO: Better finisher ideas? Repeating last prompt in blue to signify the end
-        styledprompts.push("<span foreground='blue'>" + promptseed[promptseed.length - 1] + "</span>")
+        styledprompts.push("<span foreground='blue'>" + promptseed[promptseed.length-1] + "</span>")
+        debugLog(styledprompts)
         urlseed.push(urlseed[urlseed.length - 1])
       	let frameList = []
       	for (var i = 0;i < urlseed.length;i++)
@@ -896,24 +920,21 @@ async function meme(prompt,urls,userid,channel){
           // Create styled prompt text overlay
           // TODO: Some height padding would be nice. Not as easy as width padding cuz of alignment
           // WARN: Had no issue with font, but read about extra steps sometimes being necessary
-          styledprompts[i]=styledprompts[i].replace('&','') // stop crash from invalid markup
-          const overlay = await sharp({
-              text: {
-                  text: styledprompts[i],
-                  rgba: true,
-                  width: metadata.width - 20,
-                  height: 200, 
-                  font: 'Arial',
-              },
-          }).png().toBuffer()
-          res = await res.composite([{ input: overlay, gravity: 'south' }]) // Combine the prompt overlay with prompt image
-          frameList.push(res)
+          if(sanitizedprompt){
+            try{
+              const overlay = await sharp({text: {text: promptseed[promptseed.length-1],rgba: true,width: metadata.width - 20,height: 200,font: 'Arial',}}).png().toBuffer()
+              res = await res.composite([{ input: overlay, gravity: 'south' }]) // Combine the prompt overlay with prompt image
+              frameList.push(res)
+            }catch(err){log(err)}
+          }
       	}
         // rgb444 format is way faster, slightly worse quality
         // default takes almost a minute for 15 frames, versus a handful of seconds
         // Does makes background a bit off-white sometimes
-      	var image = await GIF.createGif({delay:delay, format:"rgb444"}).addFrame(frameList).toSharp()
-      	img = await image.toBuffer()
+        try{
+          var image = await GIF.createGif({delay:delay, format:"rgb444"}).addFrame(frameList).toSharp()
+          img = await image.toBuffer()
+        }catch(err){log(err)}
       }
       break
     }
@@ -1018,21 +1039,7 @@ function replaceRandoms(input){
   })
   return output
 }
-/*
-function imgurEnabled(){if(config.imgurClientID.length>0){return true}else{return false}}
-async function imgurupload(file) {
-  log('uploading via imgur api')
-  const response = await imgur.upload({ image: fs.createReadStream(file), type: 'stream'})
-  debugLog(response.data)
-  return response.data
-}
-function imgbbEnabled(){if(config.imgbbClientID.length>0){return true}else{return false}}
-async function imgbbupload(file) {
-  log('uploading via imgbb api')
-  imgbb(config.imgbbClientID, file)
-    .then((response)=>{debugLog(response);return response})
-    .catch((error)=>console.error(error))
-} */
+
 function partialMatches(strings, search) {
   let results = []
   for(let i=0;i<strings.length;i++){
@@ -1065,7 +1072,7 @@ async function metaDataMsg(imageurl,channel){
     })
     newMsg+='\n'
   })
-  if(newMsg.length>0){sliceMsg(newMsg).forEach((m)=>{try{bot.createMessage(channel, m)}catch(err){debugLog(err)}})}
+  if(newMsg.length>0&&newMsg.length<10000){sliceMsg(newMsg).forEach((m)=>{try{bot.createMessage(channel, m)}catch(err){debugLog(err)}})} else {debugLog('Aborting metadata message, response too long')}
 }
 
 function process (file){// Monitor new files entering watchFolder, post image with filename.
@@ -1501,7 +1508,7 @@ bot.on("interactionCreate", async (interaction) => {
         } else if (interaction.user){
           request({cmd: getCmd(newJob), userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
         }
-        return interaction.editParent({content:':eye: ** Textual inversion '+interaction.data.values[0]+'** selected',components:[]}).catch((e) => {console.error(e)})
+        return interaction.editParent({content:':eye: ** Aspect '+interaction.data.values[0]+'** selected',components:[]}).catch((e) => {console.error(e)})
       }
     }
   }
@@ -1891,7 +1898,7 @@ bot.on("messageCreate", (msg) => {
                   var newMsg='<@'+msg.author.id+'> used `'+c+'`'
                   if(!creditsDisabled){
                     chargeCredits(msg.author.id,0.05)
-                    newMsg+=', it cost :coin:`0.05`/`'+creditsRemaining(msg.author.id)
+                    newMsg+=', it cost :coin:`0.05`/`'+creditsRemaining(msg.author.id)+'`'
                   }
                   bot.createMessage(msg.channel.id, newMsg, {file: buffer, name: 'faded.png'})
               })
