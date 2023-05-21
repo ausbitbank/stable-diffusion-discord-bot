@@ -863,10 +863,11 @@ async function textOverlay(imageurl,text,gravity,channel,user){
   debugLog('Adding text overlay\nimage url: '+imageurl+'\ntext: '+text+'\ngravity: '+gravity+'\nchannel: '+channel+'\nuser: '+user)
   var image=(await axios({ url: imageurl, responseType: "arraybuffer" })).data
   try{
-    switch(gravity){
+    var res=await sharp(image)
+    /*switch(gravity){
       case 'south': {var res=await sharp(image);break} //.extend({bottom:125,background:'black'})
       case 'north': {var res=await sharp(image);break} //.extend({top:125,background:'black'}
-    }
+    }*/
     res = sharp(await res.toBuffer()) // metadata will give wrong height value after our extend, reload it. Not too expensive
     var metadata = await res.metadata()
     const overlay = await sharp({text: {text: '<span foreground="white">'+text+'</span>',rgba: true,width: metadata.width - 10,height: 125,font: 'Arial',}}).png().toBuffer()
@@ -1224,6 +1225,22 @@ bot.on("interactionCreate", async (interaction) => {
         if(newJob.webhook){delete newJob.webhook}
         return interaction.createModal({custom_id:'twkscale-'+newJob.id,title:'Edit the scale',components:[{type:1,components:[{type:4,custom_id:'scale',label:'Scale',style:2,value:String(newJob.scale),required:true,min_length:1,max_length:4}]}]}).then((r)=>{}).catch((e)=>{console.error(e)})
       }else{return interaction.editParent({components:[]}).catch((e) => {console.error(e)})}
+    } else if (interaction.data.custom_id.startsWith('editStrength-')) {
+      id=interaction.data.custom_id.split('-')[1];rn=interaction.data.custom_id.split('-')[2]
+      if(queue[id-1]){var newJob=JSON.parse(JSON.stringify(queue[id-1]))}
+      if(newJob){
+        newJob.number=1
+        if(newJob.webhook){delete newJob.webhook}
+        return interaction.createModal({custom_id:'twkstrength-'+newJob.id,title:'Edit the strength',components:[{type:1,components:[{type:4,custom_id:'strength',label:'Strength',style:2,value:String(newJob.strength),required:true,min_length:1,max_length:4}]}]}).then((r)=>{}).catch((e)=>{console.error(e)})
+      }else{return interaction.editParent({components:[]}).catch((e) => {console.error(e)})}
+    } else if (interaction.data.custom_id.startsWith('editResolution-')) {
+      id=interaction.data.custom_id.split('-')[1];rn=interaction.data.custom_id.split('-')[2]
+      if(queue[id-1]){var newJob=JSON.parse(JSON.stringify(queue[id-1]))}
+      if(newJob){
+        newJob.number=1
+        if(newJob.webhook){delete newJob.webhook}
+        return interaction.createModal({custom_id:'twkresolution-'+newJob.id,title:'Edit the resolution',components:[{type:1,components:[{type:4,custom_id:'resolution',label:'Resolution',style:2,value:String(newJob.width+'x'+newJob.height),required:true,min_length:5,max_length:12}]}]}).then((r)=>{}).catch((e)=>{console.error(e)})
+      }else{return interaction.editParent({components:[]}).catch((e) => {console.error(e)})}
     } else if (interaction.data.custom_id.startsWith('tweak-')) {
       id=interaction.data.custom_id.split('-')[1]
       rn=interaction.data.custom_id.split('-')[2]
@@ -1236,25 +1253,23 @@ bot.on("interactionCreate", async (interaction) => {
             flags:64,
             components:[
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Portrait", custom_id: "twkaspectPortrait-"+id+'-'+rn, emoji: { name: '↕️', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Square", custom_id: "twkaspectSquare-"+id+'-'+rn, emoji: { name: '🔳', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Landscape", custom_id: "twkaspectLandscape-"+id+'-'+rn, emoji: { name: '↔️', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Model", custom_id: "chooseModel-"+id+'-'+rn, emoji: { name: '💾', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Sampler", custom_id: "chooseSampler-"+id+'-'+rn, emoji: { name: '👁️', id: null}, disabled: false }
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Aspect Ratio", custom_id: "chooseAspect-"+id+'-'+rn, emoji: { name: '📐', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Model", custom_id: "chooseModel-"+id+'-'+rn, emoji: { name: '💾', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Textual Inversions", custom_id: "chooseTi-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Loras", custom_id: "chooseLora-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false }
               ]},
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Scale", custom_id: "editScale-"+id+'-'+rn, emoji: { name: '⚖️', id: null}, disabled: false },
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Steps", custom_id: "editSteps-"+id+'-'+rn, emoji: { name: '♻️', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Textual Inversions", custom_id: "chooseTi-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Loras", custom_id: "chooseLora-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Aspect Ratio", custom_id: "chooseAspect-"+id+'-'+rn, emoji: { name: '📐', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Strength", custom_id: "editStrength-"+id+'-'+rn, emoji: { name: '💪', id: null}, disabled: false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Sampler", custom_id: "chooseSampler-"+id+'-'+rn, emoji: { name: '👁️', id: null}, disabled: false }
               ]},
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Upscale 2x", custom_id: "twkupscale2-"+id+'-'+rn, emoji: { name: '🔍', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Upscale 4x", custom_id: "twkupscale4-"+id+'-'+rn, emoji: { name: '🔎', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Face Fix GfpGAN", custom_id: "twkgfpgan-"+id+'-'+rn, emoji: { name: '💄', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Face Fix CodeFormer", custom_id: "twkcodeformer-"+id+'-'+rn, emoji: { name: '💄', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "High Resolution Fix", custom_id: "twkhiresfix-"+id+'-'+rn, emoji: { name: '🔭', id: null}, disabled: false }
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Upscale 2x", custom_id: "twkupscale2-"+id+'-'+rn, emoji: { name: '🔍', id: null}, disabled: newJob.upscale_level===0||false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Upscale 4x", custom_id: "twkupscale4-"+id+'-'+rn, emoji: { name: '🔎', id: null}, disabled: newJob.upscale_level===0||false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Face Fix GfpGAN", custom_id: "twkgfpgan-"+id+'-'+rn, emoji: { name: '💄', id: null}, disabled: newJob.gfpgan_strength!==0||false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Face Fix CodeFormer", custom_id: "twkcodeformer-"+id+'-'+rn, emoji: { name: '💄', id: null}, disabled: newJob.codeformer_strength!==0||false },
+                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "High Resolution Fix", custom_id: "twkhiresfix-"+id+'-'+rn, emoji: { name: '🔭', id: null}, disabled: newJob.hires_fix||false }
               ]},
               {type:Constants.ComponentTypes.ACTION_ROW,components:[
                 {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "1% variant", custom_id: "twkvariant1-"+id+'-'+rn, emoji: { name: '🧬', id: null}, disabled: false },
@@ -1271,25 +1286,6 @@ bot.on("interactionCreate", async (interaction) => {
               ]}
             ]
           }
-          // Disable buttons depending on the current parameters
-          //if (newJob.width===512&&newJob.height===704){tweakResponse.components[0].components[0].disabled=true}
-          if (newJob.width===defaultSize&&newJob.height===(defaultSize+192)){tweakResponse.components[0].components[0].disabled=true}
-          if (newJob.width===newJob.height){tweakResponse.components[0].components[1].disabled=true}
-          //if (newJob.width===704&&newJob.height===512){tweakResponse.components[0].components[2].disabled=true}
-          if (newJob.height===defaultSize&&newJob.width===(defaultSize+192)){tweakResponse.components[0].components[2].disabled=true}
-          if (newJob.scale<=1){tweakResponse.components[1].components[0].disabled=true}
-          if (newJob.scale>=30){tweakResponse.components[1].components[1].disabled=true}
-          if (newJob.steps<=5){tweakResponse.components[1].components[2].disabled=true}
-          if (newJob.steps>=140){tweakResponse.components[1].components[3].disabled=true}
-          if (newJob.upscale_level!==0&&newJob.upscale_level!==''){tweakResponse.components[2].components[0].disabled=true;tweakResponse.components[2].components[1].disabled=true}
-          if (newJob.gfpgan_strength!==0){tweakResponse.components[2].components[2].disabled=true}
-          if (newJob.codeformer_strength!==0){tweakResponse.components[2].components[3].disabled=true}
-          if (newJob.hires_fix===true||(newJob.width*newJob.height)<300000){tweakResponse.components[2].components[4].disabled=true}
-          if (newJob.sampler==='k_euler_a'){tweakResponse.components[3].components[0].disabled=true}
-          if (newJob.sampler==='k_euler_a'){tweakResponse.components[3].components[1].disabled=true}
-          if (newJob.sampler==='k_euler_a'){tweakResponse.components[3].components[2].disabled=true}
-          if (newJob.sampler==='k_euler_a'){tweakResponse.components[3].components[3].disabled=true}
-          if (newJob.sampler==='k_euler_a'){tweakResponse.components[3].components[4].disabled=true}
         return interaction.createMessage(tweakResponse).then((r)=>{}).catch((e)=>{console.error(e)})
       } else {
         console.error('Edit request failed')
@@ -1315,6 +1311,7 @@ bot.on("interactionCreate", async (interaction) => {
         case 'aspectPortrait': newJob.height=defaultSize+192;newJob.width=defaultSize;break
         case 'aspectLandscape': newJob.width=defaultSize+192;newJob.height=defaultSize;break
         case 'aspectSquare': newJob.width=defaultSize;newJob.height=defaultSize;break
+        case 'resolution': try{var newres=interaction.data.components[0].components[0].value;newJob.width=parseFloat(newres.split('x')[0]);newJob.height=parseFloat(newres.split('x')[1])}catch(err){log(err)};break
         case 'aspect4k': newJob.width=960;newJob.height=512;newJob.upscale_level=4;newJob.hires_fix=true;break
         case 'upscale2': newJob.upscale_level=2;break // currently resubmitting jobs, update to use postprocess once working
         case 'upscale4': newJob.upscale_level=4;break
@@ -1495,12 +1492,12 @@ bot.on("interactionCreate", async (interaction) => {
       id=interaction.data.custom_id.split('-')[1]
       rn=interaction.data.custom_id.split('-')[2]
       var newJob=JSON.parse(JSON.stringify(queue[id-1]))
-      var aspectRatios = ['1:1','3:4','4:3','9:5','5:9','9:16','16:9']
+      var aspectRatios = ['1:1','2:3','3:2','3:4','4:3','5:4','4:5','9:5','5:9','6:13','13:6','9:16','16:9','9:32','32:9']
       if(newJob){
         var changeAspectResponse={content:':eye: **Aspect Ratios**\n Different aspect ratios will give different compositions.',flags:64,components:[]}
         var oldPixelCount=newJob.width*newJob.height
         for(let i=0;i<aspectRatios.length;i+=25){
-          changeAspectResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'addAspect'+i+'-'+id+'-'+rn,placeholder:'Change aspect ratio',min_values:1,max_values:1,options:[]}]})
+          changeAspectResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'addAspect'+i+'-'+id+'-'+rn,placeholder:'Change aspect ratio, keep pixel count',min_values:1,max_values:1,options:[]}]})
           aspectRatios.forEach((a)=>{
             var w=parseInt(a.split(':')[0]);var h=parseInt(a.split(':')[1]);var d;
             var newWidth=Math.round(Math.sqrt(oldPixelCount * w / h))
@@ -1509,6 +1506,12 @@ bot.on("interactionCreate", async (interaction) => {
             changeAspectResponse.components[changeAspectResponse.components.length-1].components[0].options.push({label: a,value: a,description: d+' '+newWidth+'x'+newHeight})
           })
         }
+        changeAspectResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[
+          {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Resolution", custom_id: "editResolution-"+id+'-'+rn, emoji: { name: '📏', id: null}, disabled: false },
+          {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Portrait", custom_id: "twkaspectPortrait-"+id+'-'+rn, emoji: { name: '↕️', id: null}, disabled: newJob.height===(defaultSize+192)&&newJob.width===defaultSize||false },
+          {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Square", custom_id: "twkaspectSquare-"+id+'-'+rn, emoji: { name: '🔳', id: null}, disabled: newJob.height===defaultSize&&newJob.width===defaultSize||false },
+          {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Landscape", custom_id: "twkaspectLandscape-"+id+'-'+rn, emoji: { name: '↔️', id: null}, disabled: newJob.height===defaultSize&&newJob.width===(defaultSize+192)||false }
+        ]})
         return interaction.editParent(changeAspectResponse).then((r)=>{debugLog(r)}).catch((e)=>{console.error(e)})
       }
     } else if (interaction.data.custom_id.startsWith('addAspect')) {
@@ -1976,7 +1979,13 @@ bot.on("messageCreate", (msg) => {
       }
       case '!textTop':
       case '!textBottom':
-      case '!textCenter':
+      case '!textCentre':
+      case '!textTopLeft':
+      case '!textTopRight':
+      case '!textBottomLeft':
+      case '!textBottomRight':
+      case '!textLeft':
+      case '!textRight':
       case '!text':{
         if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){
           var attachmentsUrls = msg.attachments.map((u)=>{return u.proxy_url})
@@ -1985,7 +1994,14 @@ bot.on("messageCreate", (msg) => {
             switch(c){
               case '!text':
               case '!textBottom':{gravity='south';break}
+              case '!textBottomLeft':{gravity='southwest';break}
+              case '!textBottomRight':{gravity='southeast';break}
               case '!textTop':{gravity='north';break}
+              case '!textTopLeft':{gravity='northwest';break}
+              case '!textTopRight':{gravity='northeast';break}
+              case '!textCentre':{gravity='centre';break}
+              case '!textLeft':{gravity='west';break}
+              case '!textRight':{gravity='east';break}
             }
             textOverlay(url,newTxt,gravity,msg.channel.id,msg.author.id)
           })
