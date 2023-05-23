@@ -27,6 +27,8 @@ A discord bot built to interface with the [InvokeAI](https://github.com/invoke-a
 
 ## Add arty to your discord server (easy)
 
+https://discord.com/application-directory/973484171534172170
+
 Come find arty in the artspam room here https://discord.gg/DSdK9KRJxq
 Right click him, and click "add to server"
 
