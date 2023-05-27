@@ -84,8 +84,7 @@ var samplers=config.samplers.split(',')
 var samplersSlash=[]
 samplers.forEach((s)=>{samplersSlash.push({name: s, value: s})})
 var defaultSampler=samplers[0]
-debugLog('Enabled samplers:')
-debugLog(samplers)
+debugLog('Enabled samplers: '+samplers.join(','))
 debugLog('Default sampler:'+defaultSampler)
 var rendering = false
 var dialogs = {queue: null} // Track and replace our own messages to reduce spam
@@ -103,8 +102,7 @@ try{
         randomsCache.push(fs.readFileSync('txt/'+file,'utf-8').split(/r?\n/))
       }
     })
-    debugLog('Enabled randomisers:')
-    debugLog(randoms)
+    debugLog('Enabled randomisers: '+randoms.join(','))
   })
 }catch(err){log('Unable to read txt file directory'.bgRed);log(err)}
 if(randoms.includes('prompt')){randoms.splice(randoms.indexOf('prompt'),1);randoms.splice(0,0,'prompt')} // Prompt should be interpreted first
@@ -143,15 +141,14 @@ var slashCommands = [
       if (i.data.resolved && i.data.resolved.attachments && i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))){
         var attachmentOrig=i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))
         var attachment=[{width:attachmentOrig.width,height:attachmentOrig.height,size:attachmentOrig.size,proxy_url:attachmentOrig.proxyUrl,content_type:attachmentOrig.contentType,filename:attachmentOrig.filename,id:attachmentOrig.id}]
-      } else {
-        var attachment=[]
-      }
+      }else{var attachment=[]}
       // below allows for the different data structure in public interactions vs direct messages
-      if (i.member) {
+      request({cmd:getCmd(prepSlashCmd(i.data.options)),userid:i.member?i.member.id:i.user.id,username:i.member?i.member.user.username:i.user.username,discriminator:i.member?i.member.user.discriminator:i.user.discriminator,bot:i.member?i.member.user.bot:i.user.bot,channelid:i.channel.id,attachments:attachment})
+      /*if (i.member) {
         request({cmd: getCmd(prepSlashCmd(i.data.options)), userid: i.member.id, username: i.member.user.username, discriminator: i.member.user.discriminator, bot: i.member.user.bot, channelid: i.channel.id, attachments: attachment})
       } else if (i.user){
         request({cmd: getCmd(prepSlashCmd(i.data.options)), userid: i.user.id, username: i.user.username, discriminator: i.user.discriminator, bot: i.user.bot, channelid: i.channel.id, attachments: attachment})
-      }
+      }*/
     }
   },
   {
@@ -160,15 +157,8 @@ var slashCommands = [
     options: [ {type: 3, name: 'prompt', description: 'Add these keywords to a random prompt', required: false} ],
     cooldown: 500,
     execute: (i) => {
-      var prompt = ''
-      if (i.data.options) { prompt+= i.data.options[0].value + ' ' }
-      prompt += getRandom('prompt')
-      // below allows for the different data structure in public interactions vs direct messages
-      if (i.member){ // pubchan
-        request({cmd: prompt, userid: i.member.id, username: i.member.username, discriminator: i.member.discriminator, bot: i.member.bot, channelid: i.channel.id, attachments: []})
-      } else if (i.user) { // direct message
-        request({cmd: prompt, userid: i.user.id, username: i.user.username, discriminator: i.user.discriminator, bot: i.user.bot, channelid: i.channel.id, attachments: []})
-      }
+      var prompt=i.data.options?i.data.options[0].value+' '+getRandom('prompt'):getRandom('prompt')
+      request({cmd:prompt,userid:i.member?i.member.id:i.user.id,username:i.member?i.member.user.username:i.user.username,discriminator:i.member?i.member.user.discriminator:i.user.discriminator,bot:i.member?i.member.user.bot:i.user.bot,channelid:i.channel.id,attachments:[]})
     }
   },
   {
@@ -252,6 +242,7 @@ function request(request){
   for (n in [args.width,args.height,args.steps,args.seed,args.strength,args.scale,args.number,args.threshold,args.perlin]){
     n=n.replaceAll(/[^０-９\.]/g, '') // not affecting the actual args
   }
+  //args.width=(args.width&&Number.isInteger(args.width)&&args.width<256)?args.width:defaultSize
   if (!args.width||!Number.isInteger(args.width)||args.width<256){args.width=defaultSize}
   if (!args.height||!Number.isInteger(args.height)||args.height<256){args.height=defaultSize}
   if ((args.width*args.height)>config.pixelLimit) { // too big, try to compromise, find aspect ratio and use max resolution of same ratio
@@ -604,7 +595,7 @@ function rechargePrompt(userid,channel){
   paymentMsg+='<@'+userid+'> you have `'+creditsRemaining(userid)+'` :coin: remaining\n*The rate is `1` **USD** per `500` :coin: *\n'
   paymentMsg+= 'You can send any amount of HIVE <:hive:1110123056501887007> or HBD <:hbd:1110282940686016643> to `'+config.hivePaymentAddress+'` with the memo `'+paymentMemo+'` to top up your balance\n'
   //paymentMsg+= '**Pay 1 HBD:** '+paymentLinkHbd+'\n**Pay 1 HIVE:** '+paymentLinkHive
-  var freeRechargeMsg='..Or just wait for your free recharge of 10 credits twice daily'
+  var freeRechargeMsg='..Or just wait for your FREE recharge of 10 credits twice daily'
   var rechargeImages=['https://media.discordapp.net/attachments/1024766656347652186/1110852592864595988/237568213750251520-1684918295766-text.png','https://media.discordapp.net/attachments/1024766656347652186/1110862401420677231/237568213750251520-1684920634773-text.png','https://media.discordapp.net/attachments/1024766656347652186/1110865969645105213/237568213750251520-1684921485321-text.png','https://media.discordapp.net/attachments/968822563662860338/1110869028475523174/237568213750251520-1684922214077-text.png','https://media.discordapp.net/attachments/1024766656347652186/1110872463736324106/237568213750251520-1684923032433-text.png','https://media.discordapp.net/attachments/1024766656347652186/1110875096106676256/237568213750251520-1684923660927-text.png','https://media.discordapp.net/attachments/1024766656347652186/1110876051694952498/237568213750251520-1684923889116-text.png','https://media.discordapp.net/attachments/1024766656347652186/1110877696726159370/237568213750251520-1684924281507-text.png','https://media.discordapp.net/attachments/968822563662860338/1110904225384382554/merged_canvas.da2c2db8.png']
   shuffle(rechargeImages)
   var paymentMsgObject={
@@ -741,7 +732,8 @@ async function emitRenderApi(job){
     if(key!==undefined){log('Missing property for '+key);if(key==='codeformer_strength'){upscale.strength=0}} // not undefined in this context means there is a key that IS undefined, confusing
   })
   socket.emit('generateImage',postObject,upscale,facefix)
-  debugLog('sent request',postObject,upscale,facefix)
+  dbWrite() // can we gracefully recover if we restart right after sending the request to backend?
+  //debugLog('sent request',postObject,upscale,facefix)
 }
 function getObjKey(obj, value){return Object.keys(obj).find(key=>obj[key]===value)}
 async function addRenderApi(id){
@@ -897,7 +889,7 @@ function processQueue(){
       {type:0,name:'the waiting game'}
     ]
     shuffle(idleStatusArr)
-    bot.editStatus('idle',idleStatusArr[0]) // todo alternate idle messages // 0=playing? 1=Playing 2=listening to 3=watching 5=competing in
+    bot.editStatus('idle',idleStatusArr[0])
   }
 }
 function lexicaSearch(query,channel){
@@ -973,15 +965,16 @@ async function rotate(imageurl,degrees=90,channel,user){
 
 async function help(channel){
   var helpMsgObject={
-  content: 'To create art:\n`!dream your idea here`\nSee these links for more info',
+  content: 'To create art:\n`!dream your idea here` or `/dream`\nSee these links for more info',
   components: [
     {type: Constants.ComponentTypes.ACTION_ROW, components:[
       {type: 2, style: 5, label: "Intro Post", url:'https://peakd.com/@ausbitbank/our-new-stable-diffusion-discord-bot', emoji: { name: 'hive', id: '1110123056501887007'}, disabled: false },
       {type: 2, style: 5, label: "Github", url:'https://github.com/ausbitbank/stable-diffusion-discord-bot', emoji: { name: 'Github', id: '1110915942856282112'}, disabled: false },
       {type: 2, style: 5, label: "Commands", url:'https://github.com/ausbitbank/stable-diffusion-discord-bot/blob/main/commands.md', emoji: { name: 'Book_Accessibility', id: '1110916595863269447'}, disabled: false },
       {type: 2, style: 5, label: "Invite to server", url:'https://github.com/ausbitbank/stable-diffusion-discord-bot/blob/main/commands.md', emoji: { name: 'happy_pepe', id: '1110493880304013382'}, disabled: false },
+      {type: 2, style: 5, label: "Privacy Policy", url:'https://gist.github.com/ausbitbank/cd8ba9ea6aa09253fcdcdfad36b9bcdd', emoji: { name: '📜', id: null}, disabled: false },
     ]}
-  ]
+  ] 
   }
   bot.createMessage(channel, helpMsgObject)
 }
@@ -1201,12 +1194,12 @@ function sliceMsg(str) {
   return chunks
 }
 async function clearParent(interaction){
-  var label=interaction.data.custom_id.split('-')[0].replace('twk','')+' selected'
+  var label=':ok:'+interaction.data.custom_id.split('-')[0].replace('twk','')+' selected'
   try{
     if(interaction.message&&interaction.message.flags===64){// ephemeral message that cannot be deleted by us, only edited
-      try{return await interaction.editParent({content: '',components: [],embeds:[{footer:{text:label},color:getRandomColorDec()}]}).then(()=>{}).catch(e=>{if(e){}})}catch(err){log(err)}
+      try{return await interaction.editParent({content: label,components: [],embeds:[]}).then(()=>{}).catch(e=>{if(e){}})}catch(err){log(err)}
     } else if (interaction.message) { // regular message reference
-      try{await interaction.createMessage({embeds:[{footer: {text:label},color:getRandomColorDec()}],flags:64}).then(()=>{}).catch(e=>{if(e){}})}catch(err){log(err)}
+      try{await interaction.createMessage({content:label,flags:64}).then(()=>{}).catch(e=>{if(e){}})}catch(err){log(err)}
     }
   }catch(err){log(err)}
 }
@@ -1233,8 +1226,9 @@ bot.on("interactionCreate", async (interaction) => {
   if(interaction instanceof Eris.CommandInteraction && authorised(interaction,interaction.channel.id,interaction.guildID)) {//&& interaction.channel.id === config.channelID
     if (!bot.commands.has(interaction.data.name)) return interaction.createMessage({content:'Command does not exist', flags:64}).catch((e) => {log('command does not exist'.bgRed);log(e)})
     try {
+      await interaction.acknowledge().then(()=>debugLog('ack '+interaction.data.name)).catch((err)=>log(err))
       bot.commands.get(interaction.data.name).execute(interaction)
-      interaction.acknowledge().then(x=> {interaction.deleteMessage('@original').then((t) => {}).catch((e) => {log('error after delete interaction'.bgRed);console.error(e)}) }).catch((e)=>{console.error(e)})
+      interaction.deleteMessage('@original').then(()=>{}).catch((e)=>log(e))
     }
     catch (error) { console.error(error); await interaction.createMessage({content:'There was an error while executing this command!', flags: 64}).catch((e) => {log(e)}) }
   }
@@ -1256,7 +1250,7 @@ bot.on("interactionCreate", async (interaction) => {
       request({cmd: getRandom('prompt'), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
       return clearParent(interaction) //return interaction.editParent({}).catch((e)=>{log(e)})
     }else if(cid.startsWith('refresh')){
-      await interaction.deferUpdate()
+      try{await interaction.deferUpdate()}catch(err){log(err)}
       if(newJob) {
         if (cid.startsWith('refreshVariants')&&newJob.sampler!=='k_euler_a') { // variants do not work with k_euler_a sampler
           newJob.variation_amount=0.1
@@ -1377,7 +1371,7 @@ bot.on("interactionCreate", async (interaction) => {
         return interaction.createMessage(tweakResponse).then((r)=>{}).catch((e)=>{console.error(e)})
       } else {log('Edit request failed');return clearParent(interaction)}
     } else if (cid.startsWith('twk')) {
-      await interaction.deferUpdate()
+      try{await interaction.deferUpdate()}catch(err){log(err)}
       var newCmd=''
       var postProcess=false
       switch(cid.split('-')[0].replace('twk','')){
@@ -1640,7 +1634,9 @@ async function moveToNSFWChannel(serverId, originalChannelId, messageId, msg) {
 }
 
 bot.on("messageReactionAdd", async (msg,emoji,reactor) => {
-  if (msg.author){targetUserId=reactor.user.id}else{msg=await bot.getMessage(msg.channel.id,msg.id);targetUserId=reactor.id}
+  if (msg.author){targetUserId=reactor.user.id}else{
+    try{msg=await bot.getMessage(msg.channel.id,msg.id);targetUserId=reactor.id}catch(err){log(err)}
+  }
   var embeds=false
   if (msg.embeds){embeds=dJSON.parse(JSON.stringify(msg.embeds))}
   if (embeds&&msg.attachments&&msg.attachments.length>0) {embeds.unshift({image:{url:msg.attachments[0].url}})}
@@ -2099,7 +2095,7 @@ bot.on("messageCreate", (msg) => {
       case '!resume':{socket.emit('requestSystemConfig');paused=false;rendering=false;bot.editStatus('online');chat(':play_pause: Bot is back online');processQueue();break}
       case '!checkpayments':{checkNewPayments();break}
       case '!repostfails':{repostFails();break}
-      case '!restart':{log('Admin triggered bot on queue empty'.bgRed.white);exit(0)}
+      case '!restart':{log('Admin triggered bot restart'.bgRed.white);exit(0)}
       case '!creditdisabled':{log('Credits have been disabled'.bgRed.white);creditsDisabled=true;bot.createMessage(msg.channel.id,'Credits have been disabled');break}
       case '!creditenabled':{log('Credits have been enabled'.bgRed.white);creditsDisabled=false;bot.createMessage(msg.channel.id,'Credits have been enabled');break}
       case '!credit':{
