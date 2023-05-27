@@ -70,8 +70,8 @@ const maxIterations = parseInt(config.maxIterations)||10
 const defaultMaxDiscordFileSize=parseInt(config.defaultMaxDiscordFileSize)||25000000
 const basePath = config.basePath
 const maxAnimateImages = 100 // Only will fetch most recent X images for animating
-const allGalleryChannels = JSON.parse(fs.readFileSync('dbGalleryChannels.json', 'utf8'))||{}
-const allNSFWChannels = JSON.parse(fs.readFileSync('dbNSFWChannels.json', 'utf8'))||{}
+const allGalleryChannels = fs.existsSync('dbGalleryChannels.json') ? JSON.parse(fs.readFileSync('dbGalleryChannels.json', 'utf8')) : {}
+const allNSFWChannels = fs.existsSync('dbNSFWChannels.json') ? JSON.parse(fs.readFileSync('dbNSFWChannels.json', 'utf8')) : {}
 var rembg=config.rembg||'http://127.0.0.1:5000?url='
 var defaultModel=config.defaultModel||'stable-diffusion-1.5'
 var currentModel='notInitializedYet'
@@ -89,6 +89,7 @@ debugLog(samplers)
 debugLog('Default sampler:'+defaultSampler)
 var rendering = false
 var dialogs = {queue: null} // Track and replace our own messages to reduce spam
+var failedToPost=[]
 // load text files from txt directory, usable as {filename} in prompts, will return a random line from file
 var randoms=[]
 var randomsCache=[]
@@ -506,24 +507,25 @@ function freeRecharge(){
     log('No users eligible for free credit recharge')
   }
 }
-function dbWrite(){
+/*function dbWrite(){
   try{
     fs.writeFileSync('dbQueue.json',JSON.stringify({queue:queue}))
     fs.writeFileSync('dbUsers.json',JSON.stringify({users:users}))
     fs.writeFileSync('dbPayments.json',JSON.stringify({payments:payments}))
-  }catch(err){log('Failed to write db files'.bgRed);log(err)}}
-/*function dbWrite() { // todo test this (attempting to avoid file corruption during interuption eg: power failure)
-  const data = {queue: queue,users: users,payments: payments}
-  const files = ['dbQueue.json','dbUsers.json','dbPayments.json']
+  }catch(err){log('Failed to write db files'.bgRed);log(err)}}*/
+function dbWrite() {
+  const files = [{name:'dbQueue.json',data:{queue:queue}},{name:'dbUsers.json',data:{users:users}},{name:'dbPayments.json',data:{payments:payments}}]
   files.forEach((file) => {
-    const dataExists = fs.existsSync(file)
-    const dataIsDifferent = dataExists && JSON.stringify(data[file]) !== fs.readFileSync(file, 'utf8')
-    if (dataIsDifferent) {
-      fs.writeFileSync(`${file}.tmp.json`, JSON.stringify(data[file]))
-      fs.renameSync(`${file}.tmp.json`, file)
+    const dataExists = fs.existsSync(file.name)
+    const dataIsDifferent = dataExists && JSON.stringify(file.data) !== fs.readFileSync(file.name, 'utf8')
+    if(dataIsDifferent){
+      try{
+        fs.writeFileSync(`${file.name}.tmp.json`, JSON.stringify(file.data))
+        fs.renameSync(`${file.name}.tmp.json`, file.name)
+      }catch(err){log('Failed to write db files'.bgRed);log(err)}
     }
   })
-}*/
+}
 
 function dbRead() {
   try{
@@ -604,11 +606,12 @@ function rechargePrompt(userid,channel){
   //paymentMsg+= '**Pay 1 HBD:** '+paymentLinkHbd+'\n**Pay 1 HIVE:** '+paymentLinkHive
   var freeRechargeMsg='..Or just wait for your free recharge of 10 credits twice daily'
   var rechargeImages=['https://media.discordapp.net/attachments/1024766656347652186/1110852592864595988/237568213750251520-1684918295766-text.png','https://media.discordapp.net/attachments/1024766656347652186/1110862401420677231/237568213750251520-1684920634773-text.png','https://media.discordapp.net/attachments/1024766656347652186/1110865969645105213/237568213750251520-1684921485321-text.png','https://media.discordapp.net/attachments/968822563662860338/1110869028475523174/237568213750251520-1684922214077-text.png','https://media.discordapp.net/attachments/1024766656347652186/1110872463736324106/237568213750251520-1684923032433-text.png','https://media.discordapp.net/attachments/1024766656347652186/1110875096106676256/237568213750251520-1684923660927-text.png','https://media.discordapp.net/attachments/1024766656347652186/1110876051694952498/237568213750251520-1684923889116-text.png','https://media.discordapp.net/attachments/1024766656347652186/1110877696726159370/237568213750251520-1684924281507-text.png','https://media.discordapp.net/attachments/968822563662860338/1110904225384382554/merged_canvas.da2c2db8.png']
+  shuffle(rechargeImages)
   var paymentMsgObject={
     content: paymentMsg,
     embeds:
     [
-      {image:{url:rechargeImages[(Math.random()*rechargeImages.length)|0]}},
+      {image:{url:rechargeImages[0]}},
       {description:'Pay $1 via btc lightning network', image:{url:lightningInvoiceQr}},
       {footer:{text:freeRechargeMsg}}
     ],
@@ -679,11 +682,10 @@ function generationResult(data){
     job.results.push(data)
     postRender(postRenderObject)
   }else{rendering=false}
-  if(job&&job.results.length>=job.number){debugLog('Marking job done');job.status='done';dbWrite();rendering=false;processQueue()} else {debugLog('Not marking job done, waiting for more images')}
+  if(job&&job.results.length>=job.number){job.status='done';dbWrite();rendering=false;processQueue()}// else {debugLog('Not marking job done, waiting for more images')}
   if(dialogs.queue!==null){dialogs.queue.delete().catch((err)=>{}).then(()=>{dialogs.queue=null;intermediateImage=null})}
 }
 function initialImageUploaded(data){
-  var url=data.url
   var filename=config.basePath+"/"+data.url.replace('outputs/','')
   var id=data.url.split('/')[data.url.split('/').length-1].split('.')[0]
   var job=queue[id-1]
@@ -822,44 +824,38 @@ async function postRender(render){
       if(newMessage.components[0].components.length===0){delete newMessage.components} // If no components are used there will be a discord api error so remove it
       var filesize=fs.statSync(render.filename).size
       if(filesize<defaultMaxDiscordFileSize){ // Within discord 25mb filesize limit
-        try{bot.createMessage(job.channel, newMessage, {file: data, name: filename + '.png'}).then(m=>{}).catch((err)=>{log('caught error posting to discord in channel '.bgRed+job.channel);log(err)})}
-        catch(err){console.error(err)}
-      } else {
-        log('Image '+filename+' was too big for discord, failed to post to channel '+job.channel)
-      }
-      // Disabled imgur and imgbb uploads (discord limits raised, no longer required + TOS changes for imgur make it awkward)
-      /*}else{
-        if(imgurEnabled()&&filesize<10000000){
-          bot.createMessage(job.channel,'<@'+job.userid + '> your image was too big for discord, uploading to imgur now..')
-          try { imgurupload(render.filename).then(upload => { bot.createMessage(job.channel,{ content: msg, embeds: [{image: {url: upload.link}, description:job.prompt}]}) }) }
-          catch (err) { console.error(err); bot.createMessage(job.channel,'Sorry <@' + job.userid + '> imgur uploading failed, contact an admin for your image `' + filename + '.png`') }
-        // disabled imgbb as it was unreliable
-        /*} else if (imgbbEnabled() && filesize < 32000000) {
-          chat('<@' + job.userid + '> your file was too big for discord, uploading to imgbb now..')
-          try { imgbbupload(render.filename).then(upload => { log(upload); bot.createMessage(job.channel,{ content: msg, embeds: [{image: {url: upload.url}, description:job.prompt}]}) }) }
-          catch (err) { console.error(err); bot.createMessage(job.channel,'Sorry <@' + job.userid + '> imgbb uploading failed, contact an admin for your image `' + filename + '.png`') }*/
-        /*} else {
-          try {
-            bot.createMessage(job.channel,'<@' + job.userid + '> your image was too big for discord and imgur, uploading to oshi.at now..')
-            log('uploading via oshi.at api')
-            log(render.filename)
-            let form = new FormData()
-            const fileStream = fs.createReadStream(render.filename)
-            form.append("file", fileStream)
-            axios({method:'post',url:'https://oshi.at/',data:form,'maxContentLength': Infinity,'maxBodyLength': Infinity,headers:{...form.getHeaders()}})
-            .then((response)=>{
-              var oshiimg=response.data.split('DL: ')[1]
-              bot.createMessage(job.channel,{ content: msg+'\n '+(filesize/1000000).toFixed(2)+'MB image uploaded to oshi.at : '+oshiimg, embeds: [{description:job.prompt, color: getRandomColorDec()}]})
+        try{
+          bot.createMessage(job.channel, newMessage, {file: data, name: filename + '.png'})
+            .then(m=>{debugLog('Posted msg id '+m.id+' to channel id '+m.channel.id)}) // maybe wait till successful post here to change job status? Could store msg id to job
+            .catch((err)=>{
+              log('caught error posting to discord in channel '.bgRed+job.channel)
+              log(err)
+              failedToPost.push({channel:job.channel,msg:newMessage,file:data,name:filename+'.png'})
             })
-            .catch((error) => console.error(error))
-          }catch (err){console.error(err);bot.createMessage(job.channel,'Sorry <@' + job.userid + '> but your image was too big for all available image hosts, contact an admin for your image `' + filename + '.png`')} 
-        }
-      }*/
+        }catch(err){console.error(err)}
+      }else{
+        log('Image '+filename+' was too big for discord, failed to post to channel '+job.channel)
+        failedToPost.push({channel:job.channel,msg:newMessage,file:data,name:filename+'.png'})
       }
-    })
-  }
-  catch(err) {console.error(err)}
+    }
+  })
+  }catch(err){log(err)}
 }
+
+async function repostFails(){
+  debugLog('Attempting to repost '+failedToPost.length+' failed message')
+  failedToPost.forEach((p)=>{
+    try{
+      bot.createMessage(p.channel,p.msg,{file:p.file,name:p.filename})
+        .then(m=>{failedToPost=failedToPost.filter(f=>{f.file!==p.file})}) // remove successful posts
+        .catch(err=>{
+          log('Unable to repost to channel '+p.channel)
+          log(err)
+        })
+    }catch(err){log(err)}
+  })
+}
+
 function processQueue(){
   // WIP attempt to make a harder to dominate queue
   // TODO make a queueing system that prioritizes the users that have recharged the most
@@ -871,7 +867,8 @@ function processQueue(){
   }else{var nextJob=queue[queue.findIndex(x=>x.status==='new')]}
   if(nextJob&&!rendering){
     if(userCreditCheck(nextJob.userid,costCalculator(nextJob))){
-      bot.editStatus('online')
+      var statusMsg = 'with '+queueNew.length+' artful idea';if(queueNew.length>1){statusMsg+='s'}
+      bot.editStatus('online',{type: 1,name:statusMsg})
       rendering=true
       log(nextJob.username.bgWhite.red+':'+nextJob.cmd.replaceAll('\r','').replaceAll('\n').bgWhite.black)
       addRenderApi(nextJob.id)
@@ -889,10 +886,18 @@ function processQueue(){
     if(renderJobErrors.length>0){
       log('These job statuses are set to rendering, but rendering=false - this shouldnt happen'.bgRed)
       log(renderJobErrors)
-      renderJobErrors.forEach((j)=>{if(j.status==='rendering'){log('setting status to failed for id '+j.id);j.status='failed'}})
+      renderJobErrors.forEach((j)=>{if(j.status==='rendering'){log('setting status to failed for id '+j.id);j.status='failed';dbWrite()}})
     }
+    if(failedToPost.length>0){repostFails()}
     debugLog('Finished queue, setting idle status'.dim)
-    bot.editStatus('idle')
+    idleStatusArr=[ // alternate idle messages
+    // 0=playing? 1=Playing 2=listening to 3=watching 5=competing in
+      {type:3,name:'disturbing dreams'},
+      {type:2,name:'your thoughts'},
+      {type:0,name:'the waiting game'}
+    ]
+    shuffle(idleStatusArr)
+    bot.editStatus('idle',idleStatusArr[0]) // todo alternate idle messages // 0=playing? 1=Playing 2=listening to 3=watching 5=competing in
   }
 }
 function lexicaSearch(query,channel){
@@ -948,6 +953,7 @@ async function removeBackground(url,channel,user){
 //  var buffer = await remBgOutput.png().toBuffer()
 
 // original rembg python/docker version
+// requires docker run -p 127.0.0.1:5000:5000 danielgatis/rembg s
   var buffer = await axios.get(rembg+encodeURIComponent(url),{responseType: 'arraybuffer'})
   buffer = Buffer.from(buffer.data)
   var newMsg='<@'+user+'> removed background'
@@ -1194,7 +1200,16 @@ function sliceMsg(str) {
   while (i < len) {chunks.push(str.slice(i, i += chunkSize))}
   return chunks
 }
-
+async function clearParent(interaction){
+  var label=interaction.data.custom_id.split('-')[0].replace('twk','')+' selected'
+  try{
+    if(interaction.message&&interaction.message.flags===64){// ephemeral message that cannot be deleted by us, only edited
+      try{return await interaction.editParent({content: '',components: [],embeds:[{footer:{text:label},color:getRandomColorDec()}]}).then(()=>{}).catch(e=>{if(e){}})}catch(err){log(err)}
+    } else if (interaction.message) { // regular message reference
+      try{await interaction.createMessage({embeds:[{footer: {text:label},color:getRandomColorDec()}],flags:64}).then(()=>{}).catch(e=>{if(e){}})}catch(err){log(err)}
+    }
+  }catch(err){log(err)}
+}
 // Initial discord bot setup and listeners
 bot.on("ready", async () => {
   log("Connected to discord".bgGreen)
@@ -1224,8 +1239,8 @@ bot.on("interactionCreate", async (interaction) => {
     catch (error) { console.error(error); await interaction.createMessage({content:'There was an error while executing this command!', flags: 64}).catch((e) => {log(e)}) }
   }
   if((interaction instanceof Eris.ComponentInteraction||interaction instanceof Eris.ModalSubmitInteraction)&&authorised(interaction,interaction.channel.id,interaction.guildID)) {
-    if(!interaction.member){log(interaction.user.username+' slid into artys DMs');interaction.member={user:{id: interaction.user.id,username:interaction.user.username,discriminator:interaction.user.discriminator,bot:interaction.user.bot}}}
-    var cid=interaction.data.custom_id    
+    if(!interaction.member){interaction.member={user:{id: interaction.user.id,username:interaction.user.username,discriminator:interaction.user.discriminator,bot:interaction.user.bot}}}
+    var cid=interaction.data.custom_id 
     var id=cid.split('-')[1]
     var rn=cid.split('-')[2]
     log(cid.bgCyan.black+' request from '+interaction.member.user.username.bgCyan.black)
@@ -1239,8 +1254,9 @@ bot.on("interactionCreate", async (interaction) => {
     }
     if(cid.startsWith('random')){
       request({cmd: getRandom('prompt'), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
-      return interaction.editParent({}).catch((e)=>{log(e)})
+      return clearParent(interaction) //return interaction.editParent({}).catch((e)=>{log(e)})
     }else if(cid.startsWith('refresh')){
+      await interaction.deferUpdate()
       if(newJob) {
         if (cid.startsWith('refreshVariants')&&newJob.sampler!=='k_euler_a') { // variants do not work with k_euler_a sampler
           newJob.variation_amount=0.1
@@ -1261,42 +1277,40 @@ bot.on("interactionCreate", async (interaction) => {
           newJob.seed=getRandomSeed()
         }
         request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
-        if (cid.startsWith('refreshEdit-')){return interaction.editParent({}).catch((e)=>{console.error(e)})}else{return interaction.editParent({}).catch((e)=>{console.error(e)})}
+        //if (cid.startsWith('refreshEdit-')){return clearParent(interaction)}
+        return clearParent(interaction)
       } else {
         log('unable to refresh render'.bgRed)
-        return interaction.editParent({components:[]}).catch((e) => {console.error(e)})
+        return clearParent(interaction)
       }
     } else if (cid.startsWith('editRandom-')) {
       if(newJob){return interaction.createModal({custom_id:'refreshEdit-'+newJob.id,title:'Edit the random prompt?',components:[{type:1,components:[{type:4,custom_id:'prompt',label:'Prompt',style:2,value:getRandom('prompt'),required:true}]}]}).then((r)=>{}).catch((e)=>{console.error(e)})
-      }else{log('edit request failed'.bgRed);return interaction.editParent({components:[]}).catch((e) => {console.error(e)})}
+      }else{log('edit request failed'.bgRed);return clearParent(interaction)}
     } else if (cid.startsWith('edit-')) {
       if(newJob){
         return interaction.createModal({custom_id:'refreshEdit-'+newJob.id,title:'Edit the prompt',components:[{type:1,components:[{type:4,custom_id:'prompt',label:'Prompt',style:2,value:newJob.prompt,required:true}]}]}).then((r)=>{}).catch((e)=>{console.error(e)})
-      }else{
-        log('edit request failed'.bgRed)
-        return interaction.editParent({components:[]}).catch((e) => {console.error(e)})
-      }
+      }else{log('edit request failed'.bgRed);return clearParent(interaction)}
     } else if (cid.startsWith('editSteps-')) {
       if(newJob){
         return interaction.createModal({custom_id:'twksteps-'+newJob.id,title:'Edit the steps (Max '+maxSteps+')',components:[{type:1,components:[{type:4,custom_id:'steps',label:'Steps',style:2,value:newJob.steps,required:true,min_length:1,max_length:3}]}]}).then((r)=>{}).catch((e)=>{console.error(e)})
-      }else{return interaction.editParent({components:[]}).catch((e) => {console.error(e)})}
+      }else{return clearParent(interaction)}
     } else if (cid.startsWith('editScale-')) {
       if(newJob){
         return interaction.createModal({custom_id:'twkscale-'+newJob.id,title:'Edit the scale',components:[{type:1,components:[{type:4,custom_id:'scale',label:'Scale',style:2,value:String(newJob.scale),required:true,min_length:1,max_length:4}]}]}).then((r)=>{}).catch((e)=>{console.error(e)})
-      }else{return interaction.editParent({components:[]}).catch((e) => {console.error(e)})}
+      }else{return clearParent(interaction)}
     } else if (cid.startsWith('editRotate-')) {
       if(newJob){
         msgid=cid.split('-')[3]
         return interaction.createModal({custom_id:'twkrotate-'+id+'-'+rn+'-'+msgid,title:'Rotate the image',components:[{type:1,components:[{type:4,custom_id:'degrees',label:'Rotate this many degrees',style:2,value:90,required:true,min_length:1,max_length:3}]}]}).then((r)=>{}).catch((e)=>{console.error(e)})
-      }else{return interaction.editParent({components:[]}).catch((e) => {console.error(e)})}
+      }else{return clearParent(interaction)}
     } else if (cid.startsWith('editStrength-')) {
       if(newJob){
         return interaction.createModal({custom_id:'twkstrength-'+newJob.id,title:'Edit the strength',components:[{type:1,components:[{type:4,custom_id:'strength',label:'Strength',style:2,value:String(newJob.strength),required:true,min_length:1,max_length:4}]}]}).then((r)=>{}).catch((e)=>{console.error(e)})
-      }else{return interaction.editParent({components:[]}).catch((e) => {console.error(e)})}
+      }else{return clearParent(interaction)}
     } else if (cid.startsWith('editResolution-')) {
       if(newJob){
         return interaction.createModal({custom_id:'twkresolution-'+newJob.id,title:'Edit the resolution',components:[{type:1,components:[{type:4,custom_id:'resolution',label:'Resolution',style:2,value:String(newJob.width+'x'+newJob.height),required:true,min_length:5,max_length:12}]}]}).then((r)=>{}).catch((e)=>{console.error(e)})
-      }else{return interaction.editParent({components:[]}).catch((e) => {console.error(e)})}
+      }else{return clearParent(interaction)}
     } else if (cid.startsWith('editText-')) {
       msgid=cid.split('-')[3]
       return interaction.createModal({custom_id:'twktext-'+id+'-'+rn+'-'+msgid,title:'Add text',components:[{type:1,components:[{type:4,custom_id:'twktext-'+id+'-'+rn+'-'+msgid,label:'Text to overlay on image',style:2,value:String(''),required:true,min_length:0,max_length:200}]}]}).then((r)=>{}).catch((e)=>{console.error(e)})
@@ -1343,7 +1357,7 @@ bot.on("interactionCreate", async (interaction) => {
             ]
           }
         return interaction.createMessage(tweakResponse).then((r)=>{}).catch((e)=>{console.error(e)})
-      } else {console.error('Edit request failed');return interaction.editParent({components:[]}).catch((e) => {console.error(e)})}
+      } else {console.error('Edit request failed');return clearParent(interaction)}
     } else if (cid.startsWith('tweakmore-')) {
       msgid=cid.split('-')[3]
       if (newJob) {
@@ -1361,11 +1375,9 @@ bot.on("interactionCreate", async (interaction) => {
             ]
           }
         return interaction.createMessage(tweakResponse).then((r)=>{}).catch((e)=>{console.error(e)})
-      } else {
-        console.error('Edit request failed')
-        return interaction.editParent({components:[]}).catch((e) => {console.error(e)})
-      }
+      } else {log('Edit request failed');return clearParent(interaction)}
     } else if (cid.startsWith('twk')) {
+      await interaction.deferUpdate()
       var newCmd=''
       var postProcess=false
       switch(cid.split('-')[0].replace('twk','')){
@@ -1427,7 +1439,8 @@ bot.on("interactionCreate", async (interaction) => {
           request({cmd: newCmd, userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
         }
       }
-      return interaction.editParent({content:':test_tube: **'+interaction.data.custom_id.split('-')[0].replace('twk','')+'** selected',components:[]}).catch((e) => {console.error(e)})
+      return clearParent(interaction)
+      //return interaction.editParent({content:':test_tube: **'+interaction.data.custom_id.split('-')[0].replace('twk','')+'** selected',components:[]}).catch(e=>{debugLog(e)})
     } else if (interaction.data.custom_id.startsWith('chooseModel')) {
       if(newJob&&models){
         var changeModelResponse={content:':floppy_disk: **Model Menu**\nUse this menu to change the model/checkpoint being used, to give your image a specific style',flags:64,components:[]}
@@ -1559,7 +1572,8 @@ bot.on("interactionCreate", async (interaction) => {
           {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Square", custom_id: "twkaspectSquare-"+id+'-'+rn, emoji: { name: '🔳', id: null}, disabled: newJob.height===defaultSize&&newJob.width===defaultSize||false },
           {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Landscape", custom_id: "twkaspectLandscape-"+id+'-'+rn, emoji: { name: '↔️', id: null}, disabled: newJob.height===defaultSize&&newJob.width===(defaultSize+192)||false }
         ]})
-        return interaction.editParent(changeAspectResponse).then((r)=>{debugLog(r)}).catch((e)=>{console.error(e)})
+        //return clearParent(interaction)
+        return interaction.editParent(changeAspectResponse).then(()=>{}).catch((e)=>{debugLog(e)})
       }
     } else if (interaction.data.custom_id.startsWith('addAspect')) {
       var newAspect=interaction.data.values[0]
@@ -1631,19 +1645,20 @@ bot.on("messageReactionAdd", async (msg,emoji,reactor) => {
   if (msg.embeds){embeds=dJSON.parse(JSON.stringify(msg.embeds))}
   if (embeds&&msg.attachments&&msg.attachments.length>0) {embeds.unshift({image:{url:msg.attachments[0].url}})}
   if (msg.author&&msg.author.id===bot.application.id){
+  var reactorid = reactor.id ? reactor.id : reactor.user.id
     switch(emoji.name){ // to use alongside starboard paste the following into starboard setup: star filters add content notmatch /^(?=.?:brain:.+?:straight_ruler:.+?:seedling:).$/
       case '😂':
       case '👍':
       case '⭐':
-      case '❤️': log("sending image to gallery".dim);sendToGalleryChannel(msg.channel.guild.id, msg.channel.id, msg.id, { content: msg.content, embeds: embeds });break
-      case '✉️': log('sending image to dm'.dim);directMessageUser(targetUserId,{content: msg.content, embeds: embeds});break
-      case '🙈': if(msg.content.includes(reactor.user.id)||reactor.user.id===config.adminID){log("moving image to nsfw channel".dim);moveToNSFWChannel(msg.channel.guild.id, msg.channel.id, msg.id, { content: msg.content, embeds: embeds, attachments: msg.attachments, components: msg.components });msg.delete().catch(() => {})};break
+      case '❤️': try{sendToGalleryChannel(msg.channel.guild.id, msg.channel.id, msg.id, { content: msg.content, embeds: embeds })}catch(err){};break
+      case '✉️': directMessageUser(targetUserId,{content: msg.content, embeds: embeds});break
+      case '🙈': if(msg.content.includes(reactorid)||reactorid===config.adminID){try{moveToNSFWChannel(msg.channel.guild.id, msg.channel.id, msg.id, { content: msg.content, embeds: embeds, attachments: msg.attachments, components: msg.components });msg.delete().catch(() => {})}catch(err){log(err)}};break
       case '👎':
       case '⚠️':
       case '❌':
       case '💩': {
         log('Negative emojis'.red+emoji.name.red)
-        if(msg.content.includes(reactor.user.id)||reactor.user.id===config.adminID){msg.delete().catch(() => {})}
+        try{if(msg.content.includes(reactorid)||reactorid===config.adminID){msg.delete().catch(() => {})}}catch(err){log(err)}
         // todo try and delete the file from disk too
         break
       }
@@ -1824,9 +1839,9 @@ bot.on("messageCreate", (msg) => {
     })
   }
   var c=msg.content.split(' ')[0]
-  if (msg.author.id!==bot.id&&authorised(msg,msg.channel.id,msg.guildID,)){ // Work anywhere its authorized // (msg.channel.id===config.channelID||!msg.guildID) // interaction.member,interaction.channel.id,interaction.guildID
+  if (msg.author.id!==bot.id&&authorised(msg,msg.channel.id,msg.guildID,)){ // Work anywhere its authorized
     switch(c){
-      case '!help':{help(msg.channel.id);break}//bot.createMessage(msg.channel.id,'To create art type `!dream your idea here`\nSee these links for more info:\nhttps://peakd.com/@ausbitbank/our-new-stable-diffusion-discord-bot\nhttps://github.com/ausbitbank/stable-diffusion-discord-bot');break}
+      case '!help':{help(msg.channel.id);break}
       //case '!dream':{request({cmd: msg.content.substr(7, msg.content.length), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments});break}
       case '!recharge':rechargePrompt(msg.author.id,msg.channel.id);break
       case '!lexica':lexicaSearch(msg.content.substr(8, msg.content.length),msg.channel.id);break
@@ -1841,7 +1856,7 @@ bot.on("messageCreate", (msg) => {
         break
       }
       case '!avatar':{var avatars='';msg.mentions.forEach((m)=>{avatars+=m.avatarURL.replace('size=128','size=512')+'\n'});bot.createMessage(msg.channel.id,avatars);break}
-      case '!background':{ // requires docker run -p 127.0.0.1:5000:5000 danielgatis/rembg s
+      case '!background':{
         if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){
           var attachmentsUrls = msg.attachments.map((u)=>{return u.proxy_url})
           attachmentsUrls.forEach((url)=>{removeBackground(url,msg.channel.id,msg.author.id)})
@@ -2025,7 +2040,6 @@ bot.on("messageCreate", (msg) => {
         if(!models){socket.emit('requestSystemConfig')}
         var newMsg=''
         if(models){
-          //debugLog(models)
           newMsg='**'+Object.keys(models).length+' models available**\n:green_circle: =loaded in VRAM :orange_circle: =cached in RAM :red_circle: = unloaded\n'
           Object.keys(models).forEach((m)=>{
             switch(models[m].status){
@@ -2084,6 +2098,7 @@ bot.on("messageCreate", (msg) => {
       case '!pause':{try{bot.editStatus('dnd')}catch(err){log(err)};paused=true;rendering=true;try{chat(':pause_button: Bot is paused, requests will still be accepted and queued for when I return')}catch(err){log(err)};break}
       case '!resume':{socket.emit('requestSystemConfig');paused=false;rendering=false;bot.editStatus('online');chat(':play_pause: Bot is back online');processQueue();break}
       case '!checkpayments':{checkNewPayments();break}
+      case '!repostfails':{repostFails();break}
       case '!restart':{log('Admin triggered bot on queue empty'.bgRed.white);exit(0)}
       case '!creditdisabled':{log('Credits have been disabled'.bgRed.white);creditsDisabled=true;bot.createMessage(msg.channel.id,'Credits have been disabled');break}
       case '!creditenabled':{log('Credits have been enabled'.bgRed.white);creditsDisabled=false;bot.createMessage(msg.channel.id,'Credits have been enabled');break}
@@ -2109,14 +2124,14 @@ bot.on("messageCreate", (msg) => {
       }
       case '!guilds':{
         debugLog('Guild count: '+bot.guilds.size)
-        var guilds = bot.guilds.sort((a, b) => a.memberCount - b.memberCount)
+        var guilds = bot.guilds//.sort((a, b) => a.memberCount - b.memberCount)
         guilds.forEach((g)=>{log({id: g.id, name: g.name, ownerID: g.ownerID, description: g.description, memberCount: g.memberCount})})
         break
       }
       case '!leaveguild':{bot.leaveGuild(msg.content.split(' ')[1]);break}
       case '!getmessages':{var cid=msg.content.split(' ')[1];if(cid){bot.getMessages(cid).then(x=>{x.reverse();x.forEach((y)=>{log(y.author.username.bgBlue+': '+y.content);y.attachments.map((u)=>{return u.proxy_url}).forEach((a)=>{log(a)})})})};break}
       case '!updateslashcommands':{bot.getCommands().then(cmds=>{bot.commands = new Collection();for (const c of slashCommands) {bot.commands.set(c.name, c);bot.createCommand({name: c.name,description: c.description,options: c.options ?? [],type: Constants.ApplicationCommandTypes.CHAT_INPUT})}});break}
-      case '!deleteslashcommands':{bot.bulkEditCommands([]);bot.getCommands().then(cmds=>{bot.commands = new Collection();for (const c of slashCommands) {bot.commands.set(c.name, c);bot.createCommand({name: c.name,description: c.description,options: c.options ?? [],type: Constants.ApplicationCommandTypes.CHAT_INPUT})}});break}
+      case '!deleteslashcommands':{bot.bulkEditCommands([]);break}
       case '!randomisers':{
         var newMsg='**Currently loaded randomisers**\n'
         for (r in randoms){newMsg+='`{'+randoms[r]+'}`='+getRandom(randoms[r])+'\n'}
@@ -2160,7 +2175,6 @@ socket.on("intermediateResult", (data) => {
     jimp.read(buf, (err,img)=>{
       side=Math.max(img.bitmap.width,img.bitmap.height)
       scale=Math.round(448/side)
-      //debugLog('width:'+img.bitmap.width+' height:'+img.bitmap.height+' side:'+side+' upscale:'+scale)
       //img.scale(scale, jimp.RESIZE_BILINEAR) // better quality, slower
       img.scale(scale, jimp.RESIZE_NEAREST_NEIGHBOR) // fastest but bad quality
       img.getBuffer(img.getMIME(),(err,img2)=>{
@@ -2169,10 +2183,10 @@ socket.on("intermediateResult", (data) => {
         if(!queueStatusLock){queueStatus()}
       })
     })
-  }else{debugLog('not upscaling cos same')}
+  }
 })
-socket.on("foundLoras", (answer) =>{lora=answer.map(item=>item.name);debugLog('Enabled LORAS:');debugLog(lora)})
-socket.on("foundTextualInversionTriggers", (answer) =>{ti=answer.local_triggers.map(item=>item.name).map(str => str.replace('<', '').replace('>', ''));debugLog('Enabled Textual Inversions');debugLog(ti)})
+socket.on("foundLoras", (answer) =>{lora=answer.map(item=>item.name)})
+socket.on("foundTextualInversionTriggers", (answer) =>{ti=answer.local_triggers.map(item=>item.name).map(str => str.replaceAll('<', '').replaceAll('>', ''))})
 socket.on('error', (error) => {
   log('Api socket error'.bgRed);log(error)
   var nowJob=queue[queue.findIndex((j)=>j.status==="rendering")]
