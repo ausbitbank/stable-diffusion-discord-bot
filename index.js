@@ -38,7 +38,7 @@ var schedule = []
 var dbScheduleFile='./dbSchedule.json' // flat file db for schedule
 dbScheduleRead()
 var cron = require('node-cron')
-// hive payment checks. On startup, every 30 minutes and on a !recharge call
+// hive payment checks. On startup, every 15 minutes and on a !recharge call
 const hive = require('@hiveio/hive-js')
 const { exit } = require('process')
 if(config.creditsDisabled==='true'){var creditsDisabled=true}else{var creditsDisabled=false}
@@ -182,6 +182,22 @@ var slashCommands = [
     cooldown: 500,
     execute: (i) => {
       help(i.channel.id)
+    }
+  },
+  {
+    name: 'models',
+    description: 'See what models are currently available',
+    cooldown: 1000,
+    execute: (i) => {
+      listModels(i.channel.id)
+    }
+  },
+  {
+    name: 'embeds',
+    description: 'See what embeddings are currently available',
+    cooldown: 1000,
+    execute: (i) => {
+      listEmbeds(i.channel.id)
     }
   },
   {
@@ -426,7 +442,6 @@ function authorised(who,channel,guild) {
   } else { return true }
 }
 function createNewUser(id){
-  log('createnewuser called with id',id)
   if(id.id){id=id.id}
   users.push({id:id, credits:100}) // 100 creds for new users
   dbWrite() // Sync after new user
@@ -468,14 +483,15 @@ function chargeCredits(userID,amount){
     }
   }
 }
-function creditRecharge(credits,txid,userid,amount,from){
+async function creditRecharge(credits,txid,userid,amount,from){
   var user=users.find(x=>x.id===userid)
-  if(!user){createNewUser(userid)}
+  if(!user){await createNewUser(userid);var user=users.find(x=>x.id===userid)}
   if(user&&user.credits){user.credits=(parseFloat(user.credits)+parseFloat(credits)).toFixed(2)}
   if(txid!=='manual'){
     payments.push({credits:credits,txid:txid,userid:userid,amount:amount})
     var paymentMessage = ':tada: <@'+userid+'> added :coin:`'+credits+'`, balance is now :coin:`'+user.credits+'`\n:heart_on_fire: Thanks `'+from+'` for the `'+amount+'` donation to the GPU fund.\n Type !recharge to get your own topup info'
     chat(paymentMessage)
+    directMessageUser(config.adminID,paymentMessage)
   }
   dbWrite()
 }
@@ -617,11 +633,11 @@ function rechargePrompt(userid,channel){
   directMessageUser(userid,paymentMsgObject,channel).catch((err)=>log(err))
   log('ID '+userid+' asked for recharge link')
 }
-function checkNewPayments(){
+async function checkNewPayments(){
+  // Hive native payments support
   var bitmask=['4','524288'] // transfers and fill_recurrent_transfer only
-  var accHistoryLength=config.accHistoryLength||100
+  var accHistoryLength=config.accHistoryLength||100 // default 100
   log('Checking recent payments for '.grey+config.hivePaymentAddress.grey)
-  // TODO there has to be a more efficient method, revisit below
   hive.api.getAccountHistory(config.hivePaymentAddress, -1, accHistoryLength, ...bitmask, function(err, result) {
     if(err){log(err)}
     if(Array.isArray(result)) {
@@ -637,13 +653,38 @@ function checkNewPayments(){
             coin=op.amount.split(' ')[1]
             amount=parseFloat(op.amount.split(' ')[0])
             if(coin==='HBD'){amountCredit=amount*500}else if(coin==='HIVE'){amountCredit=(amount*hiveUsd)*500}
-            log('New Payment: amount credit:'.bgBrightGreen.red+amountCredit+' , amount:'+op.amount)
+            log('New Payment! credits:'.bgBrightGreen.red+amountCredit+' , amount:'+op.amount)
             creditRecharge(amountCredit,tx.trx_id,accountId,op.amount,op.from)
           }
         }
       })
     } else {log('error fetching account history'.bgRed)}
   })
+  // Hive-Engine payments support
+  if(config.allowHiveEnginePayments){
+    var allowedHETokens=['SWAP.HBD','SWAP.HIVE']
+    response = await axios.get('https://history.hive-engine.com/accountHistory?account='+config.hivePaymentAddress+'&limit='+accHistoryLength+'&offset=0&ops=tokens_transfer')
+    var HEtransactions=response.data
+    var HEbotPayments=HEtransactions.filter(t=>t.to===config.hivePaymentAddress&&allowedHETokens.includes(t.symbol)&&t.memo?.startsWith(config.hivePaymentPrefix))
+    HEbotPayments.forEach(t=>{
+      var pastPayment=payments.find(tx=>tx.txid===t.transactionId)
+      var usdValue=0
+      var userid=parseInt(t.memo.split('-')[1])
+      if(pastPayment===undefined&&isInteger(userid)){ // not in db yet, memo looks correct
+        switch(t.symbol){ // todo get market price for other tokens, keeping it simple for now
+          case 'SWAP.HIVE': usdValue=parseFloat(t.quantity)*(hiveUsd*0.9925);break // treat like regular HIVE - 0.75% HE withdraw fee
+          case 'SWAP.HBD': usdValue=parseFloat(t.quantity)*0.9925;break // treat like regular HBD and peg to $1 - 0.75% HE withdraw fee
+          default: usdValue=0;break // shouldn't happen, just in case
+        }
+        var credits=usdValue*500
+        log('New Payment! credits:'.bgBrightGreen.red+credits+' , amount:'+t.quantity+' '+t.symbol+' , from: '+t.from)
+        creditRecharge(credits,t.transactionId,userid,t.quantity+' '+t.symbol,t.from)
+      }
+    })
+  }
+  // todo tip.cc payments
+  if(config.allowTipccPayments){
+  }
 }
 checkNewPayments=debounce(checkNewPayments,30000,true) // at least 30 seconds between checks
 function sendWebhook(job){ // TODO eris has its own internal webhook method, investigate and maybe replace this
@@ -834,12 +875,12 @@ async function postRender(render){
   }catch(err){log(err)}
 }
 
-async function repostFails(){
+async function repostFails(){ // bugged ? sometimes failing to repost in channels where new posts work fine // DiscordRestError [50001]: Missing Access
   debugLog('Attempting to repost '+failedToPost.length+' failed message')
   failedToPost.forEach((p)=>{
     try{
       bot.createMessage(p.channel,p.msg,{file:p.file,name:p.filename})
-        .then(m=>{failedToPost=failedToPost.filter(f=>{f.file!==p.file})}) // remove successful posts
+        .then(m=>{debugLog('successfully reposted failed image');failedToPost=failedToPost.filter(f=>{f.file!==p.file})}) // remove successful posts
         .catch(err=>{
           log('Unable to repost to channel '+p.channel)
           log(err)
@@ -859,8 +900,10 @@ function processQueue(){
   }else{var nextJob=queue[queue.findIndex(x=>x.status==='new')]}
   if(nextJob&&!rendering){
     if(userCreditCheck(nextJob.userid,costCalculator(nextJob))){
-      var statusMsg = 'with '+queueNew.length+' artful idea';if(queueNew.length>1){statusMsg+='s'}
-      bot.editStatus('online',{type: 1,name:statusMsg})
+      busyStatusArr=[{type:0,name:' with paint for '+queueNew.length}]
+      shuffle(busyStatusArr)
+      //var statusMsg = 'with '+queueNew.length+' artful idea';if(queueNew.length>1){statusMsg+='s'}
+      bot.editStatus('online',{type: busyStatusArr[0].type,name:busyStatusArr[0].name})
       rendering=true
       log(nextJob.username.bgWhite.red+':'+nextJob.cmd.replaceAll('\r','').replaceAll('\n').bgWhite.black)
       addRenderApi(nextJob.id)
@@ -884,6 +927,7 @@ function processQueue(){
     debugLog('Finished queue, setting idle status'.dim)
     idleStatusArr=[ // alternate idle messages
     // 0=playing? 1=Playing 2=listening to 3=watching 5=competing in
+      {type:5,name:'meditation'},
       {type:3,name:'disturbing dreams'},
       {type:2,name:'your thoughts'},
       {type:0,name:'the waiting game'}
@@ -977,6 +1021,34 @@ async function help(channel){
   ] 
   }
   bot.createMessage(channel, helpMsgObject)
+}
+
+async function listModels(channel){ // list available models
+  if(!models){await socket.emit('requestSystemConfig')}
+  var newMsg=''
+  if(models){
+    newMsg='**'+Object.keys(models).length+' models available**\n:green_circle: =loaded in VRAM :orange_circle: =cached in RAM :red_circle: = unloaded\n'
+    Object.keys(models).forEach((m)=>{
+      switch(models[m].status){
+        case 'not loaded':{newMsg+=':red_circle:';break}
+        case 'cached':{newMsg+=':orange_circle:';break}
+        case 'active':{newMsg+=':green_circle:';break}
+      }
+      newMsg+='`'+m+'`  '
+      newMsg+=models[m].description+'\n'
+      if(newMsg.length>=1500){try{chatChan(channel,newMsg);newMsg=''}catch(err){log(err)}}
+    })
+    if(newMsg!==''){try{chatChan(channel,newMsg)}catch(err){log(err)}}
+  }
+}
+
+async function listEmbeds(channel){ // list available embeds
+  socket.emit("getLoraModels")
+  socket.emit("getTextualInversionTriggers")
+  newMsg=':pill: Embeddings are a way to supplement the current model. Add them to the prompt.\n'
+  if(lora&&lora.length>0){newMsg+='**LORA**:\nwithLora(loraname,weight)\n'+lora.join(' , ')+'\n'} // map(x=>`withLora(${x})`)
+  if(ti&&ti.length>0){newMsg=newMsg+'**Textual inversions**:\n'+ti.join(' , ')+'\n Everything in https://huggingface.co/sd-concepts-library is also available'} // ti.map(x=>`\<${x}\>`)
+  sliceMsg(newMsg).forEach((m)=>{try{bot.createMessage(channel, m)}catch(err){debugLog(err)}})
 }
 
 async function meme(prompt,urls,userid,channel){
@@ -1194,7 +1266,7 @@ function sliceMsg(str) {
   return chunks
 }
 async function clearParent(interaction){
-  var label=':ok:'+interaction.data.custom_id.split('-')[0].replace('twk','')+' selected'
+  var label=':saluting_face: **'+interaction.data.custom_id.split('-')[0].replace('twk','')+'** selected'
   try{
     if(interaction.message&&interaction.message.flags===64){// ephemeral message that cannot be deleted by us, only edited
       try{return await interaction.editParent({content: label,components: [],embeds:[]}).then(()=>{}).catch(e=>{if(e){}})}catch(err){log(err)}
@@ -1226,9 +1298,11 @@ bot.on("interactionCreate", async (interaction) => {
   if(interaction instanceof Eris.CommandInteraction && authorised(interaction,interaction.channel.id,interaction.guildID)) {//&& interaction.channel.id === config.channelID
     if (!bot.commands.has(interaction.data.name)) return interaction.createMessage({content:'Command does not exist', flags:64}).catch((e) => {log('command does not exist'.bgRed);log(e)})
     try {
-      await interaction.acknowledge().then(()=>debugLog('ack '+interaction.data.name)).catch((err)=>log(err))
-      bot.commands.get(interaction.data.name).execute(interaction)
-      interaction.deleteMessage('@original').then(()=>{}).catch((e)=>log(e))
+      await interaction.acknowledge().then(()=>{
+        //debugLog('ack '+interaction.data.name)
+        bot.commands.get(interaction.data.name).execute(interaction)
+        interaction.deleteMessage('@original').then(()=>{}).catch((e)=>log(e))
+      }).catch((err)=>log(err))
     }
     catch (error) { console.error(error); await interaction.createMessage({content:'There was an error while executing this command!', flags: 64}).catch((e) => {log(e)}) }
   }
@@ -1695,10 +1769,9 @@ bot.on("messageCreate", (msg) => {
     msg.mentions.forEach((m)=>{
       if (m.id===bot.application.id){
         if (msg.referencedMessage===null){ // not a reply
-          log('arty mention replaced with !dream')
           msg.content = msg.content.replace('<@'+m.id+'>','').replace('!dream','')
           msg.content='!dream '+msg.content
-        } else if (msg.referencedMessage.author.id===bot.application.id) { // just a response to a message from arty, confirm before render
+        } else if (msg.referencedMessage.author.id===bot.application.id) { // a reply to a message from arty
           if (msg.referencedMessage.components && msg.referencedMessage.components[0] && msg.referencedMessage.components[0].components[0] && msg.referencedMessage.components[0].components[0].custom_id.startsWith('refresh-')) {
             var jobid = msg.referencedMessage.components[0].components[0].custom_id.split('-')[1]
             var newJob = JSON.parse(JSON.stringify(queue[jobid - 1]))
@@ -1721,9 +1794,7 @@ bot.on("messageCreate", (msg) => {
             var jobstring = newWidth + newHeight + newSteps + newSeed + newStrength + newScale + newSampler + newModel + newPerlin + newSeamless + newThreshold + newGfpgan_strength + newCodeformer_strength + newUpscale_level + newUpscale_strength
             // only works with normal renders - modified to change only mentioned parameters, otherwise use the same from referenced job
             msg.content = msg.content.replace('<@' + m.id + '>', '').replace('!dream', '')
-            if (msg.content.startsWith('+')) {
-              msg.content = '!dream ' + newJob.prompt + msg.content.substring(1, msg.content.length) +  jobstring
-            } else if (msg.content.startsWith('..')) {
+            if (msg.content.startsWith('..')) {
               msg.content = '!dream ' + newJob.prompt + jobstring + msg.content.substring(2, msg.content.length)
             } else if (msg.content.startsWith('info')) {
               var infostring = `!dream ` + newJob.prompt + newWidth + newHeight + newSteps + newSeed + newScale + newSampler + newModel
@@ -2033,7 +2104,7 @@ bot.on("messageCreate", (msg) => {
         break
       }
       case '!models':{
-        if(!models){socket.emit('requestSystemConfig')}
+        /*if(!models){socket.emit('requestSystemConfig')}
         var newMsg=''
         if(models){
           newMsg='**'+Object.keys(models).length+' models available**\n:green_circle: =loaded in VRAM :orange_circle: =cached in RAM :red_circle: = unloaded\n'
@@ -2048,8 +2119,8 @@ bot.on("messageCreate", (msg) => {
             if(newMsg.length>=1500){try{chatChan(msg.channel.id,newMsg);newMsg=''}catch(err){log(err)}}
           })
           if(newMsg!==''){try{chatChan(msg.channel.id,newMsg)}catch(err){log(err)}}
-        }
-        break
+        }*/
+        listModels(msg.channel.id);break
       }
       case '!imgdiff':{
         if (msg.attachments.length===2&&msg.attachments[0].content_type.startsWith('image/')&&msg.attachments[1].content_type.startsWith('image/')){
@@ -2076,13 +2147,7 @@ bot.on("messageCreate", (msg) => {
         break
       }
       case '!embeds':{
-        socket.emit("getLoraModels")
-        socket.emit("getTextualInversionTriggers")
-        newMsg=':pill: Embeddings are a way to supplement the current model. Add to prompt\n'
-        if(lora&&lora.length>0){newMsg+='**LORA**:\nwithLora(loraname,weight)\n'+lora.join(' , ')+'\n'} // map(x=>`withLora(${x})`)
-        if(ti&&ti.length>0){newMsg=newMsg+'**Textual inversions**:\n'+ti.join(' , ')+'\n Everything in https://huggingface.co/sd-concepts-library is also available'} // ti.map(x=>`\<${x}\>`)
-        sliceMsg(newMsg).forEach((m)=>{try{bot.createMessage(msg.channel.id, m)}catch(err){debugLog(err)}})
-        break
+        listEmbeds(msg.channel.id);break
       }
     }
   if (msg.author.id===config.adminID) { // admins only
@@ -2169,10 +2234,10 @@ socket.on("intermediateResult", (data) => {
   buf=new Buffer.from(data.url.replace(/^data:image\/\w+;base64,/, ''), 'base64')
   if(buf!==intermediateImagePrior){ // todo look at image difference % instead
     jimp.read(buf, (err,img)=>{
+      if(err){log(err)}
       side=Math.max(img.bitmap.width,img.bitmap.height)
       scale=Math.round(448/side)
-      //img.scale(scale, jimp.RESIZE_BILINEAR) // better quality, slower
-      img.scale(scale, jimp.RESIZE_NEAREST_NEIGHBOR) // fastest but bad quality
+      img.scale(scale, jimp.RESIZE_NEAREST_NEIGHBOR) // RESIZE_NEAREST_NEIGHBOR fastest but bad quality // RESIZE_BILINEAR is better quality, slower
       img.getBuffer(img.getMIME(),(err,img2)=>{
         intermediateImage=img2
         intermediateImagePrior=buf
