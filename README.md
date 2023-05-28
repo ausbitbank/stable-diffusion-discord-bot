@@ -12,10 +12,11 @@ A discord bot built to interface with the [InvokeAI](https://github.com/invoke-a
 - RealESRGAN face fixing and upscaling
 - Slash commands
 - Per user credit tracking system
-- Credit recharging via Hive, HBD, or btc lightning payments
+- Credit recharging via Hive, HBD, Hive-Engine and BTC lightning payments
 - Free small credit topups for low balance users once every x hours (optional)
 - Filter blacklisted words from prompts (optional)
-- Remixing/meming and animating images using [discord-image-generation](https://www.npmjs.com/package/discord-image-generation?activeTab=readme)
+- Easily make gif animations from renders
+- Add text overlays for instant memes
 - Render prompt(s) by multiple schedules and deliver via webhooks
 - Tweak menu for altering advanced settings on past renders
 - Remove backgrounds from images automagically, export as transparent PNG
@@ -27,7 +28,7 @@ A discord bot built to interface with the [InvokeAI](https://github.com/invoke-a
 
 ## Add arty to your discord server (easy)
 
-[Find arty in the application directory here](https://discord.com/application-directory/973484171534172170)
+🆕 [Find arty in the application directory here](https://discord.com/application-directory/973484171534172170)
 
 Or come find arty in the [support server](https://discord.gg/ausbit-s-stuff-and-things-419390618209353730)
 
