@@ -1,9 +1,12 @@
 # Discord bot commands
 
-`!dream prompt` to create images
-`/dream prompt` as above
+This is not a complete guide yet.
 
-Heres an example request with most options used manually
+For more advanced prompt syntax for the invokeai backend see this https://invoke-ai.github.io/InvokeAI/features/PROMPTS/
+
+`/dream` or `!dream prompt` to create images
+
+ An example request with most options used manually
 
 `!dream a redneck Vitalik+ man wearing a tank top, sunglasses, drinking beer, doing a thumbs up gesture, dancing, laughing at his house being on fire, high quality, detailed, a beautiful retrowave artwork, trending on artstation withLora(vitalik,0.8) withLora(add_detail,1.2) [<neg-sketch-2>] --width 697 --height 929 --steps 30 --seed 951987030 --scale 7 --sampler ddim --model degenerate526urpm --hires_fix --upscale_level 2 --upscale_strength 0.5 --gfpgan_strength 0.5`
 
@@ -11,7 +14,21 @@ Simply using `!dream` on its own will generate a random image with the default s
 
 You can also just @ mention the bot in place of the `!dream` command.
 
+`/help` or `!help` to show arty github and intro post with usage information
+
+`/random` will render a random prompt
+
+`/recharge` or `!recharge` show credit recharge information
+
+`/text` or `!text your text` and attach image to add text overlays to an image for instant memes (alt: !textTopLeft/Top/TopRight/Left/Centre/Right/BottomLeft/Bottom/BottomRight)
+
+`/models/` or `!models` show all the currently installed diffusion models
+
+`/embeds` or `!embeds` show all the installed Textual Inversions and LORA's with usage instructions
+
 `!background` and attach image to remove background
+
+`!avatar @username`  display full size discord avatars of all mentioned usernames
 
 `!crop` and attach image to automatically remove tranparent pixels
 
@@ -20,25 +37,11 @@ You can also just @ mention the bot in place of the `!dream` command.
 `!fade` and attach image to apply gradient transparency to edges
 (fadeleft/faderight/fadeup/fadedown also available)
 
-`!text your text here`  and attach image to add text to an image (alt: !textTopLeft/Top/TopRight/Left/Centre/Right/BottomLeft/Bottom/BottomRight)
-
 `!metadata` extract exif metadata from an attached image
-
-`!avatar @username`  display full size discord avatars of all mentioned usernames
-
-`!recharge` show credit recharge information
-
-`!help` show arty github and intro post with usage information
 
 `!lexica prompt or image url` Displays some results from lexica.art for your query, can analyse image urls and show prompts with a similar style
 
-`!split columns rows` and attach image, to split the image into sections (broken, WIP)
-
-`!models` show all the currently installed diffusion models
-
 `!imgdiff` and attach 2 images to show the visual difference
-
-`!embeds` show all the installed Textual Inversions and LORA's with usage instructions
 
 `!randomisers` shows all of the available text files in the \txt\ directory
 
@@ -52,11 +55,16 @@ You can also just @ mention the bot in place of the `!dream` command.
 `!meme invert` attach image to invert colors
 
 `!meme flip` attach image to flip vertically
+
 `!meme mirror` attach image to flip horizontally
+
 `!meme rotate [degrees]` attach image to rotate, 90 degree default if no degrees are added
+
+`!gift 1 @user` to gift your paid credit balance beyond 100 to another user. Mention multiple people to send the same amount to each
 
 `!meme animateseed 123` (animate images with a specific seed, add prompt text to image, bugged on certain prompts)
 
+`!split columns rows` and attach image, to split the image into sections (broken, WIP)
 
 # When replying to a render:
 
@@ -100,17 +108,11 @@ If the creator or bot admin adds a negative emoji (👎⚠️❌💩) it will be
 `!restart` quits the bot process, trigger an automatic restart
 
 `!credit 123 @username @user2` manually give credits to mentioned accounts
-`!creditdisabled`  temporarily disables the credit system for free renders
-`!creditenabled` enables credits
 
 `!say channelid message here`  broadcasts a message as arty to channelid
 
 `!guilds` dumps the current guild/server information to console log
 `!leaveguild guildid` exit a specific guild id
 
-`!getmessages channelid` collects a backlog of messages in a specific channel to log (WIP)
-
 `!updateslashcommands` triggers a manual update of the application slash commands
 `!deleteslashcommands` manually deletes slash commands (to be used with above)
-
-`!text your text here` to add text to an image (alt: !textTopLeft/Top/TopRight/Left/Centre/Right/BottomLeft/Bottom/BottomRight)
