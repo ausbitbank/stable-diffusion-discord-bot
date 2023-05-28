@@ -27,9 +27,12 @@ A discord bot built to interface with the [InvokeAI](https://github.com/invoke-a
 
 ## Add arty to your discord server (easy)
 
-https://discord.com/application-directory/973484171534172170
+[Find arty in the application directory here](https://discord.com/application-directory/973484171534172170)
 
-Come find arty in the artspam room here https://discord.gg/DSdK9KRJxq
+Or come find arty in the [support server](https://discord.gg/ausbit-s-stuff-and-things-419390618209353730)
+
+[![DiscordBanner](https://invidget.switchblade.xyz/ausbit-s-stuff-and-things-419390618209353730)](https://discord.gg/ausbit-s-stuff-and-things-419390618209353730)
+
 Right click him, and click "add to server"
 
 ![](https://media.discordapp.net/attachments/343572563647004683/1025401535611547698/unknown.png)
