@@ -3,27 +3,28 @@
 A discord bot built to interface with the [InvokeAI](https://github.com/invoke-ai/InvokeAI) fork of stable-diffusion.
 
 ## Current features:
-- Most features from InvokeAI are available via bot
-- Simple buttons for refresh and using templates/init-images
-- Attach an image with your chat message to use as template/init-image
-- Basic FIFO queue system
-- Watch folder for new files, autopost to discord with filename/info if available
-- Supports loading prompt, keywords and settings from txt files with randomisation
-- RealESRGAN face fixing and upscaling
-- Slash commands
-- Per user credit tracking system
-- Credit recharging via Hive, HBD, Hive-Engine and BTC lightning payments
-- Free small credit topups for low balance users once every x hours (optional)
-- Filter blacklisted words from prompts (optional)
-- Easily make gif animations from renders
-- Add text overlays for instant memes
-- Render prompt(s) by multiple schedules and deliver via webhooks
-- Tweak menu for altering advanced settings on past renders
-- Remove backgrounds from images automagically, export as transparent PNG
-- Supports custom model/checkpoint files, and selecting what model to use per render
-- Expanding, fading, inpainting and outpainting support
-- Mask an image with a text prompt for inpainting
-- Support for textual inversions, LORA & LYCORIS embeddings
+
+- ✅ Most features from InvokeAI are available via bot
+- 🔁 Simple buttons for refresh and using templates/init-images
+- 🖼️ Attach an image with your chat message to use as template/init-image
+- 🧊 Basic FIFO queue system
+- 📂 Watch folder for new files, autopost to discord with filename/info if available
+- 📄 Supports loading prompt, keywords and settings from txt files with randomisation
+- 🖼️ RealESRGAN face fixing and upscaling
+- ⚔️ Slash commands
+- 💳 Per user credit tracking system
+- 💰 Credit recharging via Hive, HBD, or btc lightning payments
+- 🆓 Free small credit topups for low balance users once every x hours (optional)
+- 🚫 Filter blacklisted words from prompts (optional)
+- 🎞️ Easily make gif animations from renders
+- 🖋️ Add text overlays for instant memes
+- 📅 Render prompt(s) by multiple schedules and deliver via webhooks
+- 🔧 Tweak menu for altering advanced settings on past renders
+- 🌅 Remove backgrounds from images automagically, export as transparent PNG
+- 🤖 Supports custom model/checkpoint files, and selecting what model to use per render
+- 🎭 Expanding, fading, inpainting and outpainting support
+- 😷 Mask an image with a text prompt for inpainting
+- ⚙️ Support for textual inversions, LORA & LYCORIS embeddings
 - Loads of [commands for advanced features](https://github.com/ausbitbank/stable-diffusion-discord-bot/blob/main/commands.md)
 
 ## Add arty to your discord server (easy)
