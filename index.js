@@ -1,6 +1,7 @@
 // Setup, loading libraries and initial config
 const config = require('dotenv').config().parsed
 if (!config||!config.apiUrl||!config.basePath||!config.channelID||!config.adminID||!config.discordBotKey||!config.pixelLimit||!config.fileWatcher||!config.samplers) { throw('Please re-read the setup instructions at https://github.com/ausbitbank/stable-diffusion-discord-bot , you are missing the required .env configuration file or options') }
+if (config.basePath==="c:\\Users\\bob\\invokeai\\output\\"){ throw('You need to configure the basePath setting in the bots .env file to point to your invokeAI output path')}
 const Eris = require("eris")
 const Constants = Eris.Constants
 const Collection = Eris.Collection
@@ -43,6 +44,7 @@ const hive = require('@hiveio/hive-js')
 const { exit } = require('process')
 if(config.creditsDisabled==='true'){var creditsDisabled=true}else{var creditsDisabled=false}
 if(config.showFilename==='true'){var showFilename=true}else{var showFilename=false}
+if(config.showPreviews==='true'){var showPreviews=true}else{var showPreviews=false}
 if(config.hivePaymentAddress.length>0 && !creditsDisabled){
   hive.config.set('alternative_api_endpoints',['https://rpc.ausbit.dev','https://api.hive.blog','https://api.deathwing.me','https://api.c0ff33a.uk','https://hived.emre.sh'])
   var hiveUsd = 0.4
@@ -227,7 +229,7 @@ var slashCommands = [
     }
   },
 ]
-// If credits are active, add /recharge otherwise don't include it
+// If credits are active, add /recharge and /balance otherwise don't include them
 if(!creditsDisabled)
 {
   slashCommands.push({
@@ -235,6 +237,12 @@ if(!creditsDisabled)
     description: 'Recharge your render credits with Hive, HBD or Bitcoin over lightning network',
     cooldown: 500,
     execute: (i) => {if (i.member) {rechargePrompt(i.member.id,i.channel.id)} else if (i.user){rechargePrompt(i.user.id,i.channel.id)}}
+  })
+  slashCommands.push({
+    name: 'balance',
+    description: 'Check your credit balance',
+    cooldown: 500,
+    execute: (i) => {var userid=i.member?i.member.id:i.user.id;balancePrompt(userid,i.channel.id)}
   })
 }
 
@@ -254,7 +262,6 @@ function request(request){
   var args = parseArgs(request.cmd.split(' '),{string: ['template','init_img','sampler','text_mask'],boolean: ['seamless','hires_fix']}) // parse arguments //
   // messy code below contains defaults values, check numbers are actually numbers and within acceptable ranges etc
   // let sanitize all the numbers first
-  debugLog(args)
   for (n in [args.width,args.height,args.steps,args.seed,args.strength,args.scale,args.number,args.threshold,args.perlin]){
     n=n.replaceAll(/[^０-９\.]/g, '') // not affecting the actual args
   }
@@ -375,12 +382,13 @@ function queueStatus() {
       if (progressUpdate['totalIterations']>1){
         statusMsg+=' Iteration `'+progressUpdate['currentIteration']+'/'+progressUpdate['totalIterations']+'`'
       }
+      if(progressUpdate['totalSteps']&&progressUpdate['currentStep']){statusMsg+='\n'+progressBar(progressUpdate['totalSteps'],progressUpdate['currentStep'])[0]}
     }
     var statusObj={content:statusMsg}
     if(next&&next.channel!=='webhook'){var chan=next.channel}else{var chan=config.channelID}
     if(dialogs.queue!==null){
       if(dialogs.queue.channel.id!==next.channel){dialogs.queue.delete().catch((err)=>{}).then(()=>{dialogs.queue=null})}
-      if(intermediateImage!==null){
+      if(showPreviews&&intermediateImage!==null){
         var previewImg=intermediateImage
         if(previewImg!==null){statusObj.file={file:previewImg,contentType:'image/png',name:next.id+'.png'}}
       }
@@ -419,7 +427,7 @@ function getRandomSeed(){return Math.floor(Math.random()*4294967295)}
 function chat(msg){if(msg!==null&&msg!==''){try{bot.createMessage(config.channelID, msg)}catch(err){log(err)}}}
 function chatChan(channel,msg){if(msg!==null&&msg!==''){try{bot.createMessage(channel, msg)}catch(err){log('Failed to send with error:'.bgRed);log(err)}}}
 function sanitize(prompt){
-  if(config.bannedWords.length>0){config.bannedWords.split(',').forEach((bannedWord,index)=>{prompt=prompt.replaceAll(bannedWord,'')})}
+  if(config.bannedWords.length>0){config.bannedWords.split(',').forEach((bannedWord,index)=>{prompt=prompt.replaceAll(new RegExp(bannedWord, 'i'),'')})}
   return prompt.replaceAll(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ+()=!\"\&\*\[\]<>\\\/\- ,.\:\u0023-\u0039\u200D\u20E3\u2194-\u2199\u21A9-\u21AA\u231A-\u231B\u23E9-\u23EC\u23F0\u23F3\u25AA-\u25AB\u25B6\u25C0\u25FB-\u25FE\u2600-\u2604\u260E\u2611\u2614-\u2615\u261D\u263A\u2648-\u2653\u2660\u2663\u2665-\u2666\u2668\u267B\u267F\u2693\u26A0-\u26A1\u26AA-\u26AB\u26BD-\u26BE\u26C4-\u26C5\u26CE\u26D1\u26D3-\u26D4\u26E9\u26F0-\u26F5\u26F7-\u26FA\u26FD\u2702\u2705\u2708-\u270D\u270F\u2712\u2714\u2716\u271D\u2721\u2733-\u2734\u2744\u2747\u274C-\u274D\u274E\u2753-\u2755\u2757\u2763-\u2764\u2795-\u2797\u27A1\u27B0\u27BF\u2934-\u2935\u2B05-\u2B07\u2B1B-\u2B1C\u2B50\u2B55\u3030\u303D\u3297\u3299àáâãäåçèéêëìíîïñòóôõöøùúûüýÿ\u00A0\uFEFF]/g, '').replaceAll('`','')
 }
 function base64Encode(file){var body=fs.readFileSync(file);return body.toString('base64')}
@@ -483,11 +491,33 @@ function chargeCredits(userID,amount){
     }
   }
 }
+async function creditTransfer(credits,from,to,channel){ // allow credit transfers between users
+  var userFrom=users.find(x=>x.id===from)
+  var userTo=users.find(x=>x.id===to)
+  if(!userTo){createNewUser(to);userTo=users.find(x=>x.id===to)}
+  if(parseFloat(credits)&&userFrom&&userTo&&parseFloat(userFrom.credits)>(parseFloat(credits)+100)){ // Only allow users to transfer credits above and beyond the starter balance (only paid credit)
+    userFrom.credits=parseFloat(userFrom.credits)-parseFloat(credits)
+    userTo.credits=parseFloat(userTo.credits)+parseFloat(credits)
+    dbWrite() // save db after transfers
+    var successMsg='<@'+from+'> gifted `'+credits+'` :coin: to <@'+to+'>'
+    log(successMsg)
+    try{bot.createMessage(channel,successMsg)}catch(err){log(err)}
+  } else if (parseFloat(credits)>parseFloat(userFrom.credits)) {
+    var errorMsg=':warning: <@'+from+'> has insufficient balance to gift `'+credits+'` :coin:'
+    try{bot.createMessage(channel,errorMsg)}catch(err){log(err)}
+  } else if (parseFloat(userFrom.credits)>(parseFloat(credits)+100)) {
+    var errorMsg=':warning: Only paid credit beyond the initial 100 free :coin: can be transferred'
+    try{bot.createMessage(channel,errorMsg)}catch(err){log(err)}
+  } else {
+    log('Gifting failed for '+from)
+  }
+}
+
 async function creditRecharge(credits,txid,userid,amount,from){
   var user=users.find(x=>x.id===userid)
   if(!user){await createNewUser(userid);var user=users.find(x=>x.id===userid)}
   if(user&&user.credits){user.credits=(parseFloat(user.credits)+parseFloat(credits)).toFixed(2)}
-  if(txid!=='manual'){
+  if(!['manual'].includes(txid)){
     payments.push({credits:credits,txid:txid,userid:userid,amount:amount})
     var paymentMessage = ':tada: <@'+userid+'> added :coin:`'+credits+'`, balance is now :coin:`'+user.credits+'`\n:heart_on_fire: Thanks `'+from+'` for the `'+amount+'` donation to the GPU fund.\n Type !recharge to get your own topup info'
     chat(paymentMessage)
@@ -600,6 +630,11 @@ function getPixelStepsTotal(jobArray){
   jobArray.forEach((j)=>{ps=ps+getPixelSteps(j)})
   return ps
 }
+function balancePrompt(userid,channel){
+  userCreditCheck(userid,1) // make sure the account exists first
+  var msg='<@'+userid+'> you have `'+creditsRemaining(userid)+'` :coin:'
+  try{bot.createMessage(channel,msg)}catch(err){log(err)}
+}
 function rechargePrompt(userid,channel){
   userCreditCheck(userid,1) // make sure the account exists first
   checkNewPayments()
@@ -663,8 +698,8 @@ async function checkNewPayments(){
   // Hive-Engine payments support
   if(config.allowHiveEnginePayments){
     var allowedHETokens=['SWAP.HBD','SWAP.HIVE']
-    response = await axios.get('https://history.hive-engine.com/accountHistory?account='+config.hivePaymentAddress+'&limit='+accHistoryLength+'&offset=0&ops=tokens_transfer')
-    var HEtransactions=response.data
+    try{response = await axios.get('https://history.hive-engine.com/accountHistory?account='+config.hivePaymentAddress+'&limit='+accHistoryLength+'&offset=0&ops=tokens_transfer')}catch(err){log(err)}
+    var HEtransactions=response?.data
     var HEbotPayments=HEtransactions.filter(t=>t.to===config.hivePaymentAddress&&allowedHETokens.includes(t.symbol)&&t.memo?.startsWith(config.hivePaymentPrefix))
     HEbotPayments.forEach(t=>{
       var pastPayment=payments.find(tx=>tx.txid===t.transactionId)
@@ -859,7 +894,7 @@ async function postRender(render){
       if(filesize<defaultMaxDiscordFileSize){ // Within discord 25mb filesize limit
         try{
           bot.createMessage(job.channel, newMessage, {file: data, name: filename + '.png'})
-            .then(m=>{debugLog('Posted msg id '+m.id+' to channel id '+m.channel.id)}) // maybe wait till successful post here to change job status? Could store msg id to job
+            .then(m=>{debugLog('Posted msg id '+m.id+' to channel id '+m.channel.id);if(m.attachments.length>0){debugLog('"'+job.prompt+'" - '+m.attachments[0].proxy_url)}}) // maybe wait till successful post here to change job status? Could store msg id to job
             .catch((err)=>{
               log('caught error posting to discord in channel '.bgRed+job.channel)
               log(err)
@@ -878,14 +913,14 @@ async function postRender(render){
 async function repostFails(){ // bugged ? sometimes failing to repost in channels where new posts work fine // DiscordRestError [50001]: Missing Access
   debugLog('Attempting to repost '+failedToPost.length+' failed message')
   failedToPost.forEach((p)=>{
-    try{
+    //try{
       bot.createMessage(p.channel,p.msg,{file:p.file,name:p.filename})
         .then(m=>{debugLog('successfully reposted failed image');failedToPost=failedToPost.filter(f=>{f.file!==p.file})}) // remove successful posts
         .catch(err=>{
           log('Unable to repost to channel '+p.channel)
-          log(err)
+          debugLog(err)
         })
-    }catch(err){log(err)}
+    //}catch(err){log(err)}
   })
 }
 
@@ -924,7 +959,7 @@ function processQueue(){
       renderJobErrors.forEach((j)=>{if(j.status==='rendering'){log('setting status to failed for id '+j.id);j.status='failed';dbWrite()}})
     }
     if(failedToPost.length>0){repostFails()}
-    debugLog('Finished queue, setting idle status'.dim)
+    //debugLog('Finished queue, setting idle status'.dim)
     idleStatusArr=[ // alternate idle messages
     // 0=playing? 1=Playing 2=listening to 3=watching 5=competing in
       {type:5,name:'meditation'},
@@ -1008,8 +1043,19 @@ async function rotate(imageurl,degrees=90,channel,user){
 }
 
 async function help(channel){
+  var helpTitles=['let\'s get wierd','help me help you','help!','wait, what ?']
+  shuffle(helpTitles)
   var helpMsgObject={
-  content: 'To create art:\n`!dream your idea here` or `/dream`\nSee these links for more info',
+  content: '',
+  embeds: [
+    {
+      type: 'rich',
+      title: helpTitles[0],
+      //description: '```diff\n-| To create art: \n /dream\n !dream *your idea here*\n /random\n\n-| For text overlays / memes:\n /text\n !text words (reply to image result)\n\n-| Accounting:\n /balance\n /recharge\n !gift 10 @whoever\n\n-| Advanced customisation:\n /models\n /embeds\n !randomisers\n\n+| See these link buttons below for more commands and info\n```',
+      description: '```diff\n-| To create art: \n+| /dream\n+| !dream *your idea here*\n+| /random\n\n-| For text overlays & memes:\n+| /text\n+| !text words (reply to image result)\n\n-| Accounting:\n+| /balance\n+| /recharge\n+| !gift 10 @whoever\n\n-| Advanced customisation:\n+| /models\n+| /embeds\n+| !randomisers\n``` ```yaml\nSee these link buttons below for more commands and info```',
+      color: getRandomColorDec()
+    }
+  ],
   components: [
     {type: Constants.ComponentTypes.ACTION_ROW, components:[
       {type: 2, style: 5, label: "Intro Post", url:'https://peakd.com/@ausbitbank/our-new-stable-diffusion-discord-bot', emoji: { name: 'hive', id: '1110123056501887007'}, disabled: false },
@@ -1312,6 +1358,7 @@ bot.on("interactionCreate", async (interaction) => {
     var id=cid.split('-')[1]
     var rn=cid.split('-')[2]
     log(cid.bgCyan.black+' request from '+interaction.member.user.username.bgCyan.black)
+    if(!cid.startsWith('edit')){try{await interaction.deferUpdate()}catch(err){log(err)}} // ack all non modal dialogs
     if(queue.length>=(id-1)){var newJob=JSON.parse(JSON.stringify(queue[id-1]))} // parse/stringify to deep copy and make sure we dont edit the original}
     if(newJob){
       newJob.number=1
@@ -1324,7 +1371,7 @@ bot.on("interactionCreate", async (interaction) => {
       request({cmd: getRandom('prompt'), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
       return clearParent(interaction) //return interaction.editParent({}).catch((e)=>{log(e)})
     }else if(cid.startsWith('refresh')){
-      try{await interaction.deferUpdate()}catch(err){log(err)}
+      //try{await interaction.deferUpdate()}catch(err){log(err)}
       if(newJob) {
         if (cid.startsWith('refreshVariants')&&newJob.sampler!=='k_euler_a') { // variants do not work with k_euler_a sampler
           newJob.variation_amount=0.1
@@ -1445,7 +1492,7 @@ bot.on("interactionCreate", async (interaction) => {
         return interaction.createMessage(tweakResponse).then((r)=>{}).catch((e)=>{console.error(e)})
       } else {log('Edit request failed');return clearParent(interaction)}
     } else if (cid.startsWith('twk')) {
-      try{await interaction.deferUpdate()}catch(err){log(err)}
+      //try{await interaction.deferUpdate()}catch(err){log(err)}
       var newCmd=''
       var postProcess=false
       switch(cid.split('-')[0].replace('twk','')){
@@ -1484,8 +1531,6 @@ bot.on("interactionCreate", async (interaction) => {
         case 'background':{
           var msgid=interaction.data.custom_id.split('-')[3]
           var userid=interaction.member.id ? interaction.member.id : interaction.user.id
-          debugLog(userid)
-          debugLog(interaction)
           bot.getMessage(interaction.channel.id, msgid).then((msg) => {
             try{removeBackground(msg.attachments[0].proxy_url,interaction.channel.id,userid)}catch(err){log(err)}
           }).catch((err) => { log(err)})
@@ -1522,6 +1567,7 @@ bot.on("interactionCreate", async (interaction) => {
         return interaction.editParent(changeModelResponse).then((r)=>{}).catch((e)=>{console.error(e)})
       }
     } else if (interaction.data.custom_id.startsWith('changeModel')) {
+      //try{await interaction.deferUpdate()}catch(err){log(err)}
       var newModel=interaction.data.values[0]
       if (models[newModel]){
         var newModelDescription=models[newModel].description
@@ -1705,6 +1751,21 @@ async function moveToNSFWChannel(serverId, originalChannelId, messageId, msg) {
   components = msg.components
   debugLog(msg)
   try{await channel.createMessage({ content: msg.content, components: components, embeds: embeds }).catch((err) => {debugLog(err);log(`Failed to move message to the NSFW channel for server ID: ${serverId}`)})}catch(err){log(err)}
+}
+
+function progressBar(total,current,size=40,line='□',slider='■'){
+	if (current>total) {
+		var bar=slider.repeat(size+2)
+		return [bar]
+	}else{
+		var percentage=current/total
+		var progress=Math.round((size*percentage))
+		var emptyProgress=size-progress
+		var progressText=slider.repeat(progress)
+		var emptyProgressText=line.repeat(emptyProgress)
+		var bar=progressText+emptyProgressText
+		return [bar]
+	}
 }
 
 bot.on("messageReactionAdd", async (msg,emoji,reactor) => {
@@ -1927,6 +1988,13 @@ bot.on("messageCreate", (msg) => {
         if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){
           var attachmentsUrls = msg.attachments.map((u)=>{return u.proxy_url})
           attachmentsUrls.forEach((url)=>{removeBackground(url,msg.channel.id,msg.author.id)})
+        }
+        break
+      }
+      case '!gift':{
+        if (msg.mentions.length>0){
+          var creditsToGift=parseFloat(msg.content.split(' ')[1])
+          if (Number.isInteger(creditsToGift)){msg.mentions.forEach((m)=>{creditTransfer(creditsToGift,msg.author.id,m.id,msg.channel.id)})}
         }
         break
       }
@@ -2231,6 +2299,7 @@ socket.on("progressUpdate", (data) => {
 var intermediateImage=null
 var intermediateImagePrior=null
 socket.on("intermediateResult", (data) => {
+  if(!showPreviews)return
   buf=new Buffer.from(data.url.replace(/^data:image\/\w+;base64,/, ''), 'base64')
   if(buf!==intermediateImagePrior){ // todo look at image difference % instead
     jimp.read(buf, (err,img)=>{
