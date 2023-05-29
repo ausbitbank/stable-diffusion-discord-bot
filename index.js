@@ -737,7 +737,6 @@ function postprocessingResult(data){ // TODO unfinished, untested, awaiting new 
   //postRender(postRenderObject)
 }
 function requestModelChange(newmodel){log('Requesting model change to '+newmodel);if(newmodel===undefined||newmodel==='undefined'){newmodel=defaultModel}socket.emit('requestModelChange',newmodel,()=>{log('requestModelChange loaded')})}
-function cancelRenders(){log('Cancelling current render'.bgRed);socket.emit('cancel');queue[queue.findIndex((q)=>q.status==='rendering')-1].status='cancelled';rendering=false}
 function generationResult(data){
   var url=data.url
   url=config.basePath+data.url.split('/')[data.url.split('/').length-1]
@@ -1321,6 +1320,43 @@ async function clearParent(interaction){
     }
   }catch(err){log(err)}
 }
+
+function viewQueue(){ // admin function to view queue data
+  var queueNew=queue.filter((q)=>q.status==='new')
+  var queueRendering=queue.filter((q)=>q.status==='rendering')
+  var queueFailed=queue.filter((q)=>q.status==='failed')
+  var queueCancelled=queue.filter((q)=>q.status==='cancelled')
+  var queueDone=queue.filter((q)=>q.status==='done')
+  var msg='**Queue Stats:**\n`'+queueNew.length+'` pending, `'+queueRendering.length+'` rendering, `'+queueFailed.length+'` failed, `'+queueCancelled.length+'` cancelled, `'+tidyNumber(queueDone.length)+'` done\n'
+  queueRendering.forEach((q)=>{msg+=':fire: JobId `'+q.id+'` rendering for `'+q.username+'#'+q.discriminator+'` userid `'+q.userid+'`\nPrompt: `'+q.prompt+'`\n'})
+  queueNew.forEach((q)=>{msg+=':clock1: JobId `'+q.id+'` pending for `'+q.username+'#'+q.discriminator+'` userid `'+q.userid+'`\nPrompt: `'+q.prompt+'`\n'})
+  msg+='```yaml\n!cancel                 to cancel the current render\n!canceljob jobid        to cancel a specific job id\n!canceluser userid      to cancel all jobs from that user id\n```'
+  //var components=[{type:1,components:[{type:2,label:'Refresh',custom_id:'viewQueue',emoji:{name:'🔄',id:null},disabled:false}]}]
+  sliceMsg(msg).forEach((m)=>{try{directMessageUser(config.adminID, {content:m})}catch(err){debugLog(err)}})
+}
+
+function cancelCurrentRender(){
+  log('Cancelling current render'.bgRed);queue[queue.findIndex((q)=>q.status==='rendering')-1].status='cancelled';socket.emit('cancel');rendering=false
+}
+
+function cancelJob(jobid){
+  var job=queue[jobid]
+  log('Cancelling job '+jobid.bgRed)
+  //if(job&&['rendering'].includes(job.status)){socket.emit('cancel')}
+  if(job&&['new','rendering'].includes(job.status)){job.status='cancelled'}
+  dbWrite()
+}
+
+function cancelUser(userid){
+  log('Cancelling user jobs '+userid.bgRed)
+  var jobs=queue.filter((q)=>q.userid===userid)
+  jobs?.forEach((j)=>{
+    //if(['rendering'].includes(j.status)){socket.emit('cancel')}
+    if(['new','rendering'].includes(j.status)){j.status='cancelled'}
+  })
+  dbWrite()
+}
+
 // Initial discord bot setup and listeners
 bot.on("ready", async () => {
   log("Connected to discord".bgGreen)
@@ -1398,6 +1434,8 @@ bot.on("interactionCreate", async (interaction) => {
         log('unable to refresh render'.bgRed)
         return clearParent(interaction)
       }
+    } else if (cid==='viewQueue') {
+      viewQueue()
     } else if (cid.startsWith('editRandom-')) {
       if(newJob){return interaction.createModal({custom_id:'refreshEdit-'+newJob.id,title:'Edit the random prompt?',components:[{type:1,components:[{type:4,custom_id:'prompt',label:'Prompt',style:2,value:getRandom('prompt'),required:true}]}]}).then((r)=>{}).catch((e)=>{console.error(e)})
       }else{log('edit request failed'.bgRed);return clearParent(interaction)}
@@ -2222,8 +2260,10 @@ bot.on("messageCreate", (msg) => {
     if (c.startsWith('!')){log('admin command: '.bgRed+c)}
     switch(c){
       case '!wipequeue':{rendering=false;queue=[];dbWrite();log('admin wiped queue');break}
-      case '!queue':{queueStatus();break}
-      case '!cancel':{cancelRenders();break}
+      case '!queue':{viewQueue();break}
+      case '!cancel':{cancelCurrentRender();try{bot.createMessage(msg.channel.id,':warning: Jobs cancelled')}catch(err){log(err)};break}
+      case '!canceljob':{cancelJob(msg.content.split(' ')[1]);try{bot.createMessage(msg.channel.id,':warning: Job '+msg.content.split(' ')[1]+' cancelled')}catch(err){log(err)};break}
+      case '!canceluser':{cancelUser(msg.content.split(' ')[1]);try{bot.createMessage(msg.channel.id,':warning: Jobs for user '+msg.content.split(' ')[1]+' cancelled')}catch(err){log(err)};break}
       case '!pause':{try{bot.editStatus('dnd')}catch(err){log(err)};paused=true;rendering=true;try{chat(':pause_button: Bot is paused, requests will still be accepted and queued for when I return')}catch(err){log(err)};break}
       case '!resume':{socket.emit('requestSystemConfig');paused=false;rendering=false;bot.editStatus('online');chat(':play_pause: Bot is back online');processQueue();break}
       case '!checkpayments':{checkNewPayments();break}
