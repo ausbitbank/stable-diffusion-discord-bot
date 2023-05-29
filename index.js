@@ -1,7 +1,7 @@
 // Setup, loading libraries and initial config
 const config = require('dotenv').config().parsed
 if (!config||!config.apiUrl||!config.basePath||!config.channelID||!config.adminID||!config.discordBotKey||!config.pixelLimit||!config.fileWatcher||!config.samplers) { throw('Please re-read the setup instructions at https://github.com/ausbitbank/stable-diffusion-discord-bot , you are missing the required .env configuration file or options') }
-if (config.basePath==="c:\\Users\\bob\\invokeai\\output\\"){ throw('You need to configure the basePath setting in the bots .env file to point to your invokeAI output path')}
+if (config.basePath==="INVOKEAI OUTPUT FOLDER"){ throw('You need to configure the basePath setting in the bots .env file to point to your invokeAI output path')}
 const Eris = require("eris")
 const Constants = Eris.Constants
 const Collection = Eris.Collection
