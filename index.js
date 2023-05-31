@@ -11,10 +11,6 @@ const axios = require('axios')
 var parseArgs = require('minimist')
 const chokidar = require('chokidar')
 const moment = require('moment')
-// const { ImgurClient } = require('imgur')
-// const imgur = new ImgurClient({ clientId: config.imgurClientID})
-// const imgbb = require("imgbb-uploader")
-// const { Rembg } = require("rembg-node")
 const sharp = require("sharp")
 const GIF = require("sharp-gif2")
 const Diff = require("diff")
@@ -29,6 +25,7 @@ const FormData = require('form-data')
 const io = require("socket.io-client")
 const socket = io(config.apiUrl,{reconnect: true})
 const ExifReader = require('exifreader')
+
 var paused=false // unused?
 var queue = []
 var users = []
@@ -45,6 +42,7 @@ const { exit } = require('process')
 if(config.creditsDisabled==='true'){var creditsDisabled=true}else{var creditsDisabled=false}
 if(config.showFilename==='true'){var showFilename=true}else{var showFilename=false}
 if(config.showPreviews==='true'){var showPreviews=true}else{var showPreviews=false}
+if(config.showRenderSettings==='true'){var showRenderSettings=true}else{var showRenderSettings=false}
 if(config.hivePaymentAddress.length>0 && !creditsDisabled){
   hive.config.set('alternative_api_endpoints',['https://rpc.ausbit.dev','https://api.hive.blog','https://api.deathwing.me','https://api.c0ff33a.uk','https://hived.emre.sh'])
   var hiveUsd = 0.4
@@ -61,7 +59,8 @@ const bot = new Eris.CommandClient(config.discordBotKey, {
   prefix: "!",
   reconnect: 'auto',
   compress: true,
-  getAllUsers: false, //drastically affects startup time if true
+  getAllUsers: false,
+  maxShards: 'auto'
 })
 const defaultSize = parseInt(config.defaultSize)||512
 const defaultSteps = parseInt(config.defaultSteps)||50
@@ -146,11 +145,6 @@ var slashCommands = [
       }else{var attachment=[]}
       // below allows for the different data structure in public interactions vs direct messages
       request({cmd:getCmd(prepSlashCmd(i.data.options)),userid:i.member?i.member.id:i.user.id,username:i.member?i.member.user.username:i.user.username,discriminator:i.member?i.member.user.discriminator:i.user.discriminator,bot:i.member?i.member.user.bot:i.user.bot,channelid:i.channel.id,attachments:attachment})
-      /*if (i.member) {
-        request({cmd: getCmd(prepSlashCmd(i.data.options)), userid: i.member.id, username: i.member.user.username, discriminator: i.member.user.discriminator, bot: i.member.user.bot, channelid: i.channel.id, attachments: attachment})
-      } else if (i.user){
-        request({cmd: getCmd(prepSlashCmd(i.data.options)), userid: i.user.id, username: i.user.username, discriminator: i.user.discriminator, bot: i.user.bot, channelid: i.channel.id, attachments: attachment})
-      }*/
     }
   },
   {
@@ -228,6 +222,21 @@ var slashCommands = [
       textOverlay(attachmentOrig.proxyUrl,text,position,i.channel.id,userid,color,blendmode,parseInt(width)||false,parseInt(height),font,extend,extendcolor)
     }
   },
+  {
+    name: 'background',
+    description: 'Remove background from an image',
+    options: [
+      {type:11,name:'attachment',description:'Image to remove background from',required:true}
+    ],
+    cooldown: 500,
+    execute: (i) => {
+      if (i.data.resolved && i.data.resolved.attachments && i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))){
+        var attachmentOrig=i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))
+        var userid=i.member ? i.member.id : i.user.id
+        removeBackground(attachmentOrig.proxyUrl,i.channel.id,userid)
+      }
+    }
+  }
 ]
 // If credits are active, add /recharge and /balance otherwise don't include them
 if(!creditsDisabled)
@@ -345,10 +354,15 @@ function request(request){
   if(args.symh){newJob.symh=args.symh}
   if(newJob.channel==='webhook'&&request.webhook){newJob.webhook=request.webhook}
   if(creditsDisabled){newJob.cost=0}else{newJob.cost=costCalculator(newJob)}
-  queue.push(newJob)
-  dbWrite() // Push db write after each new addition
+  // check if near identical job already exists unfinished in the queue for the same channel
+  var identicalJob = queue.find(q=>{if(q.seed===newJob.seed&&q.channel===newJob.channel&&q.prompt===newJob.prompt&&q.model===newJob.model&&['new','rendering'].includes(q.status)&&q.steps===newJob.steps&&q.sampler===newJob.sampler&&q.strength===newJob.strength&&q.attachments===newJob.attachments&&q.scale===newJob.scale&&q.width===newJob.width&&q.height===newJob.height&&q.perlin===newJob.perlin&&q.upscale_level===newJob.upscale_level&&q.with_variations===newJob.with_variations){return true}else{return false}})
+  if(identicalJob){
+    debugLog('Identical job posted by '+newJob.username+'#'+newJob.discriminator+' , ignoring')
+  } else {
+    queue.push(newJob)
+    dbWrite() // Push db write after each new addition
+  }
   processQueue()
-  // acknowledge received job with ethereal message here?
 }
 
 queueStatusLock=false
@@ -544,12 +558,7 @@ function freeRecharge(){
     log('No users eligible for free credit recharge')
   }
 }
-/*function dbWrite(){
-  try{
-    fs.writeFileSync('dbQueue.json',JSON.stringify({queue:queue}))
-    fs.writeFileSync('dbUsers.json',JSON.stringify({users:users}))
-    fs.writeFileSync('dbPayments.json',JSON.stringify({payments:payments}))
-  }catch(err){log('Failed to write db files'.bgRed);log(err)}}*/
+
 function dbWrite() {
   const files = [{name:'dbQueue.json',data:{queue:queue}},{name:'dbUsers.json',data:{users:users}},{name:'dbPayments.json',data:{payments:payments}}]
   files.forEach((file) => {
@@ -615,9 +624,9 @@ function getPrices () {
         .catch((err)=>{log('Failed to load data from hive market api');log(err);hiveUsd=lastHiveUsd})
     })
 }
-function getLightningInvoiceQr(memo){
-  var appname=config.hivePaymentAddress+'_discord' // TODO should this be an .env variable?
-  return 'https://api.v4v.app/v1/new_invoice_hive?hive_accname='+config.hivePaymentAddress+'&amount=1&currency=HBD&usd_hbd=false&app_name='+appname+'&expiry=300&message='+memo+'&qr_code=png'
+function getLightningInvoiceQr(memo,amount=1){
+  var appname=config.hivePaymentAddress+'_discord'
+  return 'https://api.v4v.app/v1/new_invoice_hive?hive_accname='+config.hivePaymentAddress+'&amount='+amount+'&currency=HBD&usd_hbd=false&app_name='+appname+'&expiry=300&message='+memo+'&qr_code=png'
 }
 function getPixelSteps(job){ // raw (width * height) * (steps * number). Does not account for postprocessing
   var p=parseInt(job.width)*parseInt(job.height)
@@ -638,9 +647,10 @@ function balancePrompt(userid,channel){
 function rechargePrompt(userid,channel){
   userCreditCheck(userid,1) // make sure the account exists first
   checkNewPayments()
+  var hive1usd = (1/hiveUsd).toFixed(3)
   var paymentMemo=config.hivePaymentPrefix+userid
   var paymentLinkHbd='https://hivesigner.com/sign/transfer?to='+config.hivePaymentAddress+'&amount=1.000%20HBD&memo='+paymentMemo
-  var paymentLinkHive='https://hivesigner.com/sign/transfer?to='+config.hivePaymentAddress+'&amount=1.000%20HIVE&memo='+paymentMemo
+  var paymentLinkHive='https://hivesigner.com/sign/transfer?to='+config.hivePaymentAddress+'&amount='+hive1usd+'%20HIVE&memo='+paymentMemo
   var lightningInvoiceQr=getLightningInvoiceQr(paymentMemo)
   var paymentMsg=''
   paymentMsg+='<@'+userid+'> you have `'+creditsRemaining(userid)+'` :coin: remaining\n*The rate is `1` **USD** per `500` :coin: *\n'
@@ -654,14 +664,13 @@ function rechargePrompt(userid,channel){
     embeds:
     [
       {image:{url:rechargeImages[0]}},
-      {description:'Pay $1 via btc lightning network', image:{url:lightningInvoiceQr}},
       {footer:{text:freeRechargeMsg}}
     ],
     components: [
       {type: Constants.ComponentTypes.ACTION_ROW, components:[
-        {type: 2, style: 5, label: "SEND 1 HIVE", url:paymentLinkHive, emoji: { name: 'hive', id: '1110123056501887007'}, disabled: false },
-        {type: 2, style: 5, label: "SEND 1 HBD", url:paymentLinkHbd, emoji: { name: 'hbd', id: '1110282940686016643'}, disabled: false },
-        //{type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Bitcoin over Lightning", custom_id: "rechargeLightning", emoji: { name: '⚡', id: null}, disabled: false }
+        {type: 2, style: 5, label: hive1usd+" HIVE", url:paymentLinkHive, emoji: { name: 'hive', id: '1110123056501887007'}, disabled: false },
+        {type: 2, style: 5, label: "1 HBD", url:paymentLinkHbd, emoji: { name: 'hbd', id: '1110282940686016643'}, disabled: false },
+        {type: 2, style: 5, label: "$1 of BTC", url:lightningInvoiceQr, emoji: { name: '⚡', id: null}, disabled: false }
       ]}
     ]
   }
@@ -857,26 +866,27 @@ async function postRender(render){
       //filename=render.filename.split('/')[render.filename.split('/').length-1].replace(".png","") // lin
       var job=queue[queue.findIndex(x=>x.id===render.id)]
       var msg=':brain:<@'+job.userid+'>'
-      msg+=':straight_ruler:`'+render.width+'x'+render.height+'`'
-      if(job.upscale_level!==''){msg+=':mag:**`Upscaledx'+job.upscale_level+' to '+(parseFloat(job.width)*parseFloat(job.upscale_level))+'x'+(parseFloat(job.height)*parseFloat(job.upscale_level))+' ('+job.upscale_strength+')`**'}
-      if(job.gfpgan_strength!==0){msg+=':magic_wand:`gfpgan face fix('+job.gfpgan_strength+')`'}
-      if(job.codeformer_strength!==0){msg+=':magic_wand:`codeformer face fix(' + job.codeformer_strength + ')`'}
-      if(job.seamless===true){msg+=':knot:**`Seamless Tiling`**'}
-      if(job.hires_fix===true){msg+=':telescope:**`High Resolution Fix ('+job.strength+')`**'}
-      if(job.perlin!==0){msg+=':oyster:**`Perlin '+job.perlin+'`**'}
-      if(job.threshold!==0){msg+=':door:**`Threshold '+job.threshold+'`**'}
-      if(job.attachments.length>0){msg+=':paperclip:` attached template`:muscle:`'+job.strength+'`'}
-      if(job.text_mask){msg+=':mask:`'+job.text_mask+'`'}
-      if(job.variation_amount!==0){msg+=':microbe:**`Variation '+job.variation_amount+'`**'}
-      if(job.symv||job.symh){msg+=':mirror: `v'+job.symv+',h'+job.symh+'`'}
-      //var jobResult = job.renders[render.resultNumber]
-      if(render.variations){msg+=':linked_paperclips:with variants `'+render.variations+'`'}
-      // Added spaces to make it easier to double click the seed to copy/paste, otherwise discord selects whole line
-      msg+=':seedling: `'+render.seed+'` :scales:`'+job.scale+'`:recycle:`'+job.steps+'`'
-      msg+=':stopwatch:`'+timeDiff(job.timestampRequested, moment())+'s`'
-      if(showFilename){msg+=':file_cabinet:`'+filename+'`'}
-      msg+=':eye:`'+job.sampler+'`'
-      msg+=':floppy_disk:`'+job.model+'`'
+      if (showRenderSettings){
+        msg+=':straight_ruler:`'+render.width+'x'+render.height+'`'
+        if(job.upscale_level!==''){msg+=':mag:**`Upscaledx'+job.upscale_level+' to '+(parseFloat(job.width)*parseFloat(job.upscale_level))+'x'+(parseFloat(job.height)*parseFloat(job.upscale_level))+' ('+job.upscale_strength+')`**'}
+        if(job.gfpgan_strength!==0){msg+=':magic_wand:`gfpgan face fix('+job.gfpgan_strength+')`'}
+        if(job.codeformer_strength!==0){msg+=':magic_wand:`codeformer face fix(' + job.codeformer_strength + ')`'}
+        if(job.seamless===true){msg+=':knot:**`Seamless Tiling`**'}
+        if(job.hires_fix===true){msg+=':telescope:**`High Resolution Fix ('+job.strength+')`**'}
+        if(job.perlin!==0){msg+=':oyster:**`Perlin '+job.perlin+'`**'}
+        if(job.threshold!==0){msg+=':door:**`Threshold '+job.threshold+'`**'}
+        if(job.attachments.length>0){msg+=':paperclip:` attached template`:muscle:`'+job.strength+'`'}
+        if(job.text_mask){msg+=':mask:`'+job.text_mask+'`'}
+        if(job.variation_amount!==0){msg+=':microbe:**`Variation '+job.variation_amount+'`**'}
+        if(job.symv||job.symh){msg+=':mirror: `v'+job.symv+',h'+job.symh+'`'}
+        if(render.variations){msg+=':linked_paperclips:with variants `'+render.variations+'`'}
+        // Added spaces to make it easier to double click the seed to copy/paste, otherwise discord selects whole line
+        msg+=':seedling: `'+render.seed+'` :scales:`'+job.scale+'`:recycle:`'+job.steps+'`'
+        msg+=':stopwatch:`'+timeDiff(job.timestampRequested, moment())+'s`'
+        if(showFilename){msg+=':file_cabinet:`'+filename+'`'}
+        msg+=':eye:`'+job.sampler+'`'
+        msg+=':floppy_disk:`'+job.model+'`'
+      }
       if(job.webhook){msg+='\n:calendar:Scheduled render sent to `'+job.webhook.destination+'` discord'}
       if(job.cost&&!creditsDisabled){
         chargeCredits(job.userid,(costCalculator(job))/job.number) // only charge successful renders, if enabled
@@ -893,7 +903,10 @@ async function postRender(render){
       if(filesize<defaultMaxDiscordFileSize){ // Within discord 25mb filesize limit
         try{
           bot.createMessage(job.channel, newMessage, {file: data, name: filename + '.png'})
-            .then(m=>{debugLog('Posted msg id '+m.id+' to channel id '+m.channel.id);if(m.attachments.length>0){debugLog('"'+job.prompt+'" - '+m.attachments[0].proxy_url)}}) // maybe wait till successful post here to change job status? Could store msg id to job
+            .then(async m=>{
+              debugLog('Posted msg id '+m.id+' to channel id '+m.channel.id)
+              if(m.attachments.length>0){debugLog('"'+job.prompt+'" - '+m.attachments[0].proxy_url)}
+            }) // maybe wait till successful post here to change job status? Could store msg id to job
             .catch((err)=>{
               log('caught error posting to discord in channel '.bgRed+job.channel)
               log(err)
@@ -934,7 +947,7 @@ function processQueue(){
   }else{var nextJob=queue[queue.findIndex(x=>x.status==='new')]}
   if(nextJob&&!rendering){
     if(userCreditCheck(nextJob.userid,costCalculator(nextJob))){
-      busyStatusArr=[{type:0,name:' with paint for '+queueNew.length}]
+      busyStatusArr=[{type:0,name:' with '+queueNew.length+' job(s) in '+bot.guilds.size+' servers'}]
       shuffle(busyStatusArr)
       //var statusMsg = 'with '+queueNew.length+' artful idea';if(queueNew.length>1){statusMsg+='s'}
       bot.editStatus('online',{type: busyStatusArr[0].type,name:busyStatusArr[0].name})
@@ -961,10 +974,10 @@ function processQueue(){
     //debugLog('Finished queue, setting idle status'.dim)
     idleStatusArr=[ // alternate idle messages
     // 0=playing? 1=Playing 2=listening to 3=watching 5=competing in
-      {type:5,name:'meditation'},
-      {type:3,name:'disturbing dreams'},
-      {type:2,name:'your thoughts'},
-      {type:0,name:'the waiting game'}
+      {type:5,name:'meditation in '+bot.guilds.size+' guilds'},
+      {type:3,name:'disturbing dreams in '+bot.guilds.size+' guilds'},
+      {type:2,name:'your thoughts in '+bot.guilds.size+' guilds'},
+      {type:0,name:'the waiting game in '+bot.guilds.size+' guilds'}
     ]
     shuffle(idleStatusArr)
     bot.editStatus('idle',idleStatusArr[0])
@@ -1357,6 +1370,12 @@ function cancelUser(userid){
   dbWrite()
 }
 
+async function preloadModels(){
+  Object.keys(models).forEach(async(m)=>{
+    await socket.emit('requestModelChange',m)
+  })
+}
+
 // Initial discord bot setup and listeners
 bot.on("ready", async () => {
   log("Connected to discord".bgGreen)
@@ -1366,8 +1385,10 @@ bot.on("ready", async () => {
     bot.commands = new Collection()
     for (const c of slashCommands) {
       if(cmds.filter(cmd=>cmd.name===c.name).length>0) {
-        bot.commands.set(c.name, c)
+        debugLog('slash command '+c.name+' already registered')
+        bot.commands.set(c.name, c) // needed ?
       } else {
+        log('Slash command '+c.name+' is unregistered, registering')
         bot.commands.set(c.name, c)
         bot.createCommand({name: c.name,description: c.description,options: c.options ?? [],type: Constants.ApplicationCommandTypes.CHAT_INPUT})
       }
@@ -1840,6 +1861,7 @@ bot.on("messageReactionAdd", async (msg,emoji,reactor) => {
 //bot.on("debug", (msg,id) => {log(msg,id)})
 bot.on("disconnect", () => {log('disconnected'.bgRed)})
 bot.on("error", async (err) => {
+ if(err.code===1006) return // ignore discord websocket disconnects
  console.log(moment().format(), "--- BEGIN: ERROR ---")
  console.error(err)
  console.log(moment().format(), "--- END: ERROR ---")
@@ -2209,25 +2231,7 @@ bot.on("messageCreate", (msg) => {
         }
         break
       }
-      case '!models':{
-        /*if(!models){socket.emit('requestSystemConfig')}
-        var newMsg=''
-        if(models){
-          newMsg='**'+Object.keys(models).length+' models available**\n:green_circle: =loaded in VRAM :orange_circle: =cached in RAM :red_circle: = unloaded\n'
-          Object.keys(models).forEach((m)=>{
-            switch(models[m].status){
-              case 'not loaded':{newMsg+=':red_circle:';break}
-              case 'cached':{newMsg+=':orange_circle:';break}
-              case 'active':{newMsg+=':green_circle:';break}
-            }
-            newMsg+='`'+m+'`  '
-            newMsg+=models[m].description+'\n'
-            if(newMsg.length>=1500){try{chatChan(msg.channel.id,newMsg);newMsg=''}catch(err){log(err)}}
-          })
-          if(newMsg!==''){try{chatChan(msg.channel.id,newMsg)}catch(err){log(err)}}
-        }*/
-        listModels(msg.channel.id);break
-      }
+      case '!models':{listModels(msg.channel.id);break}
       case '!imgdiff':{
         if (msg.attachments.length===2&&msg.attachments[0].content_type.startsWith('image/')&&msg.attachments[1].content_type.startsWith('image/')){
           var attachmentsUrls = msg.attachments.map((u)=>{return u.proxy_url})
@@ -2252,14 +2256,12 @@ bot.on("messageCreate", (msg) => {
         }
         break
       }
-      case '!embeds':{
-        listEmbeds(msg.channel.id);break
-      }
+      case '!embeds':{listEmbeds(msg.channel.id);break}
     }
   if (msg.author.id===config.adminID) { // admins only
     if (c.startsWith('!')){log('admin command: '.bgRed+c)}
     switch(c){
-      case '!wipequeue':{rendering=false;queue=[];dbWrite();log('admin wiped queue');break}
+      case '!wipequeue':{break} // disabled // rendering=false;queue=[];dbWrite();log('admin wiped queue')
       case '!queue':{viewQueue();break}
       case '!cancel':{cancelCurrentRender();try{bot.createMessage(msg.channel.id,':warning: Jobs cancelled')}catch(err){log(err)};break}
       case '!canceljob':{cancelJob(msg.content.split(' ')[1]);try{bot.createMessage(msg.channel.id,':warning: Job '+msg.content.split(' ')[1]+' cancelled')}catch(err){log(err)};break}
