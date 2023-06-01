@@ -50,7 +50,7 @@ if(config.hivePaymentAddress.length>0 && !creditsDisabled){
   getPrices()
   cron.schedule('0,15,30,45 * * * *', () => { log('Checking account history every 15 minutes'.grey); checkNewPayments() })
   cron.schedule('0,30 * * * *', () => { log('Updating hive price every 30 minutes'.grey); getPrices() })
-  cron.schedule('0 */12 * * *', () => { log('Recharging users with no credit every 12 hrs'.bgCyan.bold); freeRecharge() }) // Comment this out if you don't want free regular topups of low balance users
+  if(config.freeRechargeAmount&&config.freeRechargeAmount>0){cron.schedule('0 */12 * * *', () => { log('Recharging users with no credit every 12 hrs'.bgCyan.bold);freeRecharge() }) }
 }
 const bot = new Eris.CommandClient(config.discordBotKey, {
   intents: ["guilds", "guildMessages", "messageContent", "directMessages", "guildMessageReactions", "directMessageReactions"],
@@ -226,14 +226,25 @@ var slashCommands = [
     name: 'background',
     description: 'Remove background from an image',
     options: [
-      {type:11,name:'attachment',description:'Image to remove background from',required:true}
+      {type:11,name:'attachment',description:'Image to remove background from',required:true},
+      {type: 3, name: 'model', description: 'Which masking model to use',required: false,value: 'u2net',choices: [{name:'u2net',value:'u2net'},{name:'u2netp',value:'u2netp'},{name:'u2net_human_seg',value:'u2net_human_seg'},{name:'u2net_cloth_seg',value:'u2net_cloth_seg'},{name:'silueta',value:'silueta'},{name:'isnet-general-use',value:'isnet-general-use'},{name:'isnet-anime',value:'isnet-anime'}]},
+      {type: 5, name: 'a', description: 'Alpha matting true/false', required: false,default:false},
+      {type: 4, name: 'ab', description: 'Background threshold 0-255 default 10', required: false,min_length:1,max_length:3,value:10},
+      {type: 4, name: 'af', description: 'Foreground threshold 0-255 default 240', required: false,value:240},
+      {type: 4, name: 'ae', description: 'Alpha erode size 0-255 default 10', required: false,value:10},
+      {type: 5, name: 'om', description: 'Mask Only true/false default false', required: false,value:false},
+      {type: 5, name: 'ppm', description: 'Post Process Mask true/false default false', required: false,value:false},
+      {type: 3, name: 'bgc', description: 'Background color R,G,B,A 0-255 default 0,0,0,0', required: false}
     ],
     cooldown: 500,
     execute: (i) => {
       if (i.data.resolved && i.data.resolved.attachments && i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))){
         var attachmentOrig=i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))
         var userid=i.member ? i.member.id : i.user.id
-        removeBackground(attachmentOrig.proxyUrl,i.channel.id,userid)
+        var ops=i.data.options
+        debugLog(ops)
+        var {model='u2net',a=false,ab=10,af=240,ae=10,om=false,ppm=false,bgc='0,0,0,0'}=ops.reduce((acc,o)=>{acc[o.name]=o.value;return acc}, {})
+        removeBackground(attachmentOrig.proxyUrl,i.channel.id,userid,model,a,ab,af,ae,om,ppm,bgc)
       }
     }
   }
@@ -545,7 +556,7 @@ function freeRecharge(){
   var freeRechargeMinBalance=parseInt(config.freeRechargeMinBalance)||10
   var freeRechargeAmount=parseInt(config.freeRechargeAmount)||10
   var freeRechargeUsers=users.filter(u=>u.credits<freeRechargeMinBalance)
-  if(freeRechargeUsers.length>0){
+  if(freeRechargeUsers.length>0&&freeRechargeAmount>0){
     log(freeRechargeUsers.length+' users with balances below '+freeRechargeMinBalance+' getting a free '+freeRechargeAmount+' credit topup')
     freeRechargeUsers.forEach(u=>{
       u.credits = parseFloat(u.credits)+freeRechargeAmount // Incentivizes drain down to 9 for max free charge leaving balance at 19
@@ -1027,7 +1038,7 @@ async function textOverlay(imageurl,text,gravity='south',channel,user,color='whi
   }catch(err){log(err)}
 }
 
-async function removeBackground(url,channel,user){
+async function removeBackground(url,channel,user,model='u2net',a=false,ab=10,af=240,ae=10,om=false,ppm=true,bgc='0,0,0,0'){
 // js implementation of python rembg lib, degrades quality, needs more testing
 //  var image=(await axios({ url: url, responseType: "arraybuffer" })).data
 //  image = sharp(image)
@@ -1037,10 +1048,23 @@ async function removeBackground(url,channel,user){
 
 // original rembg python/docker version
 // requires docker run -p 127.0.0.1:5000:5000 danielgatis/rembg s
-  var buffer = await axios.get(rembg+encodeURIComponent(url),{responseType: 'arraybuffer'})
+// todo expand options available
+// http://127.0.0.1:5000/?url=imgurl?model=u2net&a=true&ab=10&ae=10&af=240&bgc=0,0,0,0&ppm=true&om=false
+// model = u2net,u2netp,u2net_human_seg,u2net_cloth_seg,silueta,isnet-general-use,isnet-anime
+// a = alpha matting                          bool default false
+// ab = alpha matting background threshold    int 0-255 default 10
+// af = alpha matting foreground threshold    int 0-255 default 240
+// ae = alpha erode size                      int 0-255 default 10
+// om = only mask, returns the mask directly  bool default false
+// ppm = post process mask (clean edges)      bool default false
+// bgc = background color to insert           str 0,0,0,1 default none , 4 ints 0-255 for RGB + alpha
+  var fullUrl=rembg+encodeURIComponent(url)+'&model='+model+'&a='+a+'&ab='+ab+'&ae='+ae+'&af='+af+'&bgc='+bgc+'&ppm='+ppm+'&om='+om
+  debugLog(fullUrl)
+  var buffer = await axios.get(rembg+encodeURIComponent(fullUrl),{responseType: 'arraybuffer'})
   buffer = Buffer.from(buffer.data)
   var newMsg='<@'+user+'> removed background'
   if(!creditsDisabled){newMsg+=' , it cost `0.05`:coin:';chargeCredits(user,0.05)}
+  newMsg+='\n**model:**`'+model+'`, **alpha matting:**`'+a+'`, **background threshold:**`'+ab+'`, **alpha erode size:**`'+ae+'` **foreground threshold:**`'+af+'`, **background color:**`'+bgc+'`, **post process:**`'+ppm+'`, **only mask:** `'+om+'`'
   bot.createMessage(channel, newMsg, {file: buffer, name: user+'-bg.png'})
 }
 
@@ -1402,7 +1426,6 @@ bot.on("interactionCreate", async (interaction) => {
     if (!bot.commands.has(interaction.data.name)) return interaction.createMessage({content:'Command does not exist', flags:64}).catch((e) => {log('command does not exist'.bgRed);log(e)})
     try {
       await interaction.acknowledge().then(()=>{
-        //debugLog('ack '+interaction.data.name)
         bot.commands.get(interaction.data.name).execute(interaction)
         interaction.deleteMessage('@original').then(()=>{}).catch((e)=>log(e))
       }).catch((err)=>log(err))
@@ -1812,16 +1835,16 @@ async function moveToNSFWChannel(serverId, originalChannelId, messageId, msg) {
   try{await channel.createMessage({ content: msg.content, components: components, embeds: embeds }).catch((err) => {debugLog(err);log(`Failed to move message to the NSFW channel for server ID: ${serverId}`)})}catch(err){log(err)}
 }
 
-function progressBar(total,current,size=40,line='□',slider='■'){
+function progressBar(total,current,size=20,line = '🟥', slider = '🟦'){ // line = '▬', slider = '🔘' // size=40, line='□',slider='■'
 	if (current>total) {
-		var bar=slider.repeat(size+2)
+		var bar=slider.repeat(size+2) // line.repeat(size+2) 🟦🟦🟦🟦🌊🔥🟥🟥🟥🟥
 		return [bar]
 	}else{
 		var percentage=current/total
 		var progress=Math.round((size*percentage))
 		var emptyProgress=size-progress
-		var progressText=slider.repeat(progress)
-		var emptyProgressText=line.repeat(emptyProgress)
+		var progressText=slider.repeat(progress-1)+'🌊' // line.repeat(progress).replace(/.$/, slider)
+		var emptyProgressText='🔥'+line.repeat(emptyProgress)
 		var bar=progressText+emptyProgressText
 		return [bar]
 	}
