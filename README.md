@@ -56,9 +56,9 @@ Launch invokeai from its directory using invoke.bat (or invoke.sh on linux), and
 
 To install bot dependancies : `npm install` or `yarn install`
 
-If its a fresh install, rename the queue, payments and users db files to remove `.example` from the filename, eg `dbPayments.json.example` to `dbPayments.json`
+If its a fresh install, rename the `config.example` folder to `config`
 
-Rename `.env.example` to `.env` and enter your own details:
+Enter your own settings in `config\.env`:
 - Copy the Discord channel ID as `channelID`
   - User Settings > ᴀᴘᴘ sᴇᴛᴛɪɴɢs > Advanced > enable Developer Mode [per D](https://support.discord.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID-)⁽ˀ⁾
   - Right click Channel, Copy ID
