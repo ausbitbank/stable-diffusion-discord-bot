@@ -1868,7 +1868,7 @@ function emojiProgressBar(percent,emojis){
   const numEmojis = emojis.length
   const emojiIndex = Math.floor(percent / 100 * numEmojis)
   var emoji = emojis[emojiIndex]
-  if(emoji===undefined){debugLog(percent);emoji=emojis[emojis.length]}
+  if(emoji===undefined){debugLog(percent);emoji=emojis[emojis.length-1]}
   return emoji
 }
 
