@@ -44,8 +44,10 @@ if(config.showFilename==='true'){var showFilename=true}else{var showFilename=fal
 if(config.showPreviews==='true'){var showPreviews=true}else{var showPreviews=false}
 if(config.showRenderSettings==='true'){var showRenderSettings=true}else{var showRenderSettings=false}
 if(config.hivePaymentAddress.length>0 && !creditsDisabled){
-  hive.config.set('alternative_api_endpoints',['https://rpc.ausbit.dev','https://api.hive.blog','https://api.deathwing.me','https://api.c0ff33a.uk','https://hived.emre.sh'])
-  var hiveUsd = 0.4
+  var hiveEndpoints = ['https://rpc.ausbit.dev','https://api.hive.blog','https://api.deathwing.me','https://api.c0ff33a.uk','https://hived.emre.sh','https://hive-api.arcange.eu','https://api.hive.blue','https://techcoderx.com','https://hive-api.3speak.tv','https://rpc.mahdiyari.info']
+  shuffle(hiveEndpoints)
+  hive.config.set('alternative_api_endpoints',hiveEndpoints)
+  var hiveUsd = 0.35
   var lastHiveUsd = hiveUsd
   getPrices()
   cron.schedule('0,15,30,45 * * * *', () => { log('Checking account history every 15 minutes'.grey); checkNewPayments() })
@@ -399,15 +401,20 @@ function queueStatus() {
     if((next.width!==next.height)||(next.width>defaultSize)){statusMsg+=':straight_ruler:'}
     statusMsg+=' :brain: **'+next.username+'**#'+next.discriminator+' :coin:`'+costCalculator(next)+'` :fire:`'+renderGps+'`'
     var renderPercent=((parseInt(progressUpdate['currentStep'])/parseInt(progressUpdate['totalSteps']))*100).toFixed(2)
-    var renderPercentEmoji=':hourglass_flowing_sand:'
-    if(renderPercent>50){renderPercentEmoji=':hourglass:'}
-    statusMsg+='\n'+renderPercentEmoji+' `'+progressUpdate['currentStatus'].replace('common.status','')+'` '
+    //var renderPercentEmoji=':hourglass_flowing_sand:'
+    //if(renderPercent>50){renderPercentEmoji=':hourglass:'}
+    //statusMsg+='\n'+renderPercentEmoji+' `'+progressUpdate['currentStatus'].replace('common.status','')+'` '
+    statusMsg+='\n'+emojiProgressBar(renderPercent)+' `'+progressUpdate['currentStatus'].replace('common.status','')+'` '
     if (progressUpdate['currentStatusHasSteps']===true){
-      statusMsg+='`'+renderPercent+'% Step '+progressUpdate['currentStep']+'/'+progressUpdate['totalSteps']+'`'
+      statusMsg+='`'+renderPercent ? renderPercent : 100+'% Step '+progressUpdate['currentStep']+'/'+progressUpdate['totalSteps']+'`'
       if (progressUpdate['totalIterations']>1){
         statusMsg+=' Iteration `'+progressUpdate['currentIteration']+'/'+progressUpdate['totalIterations']+'`'
       }
-      if(progressUpdate['totalSteps']&&progressUpdate['currentStep']){statusMsg+='\n'+progressBar(progressUpdate['totalSteps'],progressUpdate['currentStep'])[0]}
+      if(progressUpdate['totalSteps']&&progressUpdate['currentStep']){
+        //statusMsg+='\n'+progressBar(progressUpdate['totalSteps'],progressUpdate['currentStep'])[0]
+        statusMsg+=' '+emojiProgressBar(renderPercent)
+        //debugLog(emojiProgressBar(renderPercent))
+      }
     }
     var statusObj={content:statusMsg}
     if(next&&next.channel!=='webhook'){var chan=next.channel}else{var chan=config.channelID}
@@ -1848,6 +1855,22 @@ function progressBar(total,current,size=20,line = '🟥', slider = '🟦'){ // l
 		var bar=progressText+emptyProgressText
 		return [bar]
 	}
+}
+
+function emojiProgressBar(percent,emojis){
+  emojiLibrary=[
+    [':hourglass_flowing_sand:',':hourglass:'],
+    ['🥚','🐣','🐤','🐔','🔥','🍗'],
+    [':clock12:',':clock1230:',':clock1:',':clock130:',':clock2:',':clock230:',':clock3:',':clock330:',':clock4:',':clock430:',':clock5:',':clock530:',':clock6:',':clock630:',':clock7:',':clock730:',':clock8:',':clock830:',':clock9:',':clock930:',':clock10:',':clock1030:',':clock11:',':clock1130:']
+  ]
+  if (emojis===undefined){
+    emojis=emojiLibrary[2]
+  }
+  const numEmojis = emojis.length
+  const emojiIndex = Math.floor(percent / 100 * numEmojis)
+  var emoji = emojis[emojiIndex]
+  if(emoji===undefined){debugLog(percent);emoji=emojis[emojis.length]}
+  return emoji
 }
 
 bot.on("messageReactionAdd", async (msg,emoji,reactor) => {
