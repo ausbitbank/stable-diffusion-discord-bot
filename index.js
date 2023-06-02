@@ -1,11 +1,11 @@
 // Setup, loading libraries and initial config
-const config = require('dotenv').config().parsed
+const fs = require('fs')
+const config = fs.existsSync('./config/.env') ? require('dotenv').config({ path:'./config/.env'}).parsed : require('dotenv').config().parsed //todo CFGMOVE
 if (!config||!config.apiUrl||!config.basePath||!config.channelID||!config.adminID||!config.discordBotKey||!config.pixelLimit||!config.fileWatcher||!config.samplers) { throw('Please re-read the setup instructions at https://github.com/ausbitbank/stable-diffusion-discord-bot , you are missing the required .env configuration file or options') }
 if (config.basePath==="INVOKEAI OUTPUT FOLDER"){ throw('You need to configure the basePath setting in the bots .env file to point to your invokeAI output path')}
 const Eris = require("eris")
 const Constants = Eris.Constants
 const Collection = Eris.Collection
-const fs = require('fs')
 const path = require('path') // still needed?
 const axios = require('axios')
 var parseArgs = require('minimist')
@@ -33,7 +33,7 @@ var payments = []
 dbRead()
 // Setup scheduler, start repeating checks
 var schedule = []
-var dbScheduleFile='./dbSchedule.json' // flat file db for schedule
+var dbScheduleFile='./config/dbSchedule.json' // flat file db for schedule
 dbScheduleRead()
 var cron = require('node-cron')
 // hive payment checks. On startup, every 15 minutes and on a !recharge call
@@ -73,8 +73,8 @@ const maxIterations = parseInt(config.maxIterations)||10
 const defaultMaxDiscordFileSize=parseInt(config.defaultMaxDiscordFileSize)||25000000
 const basePath = config.basePath
 const maxAnimateImages = 100 // Only will fetch most recent X images for animating
-const allGalleryChannels = fs.existsSync('dbGalleryChannels.json') ? JSON.parse(fs.readFileSync('dbGalleryChannels.json', 'utf8')) : {}
-const allNSFWChannels = fs.existsSync('dbNSFWChannels.json') ? JSON.parse(fs.readFileSync('dbNSFWChannels.json', 'utf8')) : {}
+const allGalleryChannels = fs.existsSync('./config/dbGalleryChannels.json') ? JSON.parse(fs.readFileSync('./config/dbGalleryChannels.json', 'utf8')) : {}
+const allNSFWChannels = fs.existsSync('./config/dbNSFWChannels.json') ? JSON.parse(fs.readFileSync('./config/dbNSFWChannels.json', 'utf8')) : {}
 var rembg=config.rembg||'http://127.0.0.1:5000?url='
 var defaultModel=config.defaultModel||'stable-diffusion-1.5'
 var currentModel='notInitializedYet'
@@ -95,14 +95,14 @@ var failedToPost=[]
 // load text files from txt directory, usable as {filename} in prompts, will return a random line from file
 var randoms=[]
 var randomsCache=[]
-try{
-  fs.readdir('txt',(err,files)=>{
+try{ //todo CFGMOVE // Do we move txt file folder as well ?
+  fs.readdir('txt',(err,files)=>{ 
     if(err){log('Unable to read txt file directory'.bgRed);log(err)}
     files.forEach((file)=>{
       if (file.includes('.txt')){
         var name=file.replace('.txt','')
         randoms.push(name)
-        randomsCache.push(fs.readFileSync('txt/'+file,'utf-8').split(/r?\n/))
+        randomsCache.push(fs.readFileSync('txt/'+file,'utf-8').split(/r?\n/)) //todo CFGMOVE
       }
     })
     debugLog('Enabled randomisers: '+randoms.join(','))
@@ -401,12 +401,10 @@ function queueStatus() {
     if((next.width!==next.height)||(next.width>defaultSize)){statusMsg+=':straight_ruler:'}
     statusMsg+=' :brain: **'+next.username+'**#'+next.discriminator+' :coin:`'+costCalculator(next)+'` :fire:`'+renderGps+'`'
     var renderPercent=((parseInt(progressUpdate['currentStep'])/parseInt(progressUpdate['totalSteps']))*100).toFixed(2)
-    //var renderPercentEmoji=':hourglass_flowing_sand:'
-    //if(renderPercent>50){renderPercentEmoji=':hourglass:'}
-    //statusMsg+='\n'+renderPercentEmoji+' `'+progressUpdate['currentStatus'].replace('common.status','')+'` '
+    if(['k_heun','k_dpm_2_a'].includes(next.sampler)){renderPercent = (renderPercent/2).toFixed(2)} // Stop buggy display of double percent for these samplers
     statusMsg+='\n'+emojiProgressBar(renderPercent)+' `'+progressUpdate['currentStatus'].replace('common.status','')+'` '
     if (progressUpdate['currentStatusHasSteps']===true){
-      statusMsg+='`'+renderPercent ? renderPercent : 100+'% Step '+progressUpdate['currentStep']+'/'+progressUpdate['totalSteps']+'`'
+      statusMsg+='`'+renderPercent ? renderPercent+'%' : 100+'% Step '+progressUpdate['currentStep']+'/'+progressUpdate['totalSteps']+'`'
       if (progressUpdate['totalIterations']>1){
         statusMsg+=' Iteration `'+progressUpdate['currentIteration']+'/'+progressUpdate['totalIterations']+'`'
       }
@@ -578,14 +576,14 @@ function freeRecharge(){
 }
 
 function dbWrite() {
-  const files = [{name:'dbQueue.json',data:{queue:queue}},{name:'dbUsers.json',data:{users:users}},{name:'dbPayments.json',data:{payments:payments}}]
+  const files = [{name:'./config/dbQueue.json',data:{queue:queue}},{name:'./config/dbUsers.json',data:{users:users}},{name:'./config/dbPayments.json',data:{payments:payments}}] 
   files.forEach((file) => {
-    const dataExists = fs.existsSync(file.name)
-    const dataIsDifferent = dataExists && JSON.stringify(file.data) !== fs.readFileSync(file.name, 'utf8')
+    const dataExists = fs.existsSync(file.name) //todo CFGMOVE
+    const dataIsDifferent = dataExists && JSON.stringify(file.data) !== fs.readFileSync(file.name, 'utf8') //todo CFGMOVE
     if(dataIsDifferent){
       try{
-        fs.writeFileSync(`${file.name}.tmp.json`, JSON.stringify(file.data))
-        fs.renameSync(`${file.name}.tmp.json`, file.name)
+        fs.writeFileSync(`${file.name}.tmp.json`, JSON.stringify(file.data)) //todo CFGMOVE
+        fs.renameSync(`${file.name}.tmp.json`, file.name) //todo CFGMOVE
       }catch(err){log('Failed to write db files'.bgRed);log(err)}
     }
   })
@@ -593,9 +591,9 @@ function dbWrite() {
 
 function dbRead() {
   try{
-    queue=JSON.parse(fs.readFileSync('dbQueue.json')).queue
-    users=JSON.parse(fs.readFileSync('dbUsers.json')).users
-    payments=JSON.parse(fs.readFileSync('dbPayments.json')).payments
+    queue=JSON.parse(fs.readFileSync('./config/dbQueue.json')).queue //todo CFGMOVE
+    users=JSON.parse(fs.readFileSync('./config/dbUsers.json')).users //todo CFGMOVE
+    payments=JSON.parse(fs.readFileSync('./config/dbPayments.json')).payments //todo CFGMOVE
   } catch (err){log('Failed to read db files'.bgRed);log(err)}
 }
 function dbScheduleRead(){
@@ -1811,9 +1809,10 @@ async function directMessageUser(id,msg,channel){ // try, fallback to channel
   })
 }
 
-async function sendToGalleryChannel(serverId, originalChannelId, messageId, msg) {
+async function sendToGalleryChannel(serverId, originalChannelId, messageId, msg) { // Make a copy without buttons for the gallery
   const galleryChannel = allGalleryChannels[serverId]
   if (!galleryChannel) {log(`No gallery channel found for server ID: ${serverId}`);return}
+  if (originalChannelId===galleryChannel) return
   const channel = await bot.getChannel(galleryChannel)
   var alreadyInGallery=false
   //if(channel.messages.length<50){debugLog('fetching gallery message history');await channel.getMessages({limit: 100})} // if theres less then 50 in the channel message cache, fetch 100
@@ -1830,15 +1829,14 @@ async function sendToGalleryChannel(serverId, originalChannelId, messageId, msg)
 }
 
 async function moveToNSFWChannel(serverId, originalChannelId, messageId, msg) {
-  // similar to above, but transplant as-is and remove original
+  // similar to above, but transplant as-is with buttons and remove original
   const nsfwChannel = allNSFWChannels[serverId]
-  debugLog(nsfwChannel)
+  if(originalChannelId===nsfwChannel) return
   if (!nsfwChannel) {log(`No nsfw channel found for server ID: ${serverId}`);return}
   const channel = await bot.getChannel(nsfwChannel)
   embeds = msg.embeds
   content = msg.content
   components = msg.components
-  debugLog(msg)
   try{await channel.createMessage({ content: msg.content, components: components, embeds: embeds }).catch((err) => {debugLog(err);log(`Failed to move message to the NSFW channel for server ID: ${serverId}`)})}catch(err){log(err)}
 }
 
@@ -1858,13 +1856,14 @@ function progressBar(total,current,size=20,line = '🟥', slider = '🟦'){ // l
 }
 
 function emojiProgressBar(percent,emojis){
+  if(percent===undefined||percent>100||percent===NaN) return ''
   emojiLibrary=[
     [':hourglass_flowing_sand:',':hourglass:'],
-    ['🥚','🐣','🐤','🐔','🔥','🍗'],
-    [':clock12:',':clock1230:',':clock1:',':clock130:',':clock2:',':clock230:',':clock3:',':clock330:',':clock4:',':clock430:',':clock5:',':clock530:',':clock6:',':clock630:',':clock7:',':clock730:',':clock8:',':clock830:',':clock9:',':clock930:',':clock10:',':clock1030:',':clock11:',':clock1130:']
+    ['🥚','🐣','🐤','🐔','🔥','🍗',':yum:'],
+    [':clock12:',':clock1:',':clock2:',':clock3:',':clock4:',':clock5:',':clock6:',':clock7:',':clock8:',':clock9:',':clock10:',':clock11:']
   ]
   if (emojis===undefined){
-    emojis=emojiLibrary[2]
+    emojis=emojiLibrary[1]
   }
   const numEmojis = emojis.length
   const emojiIndex = Math.floor(percent / 100 * numEmojis)
@@ -2371,7 +2370,6 @@ socket.on("systemConfig", (data) => {debugLog('systemConfig received');currentMo
 socket.on("modelChanged", (data) => {currentModel=data.model_name;models=data.model_list;debugLog('modelChanged to '+currentModel)})
 var progressUpdate = {currentStep: 0,totalSteps: 0,currentIteration: 0,totalIterations: 0,currentStatus: 'Initializing',isProcessing: false,currentStatusHasSteps: true,hasError: false}
 socket.on("progressUpdate", (data) => {
-  //debugLog('progressUpdate')
   progressUpdate=data
   if(['common.statusProcessing Complete'].includes(data['currentStatus'])){//'common:statusGeneration Complete'
     intermediateImage=null//;queueStatusLock=false
