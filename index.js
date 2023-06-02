@@ -1863,7 +1863,7 @@ function emojiProgressBar(percent,emojis){
     [':clock12:',':clock1:',':clock2:',':clock3:',':clock4:',':clock5:',':clock6:',':clock7:',':clock8:',':clock9:',':clock10:',':clock11:']
   ]
   if (emojis===undefined){
-    emojis=emojiLibrary[1]
+    emojis=config.emojiProgress ? config.emojiProgress.split(',') : emojiLibrary[1]
   }
   const numEmojis = emojis.length
   const emojiIndex = Math.floor(percent / 100 * numEmojis)
