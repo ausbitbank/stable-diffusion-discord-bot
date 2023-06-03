@@ -1183,7 +1183,7 @@ async function meme(prompt,urls,userid,channel){
             const diff = Diff.diffWords(promptseed[i - 1], promptseed[i]) // Find differences between previous prompt and this one, Chunks into unchanged/added/removed
             var updateprompt = ""
             diff.forEach((part) => { // Bring all chunks back together with styling based on type
-              var pv = part.value.replaceAll('&','').replaceAll('<',' ').replaceAll('>',' ').replaceAll('[','').replaceAll(']','') // Remove textual inversion brackets before adding markup
+              var pv = part.value.replaceAll('&','').replaceAll('<','‹').replaceAll('>','›').replaceAll('[','\[').replaceAll(']','\]') // Remove textual inversion brackets before adding markup
               // todo still failing on prompts with [<neg-sketch-3>] due to invalid markup
               if (part.added) {updateprompt += "<span foreground='green'><b><big>" + pv + "</big></b></span>"}
               else if (part.removed) {updateprompt += "<span foreground='red'><s>" + pv + "</s></span>"}
@@ -1194,7 +1194,6 @@ async function meme(prompt,urls,userid,channel){
         }
         // TODO: Better finisher ideas? Repeating last prompt in blue to signify the end
         styledprompts.push("<span foreground='blue'>" + promptseed[promptseed.length-1] + "</span>")
-        debugLog(styledprompts)
         urlseed.push(urlseed[urlseed.length - 1])
       	let frameList = []
       	for (var i = 0;i < urlseed.length;i++)
