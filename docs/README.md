@@ -96,6 +96,10 @@ Model/Checkpoint switching
 
 ![](https://media.discordapp.net/attachments/1112198336368361495/1114467824375697468/image.png)
 
+Support for unlimited LORA's and textual inversions with paging menu
+
+![](https://media.discordapp.net/attachments/1112198336368361495/1114476921833668620/image.png)
+
 Expanding image transparency for outpainting
 
 ![](https://media.discordapp.net/attachments/968822563662860338/1044071184720986243/image.png)
@@ -115,7 +119,6 @@ Automagic background removal
 ![](https://media.discordapp.net/attachments/1112198336368361495/1114468571309932624/image.png)
 
 ![](https://media.discordapp.net/attachments/1112198336368361495/1114468635776397332/image.png)
-
 
 Slash commands with available parameters
 
