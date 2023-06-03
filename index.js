@@ -1525,9 +1525,9 @@ bot.on("interactionCreate", async (interaction) => {
             components:[
               {type:1,components:[
                 {type: 2, style: 1, label: "Aspect Ratio", custom_id: "chooseAspect-"+id+'-'+rn, emoji: { name: '📐', id: null}, disabled: false },
-                {type: 2, style: 1, label: "Model", custom_id: "chooseModel-"+id+'-'+rn, emoji: { name: '💾', id: null}, disabled: false },
-                {type: 2, style: 1, label: "Textual Inversions", custom_id: "chooseTi-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false },
-                {type: 2, style: 1, label: "Loras", custom_id: "chooseLora-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false },
+                {type: 2, style: 1, label: "Models "+Object.keys(models).length, custom_id: "chooseModel-"+id+'-'+rn, emoji: { name: '💾', id: null}, disabled: false },
+                {type: 2, style: 1, label: "Textual Inversions "+ti.length, custom_id: "chooseTi-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false },
+                {type: 2, style: 1, label: "Loras "+lora.length, custom_id: "chooseLora-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false },
                 //{type: 2, style: 1, label: "Embeds", custom_id: "chooseEmbeds-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false } // todo Only push if lora+ti count is below 100, remove textual inversion and lora buttons in this case
               ]},
               {type:1,components:[
@@ -1884,7 +1884,8 @@ function emojiProgressBar(percent,emojis){
   emojiLibrary=[
     [':hourglass_flowing_sand:',':hourglass:'],
     ['🥚','🐣','🐤','🐔','🔥','🍗',':yum:'],
-    [':clock12:',':clock1:',':clock2:',':clock3:',':clock4:',':clock5:',':clock6:',':clock7:',':clock8:',':clock9:',':clock10:',':clock11:']
+    [':clock12:',':clock1:',':clock2:',':clock3:',':clock4:',':clock5:',':clock6:',':clock7:',':clock8:',':clock9:',':clock10:',':clock11:'],
+    [':baby:',':girl:',':woman:',':mirror_ball:',':heart_eyes:',':man_beard:',':kiss_woman_man:',':couple:',':ring:',':wedding:',':kiss_woman_man:',':bouquet:',':dove:',':red_car:',':airplane_departure:',':airplane:',':airplane_arriving:',':hotel:',':bed:',':smirk:',':eggplant:',':astonished:',':cherry_blossom:',':heart_on_fire:',':hushed:',':stuck_out_tongue:',':sweat_drops:',':sweat_smile:',':stuck_out_tongue_closed_eyes:',':stuck_out_tongue_winking_eye:',':sleeping:',':sleeping_accommodation:',':thermometer_face:',':nauseated_face:',':face_vomiting:',':pregnant_woman:',':pregnant_person:',':pregnant_man:',':ambulance:',':hospital:',':cold_sweat:',':face_exhaling:',':face_with_symbols_over_mouth:',':relieved:',':family_mwg:']
   ]
   if (emojis===undefined){
     emojis=config.emojiProgress ? config.emojiProgress.split(',') : emojiLibrary[1]
