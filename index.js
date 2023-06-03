@@ -136,7 +136,7 @@ var slashCommands = [
       {type: 10, name: 'threshold', description: 'Advanced threshold control (0-10)', required: false, min_value:0, max_value:40},
       {type: 10, name: 'perlin', description: 'Add perlin noise to your image (0-1)', required: false, min_value:0, max_value:1},
       {type: 5, name: 'hires_fix', description: 'High resolution fix (re-renders twice using template)', required: false},
-      {type: 3, name: 'model', description: 'Change the model/checkpoint - see !models for more info', required: false,   min_length: 3, max_length:40}
+      {type: 3, name: 'model', description: 'Change the model/checkpoint - see /models for more info', required: false,   min_length: 3, max_length:40}
     ],
     cooldown: 500,
     execute: (i) => {
@@ -229,7 +229,7 @@ var slashCommands = [
     description: 'Remove background from an image',
     options: [
       {type:11,name:'attachment',description:'Image to remove background from',required:true},
-      {type: 3, name: 'model', description: 'Which masking model to use',required: false,value: 'u2net',choices: [{name:'u2net',value:'u2net'},{name:'u2netp',value:'u2netp'},{name:'u2net_human_seg',value:'u2net_human_seg'},{name:'u2net_cloth_seg',value:'u2net_cloth_seg'},{name:'silueta',value:'silueta'},{name:'isnet-general-use',value:'isnet-general-use'},{name:'isnet-anime',value:'isnet-anime'}]},
+      {type: 3, name: 'model', description: 'Which masking model to use',required: false,value: 'u2net',choices: [{name:'u2net',value:'u2net'},{name:'u2netp',value:'u2netp'},{name:'u2net_human_seg',value:'u2net_human_seg'},{name:'u2net_cloth_seg',value:'u2net_cloth_seg'},{name:'silueta',value:'silueta'},{name:'isnet-general-use',value:'isnet-general-use'}]},
       {type: 5, name: 'a', description: 'Alpha matting true/false', required: false,default:false},
       {type: 4, name: 'ab', description: 'Background threshold 0-255 default 10', required: false,min_length:1,max_length:3,value:10},
       {type: 4, name: 'af', description: 'Foreground threshold 0-255 default 240', required: false,value:240},
@@ -683,7 +683,7 @@ function rechargePrompt(userid,channel){
       {footer:{text:freeRechargeMsg}}
     ],
     components: [
-      {type: Constants.ComponentTypes.ACTION_ROW, components:[
+      {type: 1, components:[
         {type: 2, style: 5, label: hive1usd+" HIVE", url:paymentLinkHive, emoji: { name: 'hive', id: '1110123056501887007'}, disabled: false },
         {type: 2, style: 5, label: "1 HBD", url:paymentLinkHbd, emoji: { name: 'hbd', id: '1110282940686016643'}, disabled: false },
         {type: 2, style: 5, label: "$1 of BTC", url:lightningInvoiceQr, emoji: { name: '⚡', id: null}, disabled: false }
@@ -908,12 +908,12 @@ async function postRender(render){
         chargeCredits(job.userid,(costCalculator(job))/job.number) // only charge successful renders, if enabled
         msg+=':coin:`'+(job.cost/job.number).toFixed(2).replace(/[.,]00$/, "")+'/'+ creditsRemaining(job.userid) +'`'
       }
-      var newMessage = { content: msg, embeds: [{description: job.prompt, color: getRandomColorDec()}], components: [ { type: Constants.ComponentTypes.ACTION_ROW, components: [ ] } ] }
+      var newMessage = { content: msg, embeds: [{description: job.prompt, color: getRandomColorDec()}], components: [ { type: 1, components: [ ] } ] }
       if(job.prompt.replaceAll(' ','').length===0){newMessage.embeds=[]}
-      newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "ReDream", custom_id: "refresh-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })
-      newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Edit Prompt", custom_id: "edit-"+job.id, emoji: { name: '✏️', id: null}, disabled: false })
-      newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Tweak", custom_id: "tweak-"+job.id+'-'+render.resultNumber, emoji: { name: '🧪', id: null}, disabled: false })
-      if(newMessage.components[0].components.length<5){newMessage.components[0].components.push({ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Random", custom_id: "editRandom-"+job.id, emoji: { name: '🔀', id: null}, disabled: false })}
+      newMessage.components[0].components.push({ type: 2, style: 2, label: "ReDream", custom_id: "refresh-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })
+      newMessage.components[0].components.push({ type: 2, style: 2, label: "Edit Prompt", custom_id: "edit-"+job.id, emoji: { name: '✏️', id: null}, disabled: false })
+      newMessage.components[0].components.push({ type: 2, style: 2, label: "Tweak", custom_id: "tweak-"+job.id+'-'+render.resultNumber, emoji: { name: '🧪', id: null}, disabled: false })
+      if(newMessage.components[0].components.length<5){newMessage.components[0].components.push({ type: 2, style: 2, label: "Random", custom_id: "editRandom-"+job.id, emoji: { name: '🔀', id: null}, disabled: false })}
       if(newMessage.components[0].components.length===0){delete newMessage.components} // If no components are used there will be a discord api error so remove it
       var filesize=fs.statSync(render.filename).size
       if(filesize<defaultMaxDiscordFileSize){ // Within discord 25mb filesize limit
@@ -1064,13 +1064,14 @@ async function removeBackground(url,channel,user,model='u2net',a=false,ab=10,af=
 // ppm = post process mask (clean edges)      bool default false
 // bgc = background color to insert           str 0,0,0,1 default none , 4 ints 0-255 for RGB + alpha
   var fullUrl=rembg+encodeURIComponent(url)+'&model='+model+'&a='+a+'&ab='+ab+'&ae='+ae+'&af='+af+'&bgc='+bgc+'&ppm='+ppm+'&om='+om
-  debugLog(fullUrl)
-  var buffer = await axios.get(rembg+encodeURIComponent(fullUrl),{responseType: 'arraybuffer'})
-  buffer = Buffer.from(buffer.data)
-  var newMsg='<@'+user+'> removed background'
-  if(!creditsDisabled){newMsg+=' , it cost `0.05`:coin:';chargeCredits(user,0.05)}
-  newMsg+='\n**model:**`'+model+'`, **alpha matting:**`'+a+'`, **background threshold:**`'+ab+'`, **alpha erode size:**`'+ae+'` **foreground threshold:**`'+af+'`, **background color:**`'+bgc+'`, **post process:**`'+ppm+'`, **only mask:** `'+om+'`'
-  bot.createMessage(channel, newMsg, {file: buffer, name: user+'-bg.png'})
+  debugLog('Removing background from image using rembg: '+fullUrl)
+  await axios.get(rembg+encodeURIComponent(fullUrl),{responseType: 'arraybuffer'}).then((buffer)=>{
+    buffer = buffer.data ? Buffer.from(buffer.data) : undefined
+    var newMsg='<@'+user+'> removed background'
+    if(!creditsDisabled){newMsg+=' , it cost `0.05`:coin:';chargeCredits(user,0.05)}
+    newMsg+='\n**model:**`'+model+'`, **alpha matting:**`'+a+'`, **background threshold:**`'+ab+'`, **alpha erode size:**`'+ae+'` **foreground threshold:**`'+af+'`, **background color:**`'+bgc+'`, **post process:**`'+ppm+'`, **only mask:** `'+om+'`'
+    try{bot.createMessage(channel, newMsg, {file: buffer, name: user+'-bg.png'})}catch(err){log(err)}
+  }).catch((err)=>{log(err)})
 }
 
 async function rotate(imageurl,degrees=90,channel,user){
@@ -1098,7 +1099,7 @@ async function help(channel){
     }
   ],
   components: [
-    {type: Constants.ComponentTypes.ACTION_ROW, components:[
+    {type: 1, components:[
       {type: 2, style: 5, label: "Intro Post", url:'https://peakd.com/@ausbitbank/our-new-stable-diffusion-discord-bot', emoji: { name: 'hive', id: '1110123056501887007'}, disabled: false },
       {type: 2, style: 5, label: "Github", url:'https://github.com/ausbitbank/stable-diffusion-discord-bot', emoji: { name: 'Github', id: '1110915942856282112'}, disabled: false },
       {type: 2, style: 5, label: "Commands", url:'https://github.com/ausbitbank/stable-diffusion-discord-bot/blob/main/commands.md', emoji: { name: 'Book_Accessibility', id: '1110916595863269447'}, disabled: false },
@@ -1522,39 +1523,40 @@ bot.on("interactionCreate", async (interaction) => {
             content:':test_tube: **Tweak Menu**',
             flags:64,
             components:[
-              {type:Constants.ComponentTypes.ACTION_ROW,components:[
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Aspect Ratio", custom_id: "chooseAspect-"+id+'-'+rn, emoji: { name: '📐', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Model", custom_id: "chooseModel-"+id+'-'+rn, emoji: { name: '💾', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Textual Inversions", custom_id: "chooseTi-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Loras", custom_id: "chooseLora-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false }
+              {type:1,components:[
+                {type: 2, style: 1, label: "Aspect Ratio", custom_id: "chooseAspect-"+id+'-'+rn, emoji: { name: '📐', id: null}, disabled: false },
+                {type: 2, style: 1, label: "Model", custom_id: "chooseModel-"+id+'-'+rn, emoji: { name: '💾', id: null}, disabled: false },
+                {type: 2, style: 1, label: "Textual Inversions", custom_id: "chooseTi-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false },
+                {type: 2, style: 1, label: "Loras", custom_id: "chooseLora-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false },
+                //{type: 2, style: 1, label: "Embeds", custom_id: "chooseEmbeds-"+id+'-'+rn, emoji: { name: '💊', id: null}, disabled: false } // todo Only push if lora+ti count is below 100, remove textual inversion and lora buttons in this case
               ]},
-              {type:Constants.ComponentTypes.ACTION_ROW,components:[
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Resolution", custom_id: "editResolution-"+id+'-'+rn, emoji: { name: '📏', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Scale", custom_id: "editScale-"+id+'-'+rn, emoji: { name: '⚖️', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Steps", custom_id: "editSteps-"+id+'-'+rn, emoji: { name: '♻️', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Strength", custom_id: "editStrength-"+id+'-'+rn, emoji: { name: '💪', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Sampler", custom_id: "chooseSampler-"+id+'-'+rn, emoji: { name: '👁️', id: null}, disabled: false }
+              {type:1,components:[
+                {type: 2, style: 2, label: "Resolution", custom_id: "editResolution-"+id+'-'+rn, emoji: { name: '📏', id: null}, disabled: false },
+                {type: 2, style: 2, label: "Scale", custom_id: "editScale-"+id+'-'+rn, emoji: { name: '⚖️', id: null}, disabled: false },
+                {type: 2, style: 2, label: "Steps", custom_id: "editSteps-"+id+'-'+rn, emoji: { name: '♻️', id: null}, disabled: false },
+                {type: 2, style: 2, label: "Strength", custom_id: "editStrength-"+id+'-'+rn, emoji: { name: '💪', id: null}, disabled: false },
+                {type: 2, style: 2, label: "Sampler", custom_id: "chooseSampler-"+id+'-'+rn, emoji: { name: '👁️', id: null}, disabled: false }
               ]},
-              {type:Constants.ComponentTypes.ACTION_ROW,components:[
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Upscale 2x", custom_id: "twkupscale2-"+id+'-'+rn, emoji: { name: '🔍', id: null}, disabled: newJob.upscale_level===0||false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Upscale 4x", custom_id: "twkupscale4-"+id+'-'+rn, emoji: { name: '🔎', id: null}, disabled: newJob.upscale_level===0||false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Face Fix GfpGAN", custom_id: "twkgfpgan-"+id+'-'+rn, emoji: { name: '💄', id: null}, disabled: newJob.gfpgan_strength!==0||false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "Face Fix CodeFormer", custom_id: "twkcodeformer-"+id+'-'+rn, emoji: { name: '💄', id: null}, disabled: newJob.codeformer_strength!==0||false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.DANGER, label: "High Resolution Fix", custom_id: "twkhiresfix-"+id+'-'+rn, emoji: { name: '🔭', id: null}, disabled: newJob.hires_fix||false }
+              {type:1,components:[
+                {type: 2, style: 4, label: "Upscale 2x", custom_id: "twkupscale2-"+id+'-'+rn, emoji: { name: '🔍', id: null}, disabled: newJob.upscale_level===0||false },
+                {type: 2, style: 4, label: "Upscale 4x", custom_id: "twkupscale4-"+id+'-'+rn, emoji: { name: '🔎', id: null}, disabled: newJob.upscale_level===0||false },
+                {type: 2, style: 4, label: "Face Fix GfpGAN", custom_id: "twkgfpgan-"+id+'-'+rn, emoji: { name: '💄', id: null}, disabled: newJob.gfpgan_strength!==0||false },
+                {type: 2, style: 4, label: "Face Fix CodeFormer", custom_id: "twkcodeformer-"+id+'-'+rn, emoji: { name: '💄', id: null}, disabled: newJob.codeformer_strength!==0||false },
+                {type: 2, style: 4, label: "High Resolution Fix", custom_id: "twkhiresfix-"+id+'-'+rn, emoji: { name: '🔭', id: null}, disabled: newJob.hires_fix||false }
               ]},
-              {type:Constants.ComponentTypes.ACTION_ROW,components:[
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "1% variant", custom_id: "twkvariant1-"+id+'-'+rn, emoji: { name: '🧬', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "5% variant", custom_id: "twkvariant5-"+id+'-'+rn, emoji: { name: '🧬', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "10% variant", custom_id: "twkvariant10-"+id+'-'+rn, emoji: { name: '🧬', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "25% variant", custom_id: "twkvariant25-"+id+'-'+rn, emoji: { name: '🧬', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "50% variant", custom_id: "twkvariant50-"+id+'-'+rn, emoji: { name: '🧬', id: null}, disabled: false }
+              {type:1,components:[
+                {type: 2, style: 2, label: "1% variant", custom_id: "twkvariant1-"+id+'-'+rn, emoji: { name: '🧬', id: null}, disabled: false },
+                {type: 2, style: 2, label: "5% variant", custom_id: "twkvariant5-"+id+'-'+rn, emoji: { name: '🧬', id: null}, disabled: false },
+                {type: 2, style: 2, label: "10% variant", custom_id: "twkvariant10-"+id+'-'+rn, emoji: { name: '🧬', id: null}, disabled: false },
+                {type: 2, style: 2, label: "25% variant", custom_id: "twkvariant25-"+id+'-'+rn, emoji: { name: '🧬', id: null}, disabled: false },
+                {type: 2, style: 2, label: "50% variant", custom_id: "twkvariant50-"+id+'-'+rn, emoji: { name: '🧬', id: null}, disabled: false }
               ]},
-              {type:Constants.ComponentTypes.ACTION_ROW,components:[
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Default settings", custom_id: "twkdefault-"+id+'-'+rn, emoji: { name: '☢️', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Fast settings", custom_id: "twkfast-"+id+'-'+rn, emoji: { name: '⏩', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Slow settings", custom_id: "twkslow-"+id+'-'+rn, emoji: { name: '⏳', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Batch of 5", custom_id: "twkbatch5-"+id+'-'+rn, emoji: { name: '🖐️', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "More Options", custom_id: "tweakmore-"+id+'-'+rn+'-'+interaction.message.id, emoji: { name: '🚪', id: null}, disabled: false }
+              {type:1,components:[
+                {type: 2, style: 2, label: "Default settings", custom_id: "twkdefault-"+id+'-'+rn, emoji: { name: '☢️', id: null}, disabled: false },
+                {type: 2, style: 2, label: "Fast settings", custom_id: "twkfast-"+id+'-'+rn, emoji: { name: '⏩', id: null}, disabled: false },
+                {type: 2, style: 2, label: "Slow settings", custom_id: "twkslow-"+id+'-'+rn, emoji: { name: '⏳', id: null}, disabled: false },
+                {type: 2, style: 2, label: "Batch of 5", custom_id: "twkbatch5-"+id+'-'+rn, emoji: { name: '🖐️', id: null}, disabled: false },
+                {type: 2, style: 1, label: "More Options", custom_id: "tweakmore-"+id+'-'+rn+'-'+interaction.message.id, emoji: { name: '🚪', id: null}, disabled: false }
               ]}
             ]
           }
@@ -1567,12 +1569,12 @@ bot.on("interactionCreate", async (interaction) => {
             content:':door: **More Options**',
             flags:64,
             components:[
-              {type:Constants.ComponentTypes.ACTION_ROW,components:[
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Remove Background", custom_id: "twkbackground-"+id+'-'+rn+'-'+msgid, emoji: { name: '🪄', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Text Overlay", custom_id: "editText-"+id+'-'+rn+'-'+msgid, emoji: { name: '💬', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Rotate", custom_id: "editRotate-"+id+'-'+rn+'-'+msgid, emoji: { name: '🔄', id: null}, disabled: false },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Expand Canvas", custom_id: "expand-"+id+'-'+rn, emoji: { name: '🪄', id: null}, disabled: true },
-                {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Inpainting", custom_id: "inpaint-"+id+'-'+rn, emoji: { name: '🖌️', id: null}, disabled: true },
+              {type:1,components:[
+                {type: 2, style: 1, label: "Remove Background", custom_id: "twkbackground-"+id+'-'+rn+'-'+msgid, emoji: { name: '🪄', id: null}, disabled: false },
+                {type: 2, style: 1, label: "Text Overlay", custom_id: "editText-"+id+'-'+rn+'-'+msgid, emoji: { name: '💬', id: null}, disabled: false },
+                {type: 2, style: 1, label: "Rotate", custom_id: "editRotate-"+id+'-'+rn+'-'+msgid, emoji: { name: '🔄', id: null}, disabled: false },
+                {type: 2, style: 1, label: "Expand Canvas", custom_id: "expand-"+id+'-'+rn, emoji: { name: '🪄', id: null}, disabled: true },
+                {type: 2, style: 1, label: "Inpainting", custom_id: "inpaint-"+id+'-'+rn, emoji: { name: '🖌️', id: null}, disabled: true },
               ]}
             ]
           }
@@ -1645,11 +1647,17 @@ bot.on("interactionCreate", async (interaction) => {
       if(newJob&&models){
         var changeModelResponse={content:':floppy_disk: **Model Menu**\nUse this menu to change the model/checkpoint being used, to give your image a specific style',flags:64,components:[]}
         var allModelKeys=Object.keys(models)
-        var maxModelAmount=25 // maximum of 25 options in a discord dropdown menu
-        for(let i=0;i<allModelKeys.length;i+=maxModelAmount) {
-          var modelBatch=allModelKeys.slice(i,i+maxModelAmount)
-          changeModelResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'changeModel'+i+'-'+id+'-'+rn,placeholder:'Choose a model/checkpoint',min_values:1,max_values:1,options:[]}]})
-          modelBatch.forEach((m)=>{changeModelResponse.components[changeModelResponse.components.length-1].components[0].options.push({label: m,value: m,description: models[m].description.substring(0,99)})})
+        var page = interaction.data.custom_id.split('-').length===4 ? parseInt(interaction.data.custom_id.split('-')[3]) : 0 // get page number from id
+        var batch = page===0 ? allModelKeys.slice(0,99) : allModelKeys.slice(page+99,page+199) // split loras into batches of 100 and pick our page of data
+        for(let i=0;i<batch.length;i+=25) {
+          changeModelResponse.components.push({type:1,components:[{type: 3,custom_id:'changeModel'+i+'-'+id+'-'+rn,placeholder:'Choose a model/checkpoint',min_values:1,max_values:1,options:[]}]})
+          batch.slice(i,i+25).forEach((m)=>{changeModelResponse.components[changeModelResponse.components.length-1].components[0].options.push({label: m,value: m,description: models[m].description.substring(0,99)})})
+        }
+        if(allModelKeys.length>100){ // only show pages if needed
+          changeEmbedResponse.components.push({type:1,components:[
+            {type: 2, style: 1, label: 'Back', custom_id: 'chooseModel-'+id+'-'+rn+'-'+(page-1),value:page-1,emoji:{name:'⬅️',id:null},disabled:page===0},
+            {type: 2, style: 1, label: 'More', custom_id: 'chooseModel-'+id+'-'+rn+'-'+(page+1),value:page+1,emoji:{name:'➡️',id:null},disabled:(page*200)>(allModelKeys.length)}
+          ]})
         }
         return interaction.editParent(changeModelResponse).then((r)=>{}).catch((e)=>{console.error(e)})
       }
@@ -1682,7 +1690,7 @@ bot.on("interactionCreate", async (interaction) => {
       }
     } else if (interaction.data.custom_id.startsWith('chooseSampler')) {
       if(newJob&&models){
-        var changeSamplerResponse={content:':eye: **Sampler Menu**\nUse this menu to change the sampler being used',flags:64,components:[{type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'changeSampler-'+id+'-'+rn,placeholder:'Choose a sampler',min_values:1,max_values:1,options:[]}]}]}
+        var changeSamplerResponse={content:':eye: **Sampler Menu**\nUse this menu to change the sampler being used',flags:64,components:[{type:1,components:[{type: 3,custom_id:'changeSampler-'+id+'-'+rn,placeholder:'Choose a sampler',min_values:1,max_values:1,options:[]}]}]}
         samplers.forEach((s)=>{changeSamplerResponse.components[0].components[0].options.push({label: s,value: s})})
         return interaction.editParent(changeSamplerResponse).then((r)=>{}).catch((e)=>{console.error(e)})
       }
@@ -1697,35 +1705,51 @@ bot.on("interactionCreate", async (interaction) => {
         }
         return interaction.editParent({content:':eye: ** Sampler '+interaction.data.values[0]+'** selected',components:[]}).catch((e) => {console.error(e)})
       }
-    } else if (interaction.data.custom_id.startsWith('chooseEmbeds')) {
+    } else if (interaction.data.custom_id.startsWith('chooseEmbeds')) { // Not currently used, combines TI's and LORA's in one menu // todo use this if ti+lora count is below 100
       if(newJob&&lora&&ti){
         var changeEmbedResponse={content:':eye: **Embeds Menu**\n:pill: Embeddings are a way to supplement the current model with extra styles, characters or abilities.',flags:64,components:[]}
         debugLog('Loras: '+lora.length+'\nTextual Inversions: '+ti.length)
         for(let i=0;i<lora.length;i+=25){
-          changeEmbedResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'addLora'+i+'-'+id+'-'+rn,placeholder:'Add a LORA',min_values:1,max_values:1,options:[]}]})
+          changeEmbedResponse.components.push({type:1,components:[{type: 3,custom_id:'addLora'+i+'-'+id+'-'+rn,placeholder:'Add a LORA',min_values:1,max_values:1,options:[]}]})
           lora.slice(i,i+25).forEach((l)=>{changeEmbedResponse.components[changeEmbedResponse.components.length-1].components[0].options.push({label: l,value: l,description: l})})
         }
         for(let i=0;i<ti.length;i+=25){
-          changeEmbedResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'addTi'+i+'-'+id+'-'+rn,placeholder:'Add a Textual Inversion',min_values:1,max_values:1,options:[]}]})
+          changeEmbedResponse.components.push({type:1,components:[{type: 3,custom_id:'addTi'+i+'-'+id+'-'+rn,placeholder:'Add a Textual Inversion',min_values:1,max_values:1,options:[]}]})
           ti.slice(i,i+25).forEach((i)=>{changeEmbedResponse.components[changeEmbedResponse.components.length-1].components[0].options.push({label: i,value: i,description: i})})
         }
         return interaction.editParent(changeEmbedResponse).then((r)=>{}).catch((e)=>{console.error(e)})
       }
     } else if (interaction.data.custom_id.startsWith('chooseTi')) {
-      if(newJob&&lora&&ti){
+      if(newJob&&ti){
         var changeEmbedResponse={content:':eye: **Textual Inversions Menu**\n:pill: Textual Inversions are a way to supplement the current model with extra styles, characters or abilities.',flags:64,components:[]}
-        for(let i=0;i<ti.length;i+=25){
-          changeEmbedResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'addTi'+i+'-'+id+'-'+rn,placeholder:'Add a Textual Inversion',min_values:1,max_values:1,options:[]}]})
-          ti.slice(i,i+25).forEach((i)=>{changeEmbedResponse.components[changeEmbedResponse.components.length-1].components[0].options.push({label: i,value: i,description: i})})
+        var page = interaction.data.custom_id.split('-').length===4 ? parseInt(interaction.data.custom_id.split('-')[3]) : 0 // get page number from id
+        var batch = page===0 ? ti.slice(0,99) : ti.slice(page+99,page+199) // split tis into batches of 100 and pick our page of data
+        for(let i=0;i<batch.length;i+=25){
+          changeEmbedResponse.components.push({type:1,components:[{type: 3,custom_id:'addTi'+i+'-'+id+'-'+rn+'-row'+i,placeholder:'Add a Textual Inversion',min_values:1,max_values:1,options:[]}]})
+          batch.slice(i,i+25).forEach((i)=>{changeEmbedResponse.components[changeEmbedResponse.components.length-1].components[0].options.push({label: i,value: i,description: i})})
+        }
+        if(ti.length>100){ // only show pages if needed
+          changeEmbedResponse.components.push({type:1,components:[
+            {type: 2, style: 1, label: 'Back', custom_id: 'chooseTi-'+id+'-'+rn+'-'+(page-1),value:page-1,emoji:{name:'⬅️',id:null},disabled:page===0},
+            {type: 2, style: 1, label: 'More', custom_id: 'chooseTi-'+id+'-'+rn+'-'+(page+1),value:page+1,emoji:{name:'➡️',id:null},disabled:(page*200)>(ti.length)}
+          ]})
         }
         return interaction.editParent(changeEmbedResponse).then((r)=>{}).catch((e)=>{console.error(e)})
       }
     } else if (interaction.data.custom_id.startsWith('chooseLora')) {
-      if(newJob&&lora&&ti){
+      if(newJob&&lora){
         var changeEmbedResponse={content:':eye: **Lora Menu**\n:pill: Loras are a way to supplement the current model with extra styles, characters or abilities.',flags:64,components:[]}
-        for(let i=0;i<lora.length;i+=25){
-          changeEmbedResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'addLora'+i+'-'+id+'-'+rn,placeholder:'Add a LORA',min_values:1,max_values:1,options:[]}]})
-          lora.slice(i,i+25).forEach((l)=>{changeEmbedResponse.components[changeEmbedResponse.components.length-1].components[0].options.push({label: l,value: l,description: l})})
+        var page = interaction.data.custom_id.split('-').length===4 ? parseInt(interaction.data.custom_id.split('-')[3]) : 0 // get page number from id
+        var batch = page===0 ? lora.slice(0,99) : lora.slice(page+99,page+199) // split loras into batches of 100 and pick our page of data
+        for(let i=0;i<batch.length;i+=25){
+          changeEmbedResponse.components.push({type:1,components:[{type: 3,custom_id:'addLora-'+id+'-'+rn+'-row'+i,placeholder:'Add a LORA',min_values:1,max_values:1,options:[]}]}) // Push a new row
+          batch.slice(i,i+25).forEach((l)=>{changeEmbedResponse.components[changeEmbedResponse.components.length-1].components[0].options.push({label: l,value: l,description: l})}) // push items to row
+        }
+        if(lora.length>100){ // only show pages if needed
+          changeEmbedResponse.components.push({type:1,components:[
+            {type: 2, style: 1, label: 'Back', custom_id: 'chooseLora-'+id+'-'+rn+'-'+(page-1),value:page-1,emoji:{name:'⬅️',id:null},disabled:page===0},
+            {type: 2, style: 1, label: 'More', custom_id: 'chooseLora-'+id+'-'+rn+'-'+(page+1),value:page+1,emoji:{name:'➡️',id:null},disabled:(page*200)>(lora.length)}
+          ]})
         }
         return interaction.editParent(changeEmbedResponse).then((r)=>{}).catch((e)=>{console.error(e)})
       }
@@ -1758,7 +1782,7 @@ bot.on("interactionCreate", async (interaction) => {
         var changeAspectResponse={content:':eye: **Aspect Ratios**\n Different aspect ratios will give different compositions.',flags:64,components:[]}
         var oldPixelCount=newJob.width*newJob.height
         for(let i=0;i<aspectRatios.length;i+=25){
-          changeAspectResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[{type: 3,custom_id:'addAspect'+i+'-'+id+'-'+rn,placeholder:'Change aspect ratio, keep pixel count',min_values:1,max_values:1,options:[]}]})
+          changeAspectResponse.components.push({type:1,components:[{type: 3,custom_id:'addAspect'+i+'-'+id+'-'+rn,placeholder:'Change aspect ratio, keep pixel count',min_values:1,max_values:1,options:[]}]})
           aspectRatios.forEach((a)=>{
             var w=parseInt(a.split(':')[0]);var h=parseInt(a.split(':')[1]);var d;
             var newWidth=Math.round(Math.sqrt(oldPixelCount * w / h))
@@ -1767,11 +1791,11 @@ bot.on("interactionCreate", async (interaction) => {
             changeAspectResponse.components[changeAspectResponse.components.length-1].components[0].options.push({label: a,value: a,description: d+' '+newWidth+'x'+newHeight})
           })
         }
-        changeAspectResponse.components.push({type:Constants.ComponentTypes.ACTION_ROW,components:[
-          {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.SECONDARY, label: "Resolution", custom_id: "editResolution-"+id+'-'+rn, emoji: { name: '📏', id: null}, disabled: false },
-          {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Portrait", custom_id: "twkaspectPortrait-"+id+'-'+rn, emoji: { name: '↕️', id: null}, disabled: newJob.height===(defaultSize+192)&&newJob.width===defaultSize||false },
-          {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Square", custom_id: "twkaspectSquare-"+id+'-'+rn, emoji: { name: '🔳', id: null}, disabled: newJob.height===defaultSize&&newJob.width===defaultSize||false },
-          {type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.PRIMARY, label: "Landscape", custom_id: "twkaspectLandscape-"+id+'-'+rn, emoji: { name: '↔️', id: null}, disabled: newJob.height===defaultSize&&newJob.width===(defaultSize+192)||false }
+        changeAspectResponse.components.push({type:1,components:[
+          {type: 2, style: 2, label: "Resolution", custom_id: "editResolution-"+id+'-'+rn, emoji: { name: '📏', id: null}, disabled: false },
+          {type: 2, style: 1, label: "Portrait", custom_id: "twkaspectPortrait-"+id+'-'+rn, emoji: { name: '↕️', id: null}, disabled: newJob.height===(defaultSize+192)&&newJob.width===defaultSize||false },
+          {type: 2, style: 1, label: "Square", custom_id: "twkaspectSquare-"+id+'-'+rn, emoji: { name: '🔳', id: null}, disabled: newJob.height===defaultSize&&newJob.width===defaultSize||false },
+          {type: 2, style: 1, label: "Landscape", custom_id: "twkaspectLandscape-"+id+'-'+rn, emoji: { name: '↔️', id: null}, disabled: newJob.height===defaultSize&&newJob.width===(defaultSize+192)||false }
         ]})
         //return clearParent(interaction)
         return interaction.editParent(changeAspectResponse).then(()=>{}).catch((e)=>{debugLog(e)})
@@ -1818,7 +1842,7 @@ async function sendToGalleryChannel(serverId, originalChannelId, messageId, msg)
   //if(channel.messages.length<50){debugLog('fetching gallery message history');await channel.getMessages({limit: 100})} // if theres less then 50 in the channel message cache, fetch 100
   // await channel.getMessages({limit: 100})
   const messageLink = `https://discord.com/channels/${serverId}/${originalChannelId}/${messageId}`
-  const components = [{ type: Constants.ComponentTypes.ACTION_ROW, components: [{ type: Constants.ComponentTypes.BUTTON, style: Constants.ButtonStyles.LINK, label: "Original message", url: messageLink, disabled: false }]}]
+  const components = [{ type: 1, components: [{ type: 2, style: 5, label: "Original message", url: messageLink, disabled: false }]}]
   channel.messages.forEach(message=>{if(message.content===msg.content){alreadyInGallery=true;debugLog('found in gallery')}}) // look through eris message cache for channel for matching msg
   if (!alreadyInGallery){
     if (msg && msg.embeds && msg.embeds.length > 0) {
@@ -2016,7 +2040,7 @@ bot.on("messageCreate", (msg) => {
                     newJob.prompt=basePrompt+' withLora('+l+',0.8)'
                     request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
                   })
-                } else {try{bot.createMessage(msg.channel.id, 'No results found for your search, see `!embeds`')}catch(err){debugLog(err)}}
+                } else {try{bot.createMessage(msg.channel.id, 'No results found for your search, see `/embeds`')}catch(err){debugLog(err)}}
             }
           }
           if (msg.content.startsWith('template')&&msg.referencedMessage.attachments){
