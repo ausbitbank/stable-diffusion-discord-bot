@@ -37,7 +37,7 @@ Or come find arty in the [support server](https://discord.gg/ausbit-s-stuff-and-
 
 Right click him, and click "add to server"
 
-![](https://media.discordapp.net/attachments/343572563647004683/1025401535611547698/unknown.png)
+![](https://media.discordapp.net/attachments/326767097629769741/1114466787770249276/image.png)
 
 Once in your server you can right click him and "manage integrations" to chose what channels it should interact with
 
@@ -88,11 +88,13 @@ You can start it as a docker container with this command
 
 Tweak menu with advanced controls
 
-![](https://media.discordapp.net/attachments/968822563662860338/1044069865822093393/image.png)
+![](https://media.discordapp.net/attachments/1112198336368361495/1114467432027914300/image.png)
 
 Model/Checkpoint switching
 
 ![](https://media.discordapp.net/attachments/968822563662860338/1044069621977853962/image.png)
+
+![](https://media.discordapp.net/attachments/1112198336368361495/1114467824375697468/image.png)
 
 Expanding image transparency for outpainting
 
@@ -109,6 +111,11 @@ Inpainting using a text mask
 Automagic background removal
 
 ![](https://media.discordapp.net/attachments/968822563662860338/1044072153131274340/image.png)
+
+![](https://media.discordapp.net/attachments/1112198336368361495/1114468571309932624/image.png)
+
+![](https://media.discordapp.net/attachments/1112198336368361495/1114468635776397332/image.png)
+
 
 Slash commands with available parameters
 
@@ -144,7 +151,7 @@ Using an init image via discord message attachment
 
 Recharging credit with Hive, HBD or BTC lightning
 
-![](https://media.discordapp.net/attachments/968822563662860338/1024634986067927092/unknown.png)
+![](https://media.discordapp.net/attachments/1112198336368361495/1114469417166848101/image.png)
 
 Generating animations with `!meme animate` and attaching images
 
@@ -154,8 +161,9 @@ Generating animations with `!meme animate` and attaching images
 Patches/Pull request are greatly appreciated!
 -----------------------
 
-If you have any questions you can find me (ausbitbank) in my discord here - https://discord.gg/DSdK9KRJxq
-You can test out the bot in the #artspam channel
+If you have any questions you can find me (ausbitbank) in ![my discord here](https://discord.gg/DSdK9KRJxq)
+
+You can test out the bot in any of the #artspam channels or by DM'ing
 
 ![discord](https://img.shields.io/discord/419390618209353730?style=plastic)
 ![license](https://img.shields.io/github/license/ausbitbank/stable-diffusion-discord-bot?style=plastic)
