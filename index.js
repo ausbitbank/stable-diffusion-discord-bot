@@ -1650,12 +1650,14 @@ bot.on("interactionCreate", async (interaction) => {
         var page = interaction.data.custom_id.split('-').length===4 ? parseInt(interaction.data.custom_id.split('-')[3]) : 0 // get page number from id
         var batch = page===0 ? allModelKeys.slice(0,99) : allModelKeys.slice(page+99,page+199) // split loras into batches of 100 and pick our page of data
         for(let i=0;i<batch.length;i+=25) {
-          changeModelResponse.components.push({type:1,components:[{type: 3,custom_id:'changeModel'+i+'-'+id+'-'+rn,placeholder:'Choose a model/checkpoint',min_values:1,max_values:1,options:[]}]})
+          var batchSlice=batch.slice(i,i+25);var batchLabel=batchSlice[0][0]+' to '+batchSlice[batchSlice.length-1][0]
+          changeModelResponse.components.push({type:1,components:[{type: 3,custom_id:'changeModel'+i+'-'+id+'-'+rn,placeholder:'Choose a model/checkpoint - '+batchLabel,min_values:1,max_values:1,options:[]}]})
           batch.slice(i,i+25).forEach((m)=>{changeModelResponse.components[changeModelResponse.components.length-1].components[0].options.push({label: m,value: m,description: models[m].description.substring(0,99)})})
         }
         if(allModelKeys.length>100){ // only show pages if needed
           changeEmbedResponse.components.push({type:1,components:[
             {type: 2, style: 1, label: 'Back', custom_id: 'chooseModel-'+id+'-'+rn+'-'+(page-1),value:page-1,emoji:{name:'⬅️',id:null},disabled:page===0},
+            {type: 2, style: 2, label: 'Page: '+(page+1), custom_id: 'chooseModel-'+id+'-'+rn+'-'+(page),value:page,emoji:{ name:'📃',id:null},disabled:true},
             {type: 2, style: 1, label: 'More', custom_id: 'chooseModel-'+id+'-'+rn+'-'+(page+1),value:page+1,emoji:{name:'➡️',id:null},disabled:(page*200)>(allModelKeys.length)}
           ]})
         }
@@ -1725,12 +1727,14 @@ bot.on("interactionCreate", async (interaction) => {
         var page = interaction.data.custom_id.split('-').length===4 ? parseInt(interaction.data.custom_id.split('-')[3]) : 0 // get page number from id
         var batch = page===0 ? ti.slice(0,99) : ti.slice(page+99,page+199) // split tis into batches of 100 and pick our page of data
         for(let i=0;i<batch.length;i+=25){
-          changeEmbedResponse.components.push({type:1,components:[{type: 3,custom_id:'addTi'+i+'-'+id+'-'+rn+'-row'+i,placeholder:'Add a Textual Inversion',min_values:1,max_values:1,options:[]}]})
+          var batchSlice=batch.slice(i,i+25);var batchLabel=batchSlice[0][0]+' to '+batchSlice[batchSlice.length-1][0]
+          changeEmbedResponse.components.push({type:1,components:[{type: 3,custom_id:'addTi'+i+'-'+id+'-'+rn+'-row'+i,placeholder:'Add a Textual Inversion - '+batchLabel,min_values:1,max_values:1,options:[]}]})
           batch.slice(i,i+25).forEach((i)=>{changeEmbedResponse.components[changeEmbedResponse.components.length-1].components[0].options.push({label: i,value: i,description: i})})
         }
         if(ti.length>100){ // only show pages if needed
           changeEmbedResponse.components.push({type:1,components:[
             {type: 2, style: 1, label: 'Back', custom_id: 'chooseTi-'+id+'-'+rn+'-'+(page-1),value:page-1,emoji:{name:'⬅️',id:null},disabled:page===0},
+            {type: 2, style: 2, label: 'Page: '+(page+1), custom_id: 'chooseTi-'+id+'-'+rn+'-'+(page),value:page,emoji:{ name:'📃',id:null},disabled:true},
             {type: 2, style: 1, label: 'More', custom_id: 'chooseTi-'+id+'-'+rn+'-'+(page+1),value:page+1,emoji:{name:'➡️',id:null},disabled:(page*200)>(ti.length)}
           ]})
         }
@@ -1742,12 +1746,14 @@ bot.on("interactionCreate", async (interaction) => {
         var page = interaction.data.custom_id.split('-').length===4 ? parseInt(interaction.data.custom_id.split('-')[3]) : 0 // get page number from id
         var batch = page===0 ? lora.slice(0,99) : lora.slice(page+99,page+199) // split loras into batches of 100 and pick our page of data
         for(let i=0;i<batch.length;i+=25){
-          changeEmbedResponse.components.push({type:1,components:[{type: 3,custom_id:'addLora-'+id+'-'+rn+'-row'+i,placeholder:'Add a LORA',min_values:1,max_values:1,options:[]}]}) // Push a new row
-          batch.slice(i,i+25).forEach((l)=>{changeEmbedResponse.components[changeEmbedResponse.components.length-1].components[0].options.push({label: l,value: l,description: l})}) // push items to row
+          var batchSlice=batch.slice(i,i+25);var batchLabel=batchSlice[0][0]+' to '+batchSlice[batchSlice.length-1][0]
+          changeEmbedResponse.components.push({type:1,components:[{type: 3,custom_id:'addLora-'+id+'-'+rn+'-row'+i,placeholder:'Add a LORA - '+batchLabel,min_values:1,max_values:1,options:[]}]}) // Push a new row
+          batchSlice.forEach((l)=>{changeEmbedResponse.components[changeEmbedResponse.components.length-1].components[0].options.push({label: l,value: l,description: l})}) // push items to row
         }
         if(lora.length>100){ // only show pages if needed
           changeEmbedResponse.components.push({type:1,components:[
             {type: 2, style: 1, label: 'Back', custom_id: 'chooseLora-'+id+'-'+rn+'-'+(page-1),value:page-1,emoji:{name:'⬅️',id:null},disabled:page===0},
+            {type: 2, style: 2, label: 'Page: '+(page+1), custom_id: 'chooseLora-'+id+'-'+rn+'-'+(page),value:page,emoji:{ name:'📃',id:null},disabled:true},
             {type: 2, style: 1, label: 'More', custom_id: 'chooseLora-'+id+'-'+rn+'-'+(page+1),value:page+1,emoji:{name:'➡️',id:null},disabled:(page*200)>(lora.length)}
           ]})
         }
