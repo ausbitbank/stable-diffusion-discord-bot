@@ -1183,7 +1183,7 @@ async function meme(prompt,urls,userid,channel){
             const diff = Diff.diffWords(promptseed[i - 1], promptseed[i]) // Find differences between previous prompt and this one, Chunks into unchanged/added/removed
             var updateprompt = ""
             diff.forEach((part) => { // Bring all chunks back together with styling based on type
-              var pv = part.value.replaceAll('&','').replaceAll('<',' ').replaceAll('>',' ') //.replaceAll('[','').replaceAll(']','') // Remove textual inversion brackets before adding markup
+              var pv = part.value.replaceAll('&','').replaceAll('<',' ').replaceAll('>',' ').replaceAll('[','').replaceAll(']','') // Remove textual inversion brackets before adding markup
               // todo still failing on prompts with [<neg-sketch-3>] due to invalid markup
               if (part.added) {updateprompt += "<span foreground='green'><b><big>" + pv + "</big></b></span>"}
               else if (part.removed) {updateprompt += "<span foreground='red'><s>" + pv + "</s></span>"}
@@ -1205,8 +1205,7 @@ async function meme(prompt,urls,userid,channel){
           // Create styled prompt text overlay
           // TODO: Some height padding would be nice. Not as easy as width padding cuz of alignment
           // WARN: Had no issue with font, but read about extra steps sometimes being necessary
-          debugLog(promptseed[i])
-          var sanitizedprompt = sanitize(promptseed[i])
+          var sanitizedprompt = styledprompts[i]? styledprompts[i] : ''
           if(sanitizedprompt){
             try{
               const overlay = await sharp({text: {text: sanitizedprompt,rgba: true,width: metadata.width - 20,height: 200,font: 'Arial',}}).png().toBuffer()
