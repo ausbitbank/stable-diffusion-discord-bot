@@ -2,6 +2,13 @@
 
 A discord bot built to interface with the [InvokeAI](https://github.com/invoke-ai/InvokeAI) fork of stable-diffusion.
 
+![discord](https://img.shields.io/discord/419390618209353730?style=plastic)
+![license](https://img.shields.io/github/license/ausbitbank/stable-diffusion-discord-bot?style=plastic)
+![size](https://img.shields.io/github/repo-size/ausbitbank/stable-diffusion-discord-bot?style=plastic)
+![activity](https://img.shields.io/github/commit-activity/m/ausbitbank/stable-diffusion-discord-bot?style=plastic)
+![last commit](https://img.shields.io/github/last-commit/ausbitbank/stable-diffusion-discord-bot?style=plastic)
+[![twitter](https://img.shields.io/twitter/follow/ausbitbank?style=social)](https://twitter.com/ausbitbank)
+
 ## Current features:
 
 - ✅ Most features from InvokeAI are available via bot
@@ -167,9 +174,6 @@ Patches/Pull request are greatly appreciated!
 If you have any questions you can find me (ausbitbank) in ![my discord here](https://discord.gg/DSdK9KRJxq)
 
 You can test out the bot in any of the #artspam channels or by DM'ing
-
-![discord](https://img.shields.io/discord/419390618209353730?style=plastic)
-![license](https://img.shields.io/github/license/ausbitbank/stable-diffusion-discord-bot?style=plastic)
 
 ## Star History
 
