@@ -1,6 +1,6 @@
 // Setup, loading libraries and initial config
 const fs = require('fs')
-const config = fs.existsSync('./config/.env') ? require('dotenv').config({ path:'./config/.env'}).parsed : require('dotenv').config().parsed //todo CFGMOVE
+const config = fs.existsSync('./config/.env') ? require('dotenv').config({ path:'./config/.env'}).parsed : require('dotenv').config().parsed
 if (!config||!config.apiUrl||!config.basePath||!config.channelID||!config.adminID||!config.discordBotKey||!config.pixelLimit||!config.fileWatcher||!config.samplers) { throw('Please re-read the setup instructions at https://github.com/ausbitbank/stable-diffusion-discord-bot , you are missing the required .env configuration file or options') }
 if (config.basePath==="INVOKEAI OUTPUT FOLDER"){ throw('You need to configure the basePath setting in the bots .env file to point to your invokeAI output path')}
 const Eris = require("eris")
@@ -89,20 +89,24 @@ samplers.forEach((s)=>{samplersSlash.push({name: s, value: s})})
 var defaultSampler=samplers[0]
 debugLog('Enabled samplers: '+samplers.join(','))
 debugLog('Default sampler:'+defaultSampler)
+// load our own font list from config
+var fonts = config.fonts ? config.fonts.split(',') : ['Arial','Comic Sans MS','Tahoma','Times New Roman','Verdana','Lucida Console']
+var fontsSlashCmd = []
+fonts.forEach((f)=>{fontsSlashCmd.push({name: f,value: f})})
 var rendering = false
 var dialogs = {queue: null} // Track and replace our own messages to reduce spam
 var failedToPost=[]
 // load text files from txt directory, usable as {filename} in prompts, will return a random line from file
 var randoms=[]
 var randomsCache=[]
-try{ //todo CFGMOVE // Do we move txt file folder as well ?
+try{ // Do we move txt file folder to config as well ? Does anyone but me even customize this ? lmk
   fs.readdir('txt',(err,files)=>{ 
     if(err){log('Unable to read txt file directory'.bgRed);log(err)}
     files.forEach((file)=>{
       if (file.includes('.txt')){
         var name=file.replace('.txt','')
         randoms.push(name)
-        randomsCache.push(fs.readFileSync('txt/'+file,'utf-8').split(/r?\n/)) //todo CFGMOVE
+        randomsCache.push(fs.readFileSync('txt/'+file,'utf-8').split(/r?\n/))
       }
     })
     debugLog('Enabled randomisers: '+randoms.join(','))
@@ -209,14 +213,14 @@ var slashCommands = [
       {type: 3, name: 'blendmode', description: 'How to blend the text layer', required: false,value:'overlay',choices:[{name:'clear',value:'clear'},{name:'over',value:'over'},{name:'out',value:'out'},{name:'atop',value:'atop'},{name:'dest',value:'dest'},{name:'xor',value:'xor'},{name:'add',value:'add'},{name:'saturate',value:'saturate'},{name:'multiply',value:'multiply'},{name:'screen',value:'screen'},{name:'overlay',value:'overlay'},{name:'darken',value:'darken'},{name:'lighten',value:'lighten'},{name:'color-dodge',value:'color-dodge'},{name:'color-burn',value:'color-burn'},{name:'hard-light',value:'hard-light'},{name:'soft-light',value:'soft-light'},{name:'difference',value:'difference'},{name:'exclusion',value:'exclusion'}] }, // should be dropdown
       {type: 3, name: 'width', description: 'How many pixels wide is the text?', required: false, min_length: 1, max_length:5 },
       {type: 3, name: 'height', description: 'How many pixels high is the text?', required: false, min_length: 1, max_length:5 },
-      {type: 3, name: 'font', description: 'What font to use', required: false,value:'Arial',choices:[{name:'Arial',value:'Arial'},{name:'Comic Sans MS',value:'Comic Sans MS'},{name:'Tahoma',value:'Tahoma'},{name:'Times New Roman',value:'Times New Roman'},{name:'Verdana',value:'Verdana'},{name:'Lucida Console',value:'Lucida Console'}]},
+      {type: 3, name: 'font', description: 'What font to use', required: false,value:'Arial',choices:fontsSlashCmd},
       {type: 5, name: 'extend', description: 'Extend the image?', required: false},
       {type: 3, name: 'extendcolor', description: 'What color extension?', required: false, min_length: 1, max_length:10 },
     ],
     cooldown: 500,
     execute: (i) => {
       var ops=i.data.options
-      var {text='word',position='south',color='white',blendmode='difference',width=false,height=125,font='Arial',extend=false,extendcolor='black'}=ops.reduce((acc,o)=>{acc[o.name]=o.value;return acc}, {})
+      var {text='word',position='south',color='white',blendmode='difference',width=false,height=125,font=fonts[0],extend=false,extendcolor='black'}=ops.reduce((acc,o)=>{acc[o.name]=o.value;return acc}, {})
       var userid=i.member ? i.member.id : i.user.id
       if (i.data.resolved && i.data.resolved.attachments && i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))){
         var attachmentOrig=i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))
@@ -579,12 +583,12 @@ function freeRecharge(){
 function dbWrite() {
   const files = [{name:'./config/dbQueue.json',data:{queue:queue}},{name:'./config/dbUsers.json',data:{users:users}},{name:'./config/dbPayments.json',data:{payments:payments}}] 
   files.forEach((file) => {
-    const dataExists = fs.existsSync(file.name) //todo CFGMOVE
-    const dataIsDifferent = dataExists && JSON.stringify(file.data) !== fs.readFileSync(file.name, 'utf8') //todo CFGMOVE
+    const dataExists = fs.existsSync(file.name)
+    const dataIsDifferent = dataExists && JSON.stringify(file.data) !== fs.readFileSync(file.name, 'utf8')
     if(dataIsDifferent){
       try{
-        fs.writeFileSync(`${file.name}.tmp.json`, JSON.stringify(file.data)) //todo CFGMOVE
-        fs.renameSync(`${file.name}.tmp.json`, file.name) //todo CFGMOVE
+        fs.writeFileSync(`${file.name}.tmp.json`, JSON.stringify(file.data))
+        fs.renameSync(`${file.name}.tmp.json`, file.name)
       }catch(err){log('Failed to write db files'.bgRed);log(err)}
     }
   })
@@ -592,9 +596,9 @@ function dbWrite() {
 
 function dbRead() {
   try{
-    queue=JSON.parse(fs.readFileSync('./config/dbQueue.json')).queue //todo CFGMOVE
-    users=JSON.parse(fs.readFileSync('./config/dbUsers.json')).users //todo CFGMOVE
-    payments=JSON.parse(fs.readFileSync('./config/dbPayments.json')).payments //todo CFGMOVE
+    queue=JSON.parse(fs.readFileSync('./config/dbQueue.json')).queue
+    users=JSON.parse(fs.readFileSync('./config/dbUsers.json')).users
+    payments=JSON.parse(fs.readFileSync('./config/dbPayments.json')).payments
   } catch (err){log('Failed to read db files'.bgRed);log(err)}
 }
 function dbScheduleRead(){
@@ -942,14 +946,9 @@ async function postRender(render){
 async function repostFails(){ // bugged ? sometimes failing to repost in channels where new posts work fine // DiscordRestError [50001]: Missing Access
   debugLog('Attempting to repost '+failedToPost.length+' failed message')
   failedToPost.forEach((p)=>{
-    //try{
       bot.createMessage(p.channel,p.msg,{file:p.file,name:p.filename})
         .then(m=>{debugLog('successfully reposted failed image');failedToPost=failedToPost.filter(f=>{f.file!==p.file})}) // remove successful posts
-        .catch(err=>{
-          log('Unable to repost to channel '+p.channel)
-          debugLog(err)
-        })
-    //}catch(err){log(err)}
+        .catch(err=>{log('Unable to repost to channel '+p.channel);debugLog(err)})
   })
 }
 
@@ -1019,7 +1018,7 @@ function lexicaSearch(query,channel){
 }
 lexicaSearch=debounce(lexicaSearch,1000,true)
 
-async function textOverlay(imageurl,text,gravity='south',channel,user,color='white',blendmode='difference',width=false,height=125,font='Arial',extendimage=false,extendcolor='black'){
+async function textOverlay(imageurl,text,gravity='south',channel,user,color='white',blendmode='overlay',width=false,height=125,font='Arial',extendimage=false,extendcolor='black'){
   // todo caption area as a percentage of image size
   try{
     var image=(await axios({ url: imageurl, responseType: "arraybuffer" })).data
@@ -1411,6 +1410,7 @@ async function preloadModels(){
 bot.on("ready", async () => {
   log("Connected to discord".bgGreen)
   log("Guilds:".bgGreen+' '+bot.guilds.size)
+  log('Queue db: '+tidyNumber(queue.length)+' , Users: '+users.length+' , Payments: '+payments.length)
   processQueue()
   bot.getCommands().then(cmds=>{ // check current commands setup, update if needed
     bot.commands = new Collection()
