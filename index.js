@@ -969,7 +969,7 @@ function processQueue(){
     var nextJobId=queueUnique[Math.floor(Math.random()*queueUnique.length)].id // random select
     var nextJob=queue[queue.findIndex(x=>x.id===nextJobId)]
   }else{var nextJob=queue[queue.findIndex(x=>x.status==='new')]}
-  if(nextJob&&!rendering){
+  if(nextJob&&!rendering&&!paused){
     if(userCreditCheck(nextJob.userid,costCalculator(nextJob))){
       busyStatusArr=[{type:0,name:' with '+queueNew.length+' job(s) in '+bot.guilds.size+' servers'}]
       shuffle(busyStatusArr)
