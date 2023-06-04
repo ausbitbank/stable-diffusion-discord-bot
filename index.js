@@ -6,7 +6,6 @@ if (config.basePath==="INVOKEAI OUTPUT FOLDER"){ throw('You need to configure th
 const Eris = require("eris")
 const Constants = Eris.Constants
 const Collection = Eris.Collection
-const path = require('path') // still needed?
 const axios = require('axios')
 var parseArgs = require('minimist')
 const chokidar = require('chokidar')
@@ -285,7 +284,15 @@ function auto2invoke(text) {
 function request(request){
   // request = { cmd: string, userid: int, username: string, discriminator: int, bot: false, channelid: int, attachments: {}, }
   if (request.cmd.includes('{')) { request.cmd = replaceRandoms(request.cmd) } // swap randomizers
-  var args = parseArgs(request.cmd.split(' '),{string: ['template','init_img','sampler','text_mask'],boolean: ['seamless','hires_fix']}) // parse arguments //
+  var args = parseArgs(request.cmd.split(' '),{string: ['template','init_img','sampler','text_mask','A',],boolean: ['seamless','hires_fix']}) // parse arguments //
+  // alias invokeai parameter names
+  if(args.s){args.steps=args.s}
+  if(args.S){args.seed=args.S}
+  if(args.W){args.width=args.W}
+  if(args.H){args.height=args.H}
+  if(args.C){args.scale=args.C}
+  if(args.A){args.sampler=args.A}
+  if(args.f){args.strength=args.f}
   // messy code below contains defaults values, check numbers are actually numbers and within acceptable ranges etc
   // let sanitize all the numbers first
   for (n in [args.width,args.height,args.steps,args.seed,args.strength,args.scale,args.number,args.threshold,args.perlin]){
@@ -774,7 +781,7 @@ function generationResult(data){
   if(job){
     var postRenderObject={id:job.id,filename: url, seed: data.metadata.image.seed, resultNumber:job.results.length, width:data.metadata.image.width,height:data.metadata.image.height}
     // remove redundant data before pushing to db results
-    delete (data.metadata.prompt);delete (data.metadata.seed);delete (data.metadata.model_list);delete (data.metadata.app_id);delete (data.metadata.app_version); delete (data.attentionMaps)
+    delete (data.metadata.prompt);delete (data.metadata.seed);delete (data.metadata.model_list);delete (data.metadata.app_id);delete (data.metadata.app_version); delete (data.attentionMaps);
     job.results.push(data)
     postRender(postRenderObject)
   }else{rendering=false}
@@ -883,6 +890,7 @@ async function postRender(render){
     if(err){console.error(err)}else{
       // TODO: OS agnostic folder seperators
       // NOTE: filename being wrong wasn't breaking because slashes get replaced automatically in createMessage, but makes filename long/ugly
+      debugLog(render.filename)
       filename=render.filename.split('\\')[render.filename.split('\\').length-1].replace(".png","") // win
       //filename=render.filename.split('/')[render.filename.split('/').length-1].replace(".png","") // lin
       var job=queue[queue.findIndex(x=>x.id===render.id)]
@@ -1053,7 +1061,6 @@ async function removeBackground(url,channel,user,model='u2net',a=false,ab=10,af=
 
 // original rembg python/docker version
 // requires docker run -p 127.0.0.1:5000:5000 danielgatis/rembg s
-// todo expand options available
 // http://127.0.0.1:5000/?url=imgurl?model=u2net&a=true&ab=10&ae=10&af=240&bgc=0,0,0,0&ppm=true&om=false
 // model = u2net,u2netp,u2net_human_seg,u2net_cloth_seg,silueta,isnet-general-use,isnet-anime
 // a = alpha matting                          bool default false
@@ -1951,6 +1958,7 @@ bot.on("channelDelete", (channel) => {var m='channel deleted: '+channel.name+' i
 bot.on("channelUpdate", (channel,oldChannel) => {var m='channel updated: '+channel.name+' in '+channel.guild.name;log(m.bgRed);if(channel.topic!==oldChannel.topic){log('new topic:'+channel.topic)}})
 var lastMsgChan=null
 bot.on("messageCreate", (msg) => {
+  if(msg.author.bot) return // ignore all bot messages
   // an irc like view of non bot messages in allowed channels. Creepy but convenient
   if (config.showChat&&!msg.author.bot){
     if(lastMsgChan!==msg.channel.id&&msg.channel.name&&msg.channel.guild){
@@ -2021,8 +2029,9 @@ bot.on("messageCreate", (msg) => {
                 })
             } else if (msg.content.startsWith('samplers')){
                 var samplersToTest=[]
-                var samplersToTestString=msg.content.substring(7)
-                if(samplersToTestString==='all'){samplersToTest=samplers;debugLog(samplersToTest)}else{samplersToTestString.split(' ').forEach(s=>{if(samplers.includes(s)){samplersToTest.push(s)}})}
+                var samplersToTestString=msg.content.split(' ')
+                debugLog(samplersToTestString)
+                if(samplersToTestString.length>0&&samplersToTestString.includes('all')){samplersToTest=samplers;debugLog(samplersToTest)}else if(samplersToTestString.length>0){samplersToTestString.forEach(s=>{if(samplers.includes(s)){samplersToTest.push(s)}})}
                 samplersToTest.forEach(s=>{
                   newJob.sampler=s
                   request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
