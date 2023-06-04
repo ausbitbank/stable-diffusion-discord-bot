@@ -21,7 +21,7 @@
   "author": "ausbitbank <ausbitbank@gmail.com> (https://ausbit.dev)",
   "dependencies": {
     "@hiveio/hive-js": "^2.0.5",
-    "axios": "^0.27.2",
+    "axios": "^1.4.0",
     "canvas": "^2.10.2",
     "chokidar": "^3.5.3",
     "colors": "1.4.0",
