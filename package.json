@@ -34,7 +34,7 @@
     "form-data": "^4.0.0",
     "global": "^4.4.0",
     "https-proxy-agent": "^5.0.1",
-    "jimp": "^0.16.2",
+    "jimp": "^0.22.8",
     "minimist": "^1.2.6",
     "moment": "^2.29.4",
     "node-cron": "^3.0.2",
