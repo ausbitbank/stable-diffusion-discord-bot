@@ -1,6 +1,6 @@
 {
   "name": "stable-diffusion-discord-bot",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A powerful, flexible, uncensored AI art bot. Illustrate your imagination.",
   "exports": "./index.js",
   "main": "./index.js",
@@ -8,7 +8,7 @@
     "start": "node index.js"
   },
   "homepage": "https://github.com/ausbitbank/stable-diffusion-discord-bot",
-  "repository": "githube:ausbitbank/stable-diffusion-discord-bot",
+  "repository": "github:ausbitbank/stable-diffusion-discord-bot",
   "bugs": "https://github.com/ausbitbank/stable-diffusion-discord-bot/issues",
   "keywords": [
     "discord",
@@ -21,8 +21,7 @@
   "author": "ausbitbank <ausbitbank@gmail.com> (https://ausbit.dev)",
   "dependencies": {
     "@hiveio/hive-js": "^2.0.5",
-    "axios": "^0.27.2",
-    "canvas": "^2.10.2",
+    "axios": "^1.4.0",
     "chokidar": "^3.5.3",
     "colors": "1.4.0",
     "debounce": "^1.2.1",
@@ -32,16 +31,12 @@
     "eris": "DonovanDMC/eris#ed41313d9df5ff7c31bc955e0888f9c6f732c963",
     "exifreader": "^4.12.0",
     "form-data": "^4.0.0",
-    "global": "^4.4.0",
-    "https-proxy-agent": "^5.0.1",
-    "jimp": "^0.16.2",
+    "jimp": "^0.22.8",
     "minimist": "^1.2.6",
     "moment": "^2.29.4",
     "node-cron": "^3.0.2",
     "sharp-gif2": "^0.1.3",
     "socket.io": "^4.5.2",
-    "socket.io-client": "^4.5.2",
-    "tslib": "^2.4.0",
-    "ws": "^8.8.1"
+    "socket.io-client": "^4.5.2"
   }
 }
