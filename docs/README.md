@@ -68,10 +68,10 @@ mv config.example config
 Open the `config\.env` file in a text editor and configure at least the `discordBotKey`,`adminID` and `channelID`
 
 To configure a new discord bot user and get the `discordBotKey` :
-  - Visit ![discord.com/developers/applications](https://discord.com/developers/applications)
+  - Visit [discord.com/developers/applications](https://discord.com/developers/applications)
   - Click "New Application", give it a name, click **bot** > **add bot**
   - Copy the token into the .env file as `discordBotKey`
-  - Enable **Message Content Intent** under Priveleged Gateway Intent
+  - Enable **Message Content Intent** under Privileged Gateway Intent
   
   ![Enable Message Content Intent](https://media.discordapp.net/attachments/1112198336368361495/1115675971509567508/image.png)
 
