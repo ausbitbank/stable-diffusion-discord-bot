@@ -36,9 +36,9 @@ A discord bot built to interface with the [InvokeAI](https://github.com/invoke-a
 
 ## Add arty to your discord server (easy)
 
-🆕 Find **arty** in the ![application directory here](https://discord.com/application-directory/973484171534172170)
+🆕 Find **arty** in the [application directory here](https://discord.com/application-directory/973484171534172170)
 
-**Or** follow this ![direct invite link](https://discord.com/oauth2/authorize?client_id=973484171534172170&scope=bot&permissions=124992)
+**Or** follow this [direct invite link](https://discord.com/oauth2/authorize?client_id=973484171534172170&scope=bot&permissions=124992)
 
 **Or** come find **arty** in the [support server](https://discord.gg/ausbit-s-stuff-and-things-419390618209353730)
 
@@ -55,7 +55,7 @@ Once in your server you can right click him and "**manage integrations**" to cho
 
 Recommend at least **8gb video ram**, **lots** of storage space and joining the support server for help (see #bot-help)
 
-You'll need to have ![InvokeAI](https://github.com/invoke-ai/InvokeAI) installed and running on your system first, as well as ![git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git) and ![docker-compose](https://docs.docker.com/compose/install/) .
+You'll need to have [InvokeAI](https://github.com/invoke-ai/InvokeAI) installed and running on your system first, as well as [git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git) and [docker-compose](https://docs.docker.com/compose/install/) .
 
 To download and configure the bot:
 
