@@ -344,7 +344,7 @@ async function request(request){
     var channelNsfw=false
     if((channel&&Object.keys(channel).includes('nsfw'))){channelNsfw=channel.nsfw} // enforce consistency, undefined===false & probably DM
     if(channelNsfw===undefined) channelNsfw=false
-    if(!channelNsfw && (request.userid !== request.channelid) && !isPromptSFW(args.prompt)){ // SFW channel, not a DM channel, NSFW prompt
+    if(nsfwWords.length>0&&!channelNsfw && (request.userid !== request.channelid) && !isPromptSFW(args.prompt)){ // SFW channel, not a DM channel, NSFW prompt // NSFW words defined
       debugLog('triggered censor - channel.nsfw:'+channelNsfw+' , isPromptSFW:'+isPromptSFW(args.prompt)+' , channelid: '+request.channelid+' , userid: '+request.userid)
       // todo if SFW channel, attempt to find NSFW channel for guild before falling back to filter prompts
       censoredPrompt=true
@@ -502,11 +502,11 @@ function authorised(who,channel,guild) {
   if (bannedUsers.includes(userid)){
     log('auth fail, user is banned:'+username);return false
   } else if(guild && allowedGuilds.length>0 && !allowedGuilds.includes(guild)){
-    log('auth fail, guild not allowed:'+guild);return false
+    log('auth fail by '+username+', guild not allowed:'+guild);return false
   } else if(channel && allowedChannels.length>0 && !allowedChannels.includes(channel)){
-    log('auth fail, channel not allowed:'+channel);return false
+    log('auth fail by '+username+', channel not allowed:'+channel);return false
   } else if (channel && ignoredChannels.length>0 && ignoredChannels.includes(channel)){
-    log('auth fail, channel is ignored:'+channel);return false
+    log('auth fail by '+username+', channel is ignored:'+channel);return false
   } else { return true }
 }
 function createNewUser(id){
@@ -1149,7 +1149,7 @@ async function help(channel){
       {type: 2, style: 5, label: "Intro Post", url:'https://peakd.com/@ausbitbank/our-new-stable-diffusion-discord-bot', emoji: { name: 'hive', id: '1110123056501887007'}, disabled: false },
       {type: 2, style: 5, label: "Github", url:'https://github.com/ausbitbank/stable-diffusion-discord-bot', emoji: { name: 'Github', id: '1110915942856282112'}, disabled: false },
       {type: 2, style: 5, label: "Commands", url:'https://github.com/ausbitbank/stable-diffusion-discord-bot/blob/main/commands.md', emoji: { name: 'Book_Accessibility', id: '1110916595863269447'}, disabled: false },
-      {type: 2, style: 5, label: "Invite to server", url:'https://github.com/ausbitbank/stable-diffusion-discord-bot/blob/main/commands.md', emoji: { name: 'happy_pepe', id: '1110493880304013382'}, disabled: false },
+      {type: 2, style: 5, label: "Invite to server", url:'https://discord.com/oauth2/authorize?client_id='+bot.application.id+'&scope=bot&permissions=124992', emoji: { name: 'happy_pepe', id: '1110493880304013382'}, disabled: false },
       {type: 2, style: 5, label: "Privacy Policy", url:'https://gist.github.com/ausbitbank/cd8ba9ea6aa09253fcdcdfad36b9bcdd', emoji: { name: '📜', id: null}, disabled: false },
     ]}
   ] 
@@ -1464,13 +1464,13 @@ function isPromptSFW(prompt){
   return isSFW
 }
 
-function makePromptSFW(prompt){
+function makePromptSFW(prompt){ 
   time('makePromptSFW')
   if(!prompt)return ''
   var newPrompt=prompt
   var nsfwWordsRegex = new RegExp('\\b(' + nsfwWords.join('|') + ')', 'g')
   var nwords = newPrompt.match(nsfwWordsRegex)
-  if(nwords.length>0){nwords.forEach((w)=>{newPrompt = newPrompt.replace('['+w+']','').replace(w,'['+w+']')})} // remove term from orig prompt, replace with negative
+  if(nwords?.length>0){nwords.forEach((w)=>{newPrompt = newPrompt.replace('['+w+']','').replace(w,'['+w+']')})} // remove term from orig prompt, replace with negative
   timeEnd('makePromptSFW')
   return newPrompt
 }
