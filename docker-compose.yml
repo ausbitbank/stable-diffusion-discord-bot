@@ -1,0 +1,15 @@
+version: '3'
+
+services:
+  discord-bot:
+    build: .
+    container_name: stable-diffusion-discord-bot
+    volumes:
+      - ~/invokeai/outputs:/app/outputs
+      - ./config:/app/config
+      - ./txt:/app/txt
+  rembg:
+    image: "danielgatis/rembg"
+    ports:
+    - "5000"
+    entrypoint: "rembg s"
