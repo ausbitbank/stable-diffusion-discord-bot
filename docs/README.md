@@ -36,62 +36,69 @@ A discord bot built to interface with the [InvokeAI](https://github.com/invoke-a
 
 ## Add arty to your discord server (easy)
 
-🆕 [Find arty in the application directory here](https://discord.com/application-directory/973484171534172170)
+🆕 Find **arty** in the ![application directory here](https://discord.com/application-directory/973484171534172170)
 
-Or come find arty in the [support server](https://discord.gg/ausbit-s-stuff-and-things-419390618209353730)
+**Or** follow this ![direct invite link](https://discord.com/oauth2/authorize?client_id=973484171534172170&scope=bot&permissions=124992)
+
+**Or** come find **arty** in the [support server](https://discord.gg/ausbit-s-stuff-and-things-419390618209353730)
 
 [![DiscordBanner](https://invidget.switchblade.xyz/ausbit-s-stuff-and-things-419390618209353730)](https://discord.gg/ausbit-s-stuff-and-things-419390618209353730)
 
-Right click him, and click "add to server"
+Once in your server you can right click him and "**manage integrations**" to choose what channels it should interact with
 
-![](https://media.discordapp.net/attachments/326767097629769741/1114466787770249276/image.png)
-
-Once in your server you can right click him and "manage integrations" to chose what channels it should interact with
-
-![](https://media.discordapp.net/attachments/1023961603319808110/1025392370444939284/unknown.png)
-
-![](https://media.discordapp.net/attachments/1023961603319808110/1025392370830823434/unknown.png)
-
-That's it! See the getting started guide - https://peakd.com/@ausbitbank/our-new-stable-diffusion-discord-bot
+**That's it!** See the getting started guide - https://peakd.com/@ausbitbank/our-new-stable-diffusion-discord-bot
 
 ## How to install and host for yourself
 
-Recommend at least 8gb video ram, lots of storage space and joining the server above for support (see #bot-help)
+<details>
+  <summary>Click for installation instructions</summary>
 
-You'll need to have https://github.com/invoke-ai/InvokeAI installed and working on your system first, as well as nodejs and npm.
-Launch invokeai from its directory using invoke.bat (or invoke.sh on linux), and selecting option 2 for the browser based / web ui
+Recommend at least **8gb video ram**, **lots** of storage space and joining the support server for help (see #bot-help)
 
-To install bot dependancies : `npm install` or `yarn install`
+You'll need to have ![InvokeAI](https://github.com/invoke-ai/InvokeAI) installed and running on your system first, as well as ![git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git) and ![docker-compose](https://docs.docker.com/compose/install/) .
 
-If its a fresh install, rename the `config.example` folder to `config`
+To download and configure the bot:
 
-Enter your own settings in `config\.env`:
-- Copy the Discord channel ID as `channelID`
-  - User Settings > ᴀᴘᴘ sᴇᴛᴛɪɴɢs > Advanced > enable Developer Mode [per D](https://support.discord.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID-)⁽ˀ⁾
-  - Right click Channel, Copy ID
-- `adminID` is your full Discord username#123 
-- `apiURL` is already the default for https://github.com/lstein/stable-diffusion
-- Copy Bot ᴛᴏᴋᴇɴ as `discordBotKey`
-  - [New Application](https://discord.com/developers/applications)
-  - Settings > Bot > Add Bot
-  - (If necessary: Reset Token), Copy
-  - Enable the ᴍᴇssᴀɢᴇ ᴄᴏɴᴛᴇɴᴛ ɪɴᴛᴇɴᴛ Privileged Gateway Intent [per @zsoltime on SO](https://stackoverflow.com/a/73037243).
-    - ![image](https://media.discordapp.net/attachments/1023961603319808110/1044993662876135515/image.png)
+```
+git clone https://github.com/ausbitbank/stable-diffusion-discord-bot
+cd stable-diffusion-discord-bot
+mv config.example config
+```
 
-Run with `npm start` or `yarn start`
+Open the `config\.env` file in a text editor and configure at least the `discordBotKey`,`adminID` and `channelID`
 
-Invite to your server with `https://discord.com/oauth2/authorize?client_id= APPLICATION ID HERE &scope=bot&permissions=124992` (these ᴛᴇxᴛ ᴘᴇʀᴍɪssɪᴏɴs are required for the bot to function!)
+To configure a new discord bot user and get the `discordBotKey` :
+  - Visit ![discord.com/developers/applications](https://discord.com/developers/applications)
+  - Click "New Application", give it a name, click **bot** > **add bot**
+  - Copy the token into the .env file as `discordBotKey`
+  - Enable **Message Content Intent** under Priveleged Gateway Intent
+  
+  ![Enable Message Content Intent](https://media.discordapp.net/attachments/1112198336368361495/1115675971509567508/image.png)
 
-If you get a `disallowed intents specified` error on first launch, make sure you have "Message Content" privileged intent enabled in your bots settings here 
+To collect the remaining `adminID` and `channelID`:
 
-https://discord.com/developers/applications/
+  - In discord to go **User Settings** > **App Settings** > **Advanced** > **enable Developer Mode**
+  - For `adminID`, right click your own username and click "copy ID"
+  - For `channelID`, right click your home/headquarters channel and click "copy ID"
 
-The background removal feature requires you to run a "rembg" server bound to localhost port 5000
-You can start it as a docker container with this command
-`docker run -p 127.0.0.1:5000:5000 danielgatis/rembg s`
+After entering the required details, save the file and go back to your command prompt window and run:
 
+```
+docker-compose up
+```
 
-## Screenshots:
+The bot will launch and you should see an invite link in the logs, control-click it to invite the bot to your server
+
+The invite link will look like `https://discord.com/oauth2/authorize?client_id= APPLICATION ID HERE &scope=bot&permissions=124992`
+
+**That's it!**
+
+</details>
+
+## Screenshots
+
+<details>
+  <summary>Click to view screenshots:</summary>
 
 Tweak menu with advanced controls
 
@@ -167,6 +174,8 @@ Generating animations with `!meme animate` and attaching images
 
 ![](https://media.discordapp.net/attachments/968822563662860338/1024638314814373928/unknown.png)
 ![](https://media.discordapp.net/attachments/968822563662860338/1024638318631194624/animate-1845497245.gif)
+
+</details>
 
 Patches/Pull request are greatly appreciated!
 -----------------------
