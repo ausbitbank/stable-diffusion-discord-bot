@@ -15,6 +15,8 @@ const GIF = require("sharp-gif2")
 const Diff = require("diff")
 const log = console.log.bind(console)
 function debugLog(m){if(config.showDebug){log(m)}}
+function time(label){if(config.showDebugPerformance){console.time(label)}}
+function timeEnd(label){if(config.showDebugPerformance){console.timeEnd(label)}}
 const loop = (times, callback) => {[...Array(times)].forEach((item, i) => callback(i))}
 const dJSON = require('dirty-json')
 var colors = require('colors')
@@ -24,8 +26,7 @@ const FormData = require('form-data')
 const io = require("socket.io-client")
 const socket = io(config.apiUrl,{reconnect: true})
 const ExifReader = require('exifreader')
-
-var paused=false // unused?
+var paused=false
 var queue = []
 var users = []
 var payments = []
@@ -149,7 +150,7 @@ var slashCommands = [
         var attachment=[{width:attachmentOrig.width,height:attachmentOrig.height,size:attachmentOrig.size,proxy_url:attachmentOrig.proxyUrl,content_type:attachmentOrig.contentType,filename:attachmentOrig.filename,id:attachmentOrig.id}]
       }else{var attachment=[]}
       // below allows for the different data structure in public interactions vs direct messages
-      request({cmd:getCmd(prepSlashCmd(i.data.options)),userid:i.member?i.member.id:i.user.id,username:i.member?i.member.user.username:i.user.username,discriminator:i.member?i.member.user.discriminator:i.user.discriminator,bot:i.member?i.member.user.bot:i.user.bot,channelid:i.channel.id,attachments:attachment})
+      request({cmd:getCmd(prepSlashCmd(i.data.options)),userid:i.member?i.member.id:i.user.id,username:i.member?i.member.user.username:i.user.username,discriminator:i.member?i.member.user.discriminator:i.user.discriminator,bot:i.member?i.member.user.bot:i.user.bot,channelid:i.channel.id,guildid:i.guildID?i.guildID:undefined,attachments:attachment})
     }
   },
   {
@@ -159,7 +160,7 @@ var slashCommands = [
     cooldown: 500,
     execute: (i) => {
       var prompt=i.data.options?i.data.options[0].value+' '+getRandom('prompt'):getRandom('prompt')
-      request({cmd:prompt,userid:i.member?i.member.id:i.user.id,username:i.member?i.member.user.username:i.user.username,discriminator:i.member?i.member.user.discriminator:i.user.discriminator,bot:i.member?i.member.user.bot:i.user.bot,channelid:i.channel.id,attachments:[]})
+      request({cmd:prompt,userid:i.member?i.member.id:i.user.id,username:i.member?i.member.user.username:i.user.username,discriminator:i.member?i.member.user.discriminator:i.user.discriminator,bot:i.member?i.member.user.bot:i.user.bot,channelid:i.channel.id,guildid:i.guildID?i.guildID:undefined,attachments:[]})
     }
   },
   {
@@ -281,8 +282,8 @@ function auto2invoke(text) {
   })
 }
 
-function request(request){
-  // request = { cmd: string, userid: int, username: string, discriminator: int, bot: false, channelid: int, attachments: {}, }
+async function request(request){
+  // request = { cmd: string, userid: int, username: string, discriminator: int, bot: false, channelid: int, guildid: int, attachments: {}, }
   if (request.cmd.includes('{')) { request.cmd = replaceRandoms(request.cmd) } // swap randomizers
   var args = parseArgs(request.cmd.split(' '),{string: ['template','init_img','sampler','text_mask','A',],boolean: ['seamless','hires_fix']}) // parse arguments //
   // alias invokeai parameter names
@@ -335,6 +336,21 @@ function request(request){
   if (!args.model||args.model===undefined||!Object.keys(models).includes(args.model)){args.model=defaultModel}else{args.model=args.model}
   args.timestamp=moment()
   args.prompt=sanitize(args._.join(' '))
+  // Check NSFW status of channel, modify prompt if open channel
+  // todo can we tell if the user themselves are age verified besides requesting inside nsfw channel ?
+  var censoredPrompt=false
+  try{
+    var channel = request.channelid ? await bot.getChannel(request.channelid) : undefined
+    var channelNsfw=false
+    if((channel&&Object.keys(channel).includes('nsfw'))){channelNsfw=channel.nsfw} // enforce consistency, undefined===false & probably DM
+    if(channelNsfw===undefined) channelNsfw=false
+    if(!channelNsfw && (request.userid !== request.channelid) && !isPromptSFW(args.prompt)){ // SFW channel, not a DM channel, NSFW prompt
+      debugLog('triggered censor - channel.nsfw:'+channelNsfw+' , isPromptSFW:'+isPromptSFW(args.prompt)+' , channelid: '+request.channelid+' , userid: '+request.userid)
+      // todo if SFW channel, attempt to find NSFW channel for guild before falling back to filter prompts
+      censoredPrompt=true
+      args.prompt=makePromptSFW(args.prompt)
+    }
+  }catch(err){debugLog(err)}
   if (args.prompt.length===0){args.prompt=getRandom('prompt');log('empty prompt found, adding random')}
   args.prompt = auto2invoke(args.prompt)
   var newJob={
@@ -346,6 +362,7 @@ function request(request){
     discriminator: request.discriminator,
     timestampRequested: args.timestamp,
     channel: request.channelid,
+    guild:request.guildid,
     attachments: request.attachments,
     seed: args.seed,
     number: args.number,
@@ -366,7 +383,8 @@ function request(request){
     variation_amount: args.variation_amount,
     with_variations: args.with_variations,
     results: [],
-    model: args.model
+    model: args.model,
+    censoredPrompt: censoredPrompt
   }
   if(args.text_mask){newJob.text_mask=args.text_mask}
   if(args.mask){newJob.text_mask=args.mask}
@@ -414,7 +432,7 @@ function queueStatus() {
     var renderPercent=((parseInt(progressUpdate['currentStep'])/parseInt(progressUpdate['totalSteps']))*100).toFixed(2)
     if(['k_heun','k_dpm_2_a'].includes(next.sampler)){renderPercent = (renderPercent/2).toFixed(2)} // Stop buggy display of double percent for these samplers
     statusMsg+='\n'+emojiProgressBar(renderPercent)+' `'+progressUpdate['currentStatus'].replace('common.status','')+'` '
-    if (progressUpdate['currentStatusHasSteps']===true){
+    if (progressUpdate['currentStatusHasSteps']===true&&!isNaN(renderPercent)){
       statusMsg+='`'+renderPercent ? renderPercent+'%' : 100+'% Step '+progressUpdate['currentStep']+'/'+progressUpdate['totalSteps']+'`'
       if (progressUpdate['totalIterations']>1){
         statusMsg+=' Iteration `'+progressUpdate['currentIteration']+'/'+progressUpdate['totalIterations']+'`'
@@ -588,25 +606,27 @@ function freeRecharge(){
 }
 
 function dbWrite() {
+  time('dbWrite')
   const files = [{name:'./config/dbQueue.json',data:{queue:queue}},{name:'./config/dbUsers.json',data:{users:users}},{name:'./config/dbPayments.json',data:{payments:payments}}] 
   files.forEach((file) => {
     const dataExists = fs.existsSync(file.name)
     const dataIsDifferent = dataExists && JSON.stringify(file.data) !== fs.readFileSync(file.name, 'utf8')
     if(dataIsDifferent){
-      try{
-        fs.writeFileSync(`${file.name}.tmp.json`, JSON.stringify(file.data))
-        fs.renameSync(`${file.name}.tmp.json`, file.name)
-      }catch(err){log('Failed to write db files'.bgRed);log(err)}
+      try{fs.writeFileSync(`${file.name}.tmp.json`, JSON.stringify(file.data))}catch(err){log('Failed to write temp db file to '+file.name+'.tmp.json'.bgRed);log(err)}
+      try{fs.renameSync(`${file.name}.tmp.json`, file.name)}catch(err){log('Failed to rename temp db file over real db file'.bgRed);log(err)}
     }
   })
+  timeEnd('dbWrite')
 }
 
 function dbRead() {
+  time('dbRead')
   try{
     queue=JSON.parse(fs.readFileSync('./config/dbQueue.json')).queue
     users=JSON.parse(fs.readFileSync('./config/dbUsers.json')).users
     payments=JSON.parse(fs.readFileSync('./config/dbPayments.json')).payments
   } catch (err){log('Failed to read db files'.bgRed);log(err)}
+  timeEnd('dbRead')
 }
 function dbScheduleRead(){
   log('read schedule db'.grey.dim)
@@ -642,6 +662,7 @@ function scheduleInit(){
 function getUser(id){var user=bot.users.get(id);log(user);if(user){return user}else{return null}}
 function getUsername(id){var user=getUser(id);if(user!==null&&user.username){return user.username}else{return null}}
 function getPrices () {
+  time('getPrices')
   var url='https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=hive&order=market_cap_asc&per_page=1&page=1&sparkline=false'
   axios.get(url)
     .then((response)=>{hiveUsd=response.data[0].current_price;lastHiveUsd=hiveUsd;log('HIVE: $'+hiveUsd)})
@@ -651,6 +672,7 @@ function getPrices () {
         .then((hresponse)=>{hiveUsd=parseFloat(hresponse.data.result.latest);log('HIVE (internal market): $'+hiveUsd)})
         .catch((err)=>{log('Failed to load data from hive market api');log(err);hiveUsd=lastHiveUsd})
     })
+    timeEnd('getPrices')
 }
 function getLightningInvoiceQr(memo,amount=1){
   var appname=config.hivePaymentAddress+'_discord'
@@ -706,6 +728,7 @@ function rechargePrompt(userid,channel){
   log('ID '+userid+' asked for recharge link')
 }
 async function checkNewPayments(){
+  time('checkNewPayments')
   // Hive native payments support
   var bitmask=['4','524288'] // transfers and fill_recurrent_transfer only
   var accHistoryLength=config.accHistoryLength||100 // default 100
@@ -757,6 +780,7 @@ async function checkNewPayments(){
   // todo tip.cc payments
   if(config.allowTipccPayments){
   }
+  timeEnd('checkNewPayments')
 }
 checkNewPayments=debounce(checkNewPayments,30000,true) // at least 30 seconds between checks
 function sendWebhook(job){ // TODO eris has its own internal webhook method, investigate and maybe replace this
@@ -766,15 +790,16 @@ function sendWebhook(job){ // TODO eris has its own internal webhook method, inv
     .catch((error) => {console.error(error)})
 }
 function postprocessingResult(data){ // TODO unfinished, untested, awaiting new invokeai api release
-  log(data)
+  //log(data)
   var url=data.url
   url=config.basePath+data.url.split('/')[data.url.split('/').length-1]
   var postRenderObject={filename: url, seed: data.metadata.image.seed, width:data.metadata.image.width,height:data.metadata.image.height}
-  log(postRenderObject)
+  //log(postRenderObject)
   //postRender(postRenderObject)
 }
 function requestModelChange(newmodel){log('Requesting model change to '+newmodel);if(newmodel===undefined||newmodel==='undefined'){newmodel=defaultModel}socket.emit('requestModelChange',newmodel,()=>{log('requestModelChange loaded')})}
 function generationResult(data){
+  time('generationResult')
   var url=data.url
   url=config.basePath+data.url.split('/')[data.url.split('/').length-1]
   var job=queue[queue.findIndex(j=>j.status==='rendering')] // TODO there has to be a better way to know if this is a job from the web interface or the discord bot // upcoming invokeai api release solves this
@@ -787,6 +812,7 @@ function generationResult(data){
   }else{rendering=false}
   if(job&&job.results.length>=job.number){job.status='done';dbWrite();rendering=false;processQueue()}// else {debugLog('Not marking job done, waiting for more images')}
   if(dialogs.queue!==null){dialogs.queue.delete().catch((err)=>{}).then(()=>{dialogs.queue=null;intermediateImage=null})}
+  timeEnd('generationResult')
 }
 function initialImageUploaded(data){
   var filename=config.basePath+"/"+data.url.replace('outputs/','')
@@ -827,7 +853,7 @@ async function emitRenderApi(job){
     if(job.invert_mask&&job.invert_mask===true){postObject.invert_mask=true}
     log('adding text mask');postObject.text_mask=[job.text_mask,mask_strength]
   }
-  if(job.with_variations.length>0){log('adding with variations');postObject.with_variations=job.with_variations;log(postObject.with_variations)}
+  if(job.with_variations.length>0){log('adding with variations');postObject.with_variations=job.with_variations}
   if(job.seamless&&job.seamless===true){postObject.seamless=true}
   if(job.hires_fix&&job.hires_fix===true){postObject.hires_fix=true}
   var upscale=false
@@ -849,13 +875,14 @@ async function emitRenderApi(job){
 }
 function getObjKey(obj, value){return Object.keys(obj).find(key=>obj[key]===value)}
 async function addRenderApi(id){
+  time('addRenderApi')
   var job=queue[queue.findIndex(x=>x.id===id)]
   var initimg=null
   job.status='rendering'
   if(job.attachments[0]&&job.attachments[0].content_type&&job.attachments[0].content_type.startsWith('image')){
     log('fetching attachment from '.bgRed + job.attachments[0].proxy_url)
     await axios.get(job.attachments[0].proxy_url,{responseType: 'arraybuffer'})
-      .then(res=>{initimg = Buffer.from(res.data);debugLog('got attachment')})
+      .then(res=>{initimg = Buffer.from(res.data)})
       .catch(err=>{ console.error('unable to fetch url: ' + job.attachments[0].proxy_url); console.error(err) })
   }
   if (initimg!==null){
@@ -884,13 +911,14 @@ async function addRenderApi(id){
   }else{
     emitRenderApi(job)
   }
+  timeEnd('addRenderApi')
 }
 async function postRender(render){
-  try{fs.readFile(render.filename, null, function(err, data){
+  time('postRender')
+  try{fs.readFile(render.filename, null, async function(err, data){
     if(err){console.error(err)}else{
       // TODO: OS agnostic folder seperators
       // NOTE: filename being wrong wasn't breaking because slashes get replaced automatically in createMessage, but makes filename long/ugly
-      debugLog(render.filename)
       filename=render.filename.split('\\')[render.filename.split('\\').length-1].replace(".png","") // win
       //filename=render.filename.split('/')[render.filename.split('/').length-1].replace(".png","") // lin
       var job=queue[queue.findIndex(x=>x.id===render.id)]
@@ -921,7 +949,8 @@ async function postRender(render){
         chargeCredits(job.userid,(costCalculator(job))/job.number) // only charge successful renders, if enabled
         msg+=':coin:`'+(job.cost/job.number).toFixed(2).replace(/[.,]00$/, "")+'/'+ creditsRemaining(job.userid) +'`'
       }
-      var newMessage = { content: msg, embeds: [{description: job.prompt, color: getRandomColorDec()}], components: [ { type: 1, components: [ ] } ] }
+      var nsfwWarning = job.censoredPrompt ? ':warning: **NSFW prompt modified for SFW channel**\n' : ''
+      var newMessage = { content: msg, embeds: [{description: nsfwWarning+job.prompt, color: getRandomColorDec()}], components: [ { type: 1, components: [ ] } ] }
       if(job.prompt.replaceAll(' ','').length===0){newMessage.embeds=[]}
       newMessage.components[0].components.push({ type: 2, style: 2, label: "ReDream", custom_id: "refresh-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })
       newMessage.components[0].components.push({ type: 2, style: 2, label: "Edit Prompt", custom_id: "edit-"+job.id, emoji: { name: '✏️', id: null}, disabled: false })
@@ -935,6 +964,7 @@ async function postRender(render){
             .then(async m=>{
               debugLog('Posted msg id '+m.id+' to channel id '+m.channel.id)
               if(m.attachments.length>0){debugLog('"'+job.prompt+'" - '+m.attachments[0].proxy_url)}
+              debugLog(render.filename+' - '+(filesize/1000000).toFixed(2)+'mb')
             }) // maybe wait till successful post here to change job status? Could store msg id to job
             .catch((err)=>{
               log('caught error posting to discord in channel '.bgRed+job.channel)
@@ -949,6 +979,7 @@ async function postRender(render){
     }
   })
   }catch(err){log(err)}
+  timeEnd('postRender')
 }
 
 async function repostFails(){ // bugged ? sometimes failing to repost in channels where new posts work fine // DiscordRestError [50001]: Missing Access
@@ -963,9 +994,10 @@ async function repostFails(){ // bugged ? sometimes failing to repost in channel
 function processQueue(){
   // WIP attempt to make a harder to dominate queue
   // TODO make a queueing system that prioritizes the users that have recharged the most
+  time('ProcessQueue')
   var queueNew=queue.filter((q)=>q.status==='new') // first alias to simplify
   if(queueNew.length>0){
-    var queueUnique=queueNew.filter((value,index,self)=>{return self.findIndex(v=>v.userid===value.userid)===index}) // reduce to 1 entry in queue per username
+    var queueUnique=queueNew//.filter((value,index,self)=>{return self.findIndex(v=>v.userid===value.userid)===index}) // reduce to 1 entry in queue per username // expensive/slow
     var nextJobId=queueUnique[Math.floor(Math.random()*queueUnique.length)].id // random select
     var nextJob=queue[queue.findIndex(x=>x.id===nextJobId)]
   }else{var nextJob=queue[queue.findIndex(x=>x.status==='new')]}
@@ -1006,6 +1038,7 @@ function processQueue(){
     shuffle(idleStatusArr)
     bot.editStatus('idle',idleStatusArr[0])
   }
+  timeEnd('ProcessQueue')
 }
 function lexicaSearch(query,channel){
   // Quick and dirty lexica search api, needs docs to make it more efficient (query limit etc)
@@ -1028,6 +1061,7 @@ lexicaSearch=debounce(lexicaSearch,1000,true)
 
 async function textOverlay(imageurl,text,gravity='south',channel,user,color='white',blendmode='overlay',width=false,height=125,font='Arial',extendimage=false,extendcolor='black'){
   // todo caption area as a percentage of image size
+  time('textOverlay')
   try{
     var image=(await axios({ url: imageurl, responseType: "arraybuffer" })).data
     var res=await sharp(image)
@@ -1049,9 +1083,11 @@ async function textOverlay(imageurl,text,gravity='south',channel,user,color='whi
     var buffer = await res.toBuffer()
     bot.createMessage(channel, '<@'+user+'> added **text**: `'+text+'`\n**position**: '+gravity+', **color**:'+color+', **blendmode**:'+blendmode+', **width**:'+width+', **height**:'+height+', **font**:'+font+', **extendimage**:'+extendimage+', **extendcolor**:'+extendcolor, {file: buffer, name: user+'-'+new Date().getTime()+'-text.png'})
   }catch(err){log(err)}
+  timeEnd('textOverlay')
 }
 
 async function removeBackground(url,channel,user,model='u2net',a=false,ab=10,af=240,ae=10,om=false,ppm=true,bgc='0,0,0,0'){
+  time('removeBackground')
 // js implementation of python rembg lib, degrades quality, needs more testing
 //  var image=(await axios({ url: url, responseType: "arraybuffer" })).data
 //  image = sharp(image)
@@ -1079,9 +1115,11 @@ async function removeBackground(url,channel,user,model='u2net',a=false,ab=10,af=
     newMsg+='\n**model:**`'+model+'`, **alpha matting:**`'+a+'`, **background threshold:**`'+ab+'`, **alpha erode size:**`'+ae+'` **foreground threshold:**`'+af+'`, **background color:**`'+bgc+'`, **post process:**`'+ppm+'`, **only mask:** `'+om+'`'
     try{bot.createMessage(channel, newMsg, {file: buffer, name: user+'-bg.png'})}catch(err){log(err)}
   }).catch((err)=>{log(err)})
+  timeEnd('removeBackground')
 }
 
 async function rotate(imageurl,degrees=90,channel,user){
+  time('rotate')
   try{
     var image=(await axios({ url: imageurl, responseType: "arraybuffer" })).data
     var res=await sharp(image)
@@ -1089,6 +1127,7 @@ async function rotate(imageurl,degrees=90,channel,user){
     var buffer = await res.png().toBuffer()
     bot.createMessage(channel, '<@'+user+'> rotated image `'+degrees+'` degrees', {file: buffer, name: user+'-'+new Date().getTime()+'-rotate.png'})
   }catch(err){log(err)}
+  timeEnd('rotate')
 }
 
 async function help(channel){
@@ -1115,7 +1154,7 @@ async function help(channel){
     ]}
   ] 
   }
-  bot.createMessage(channel, helpMsgObject)
+  try{bot.createMessage(channel, helpMsgObject)}catch(err){log(err)}
 }
 
 async function listModels(channel){ // list available models
@@ -1147,6 +1186,7 @@ async function listEmbeds(channel){ // list available embeds
 }
 
 async function meme(prompt,urls,userid,channel){
+  time('meme')
   params = prompt.split(' ')
   cmd = prompt.split(' ')[0]
   param = undefined
@@ -1158,6 +1198,7 @@ async function meme(prompt,urls,userid,channel){
     case 'mirror':{var image=await jimp.read(urls[0]);image.flip(true,false);img=await image.getBufferAsync(jimp.MIME_PNG);break}
     case 'rotate':{var image=await jimp.read(urls[0]);var rotatedeg=parseInt(prompt.split(' ')[1])||90;image.rotate(rotatedeg);img=await image.getBufferAsync(jimp.MIME_PNG);break}
     case 'animateseed':{
+      time('animateseed')
       if(params.length<2){return} // bugfix crash on animateseed with no seed
       //debugLog('Seed match count:' + queue.filter((j)=>j.seed==params[1]).length)
       let urlseed=[] // prompt image urls
@@ -1227,6 +1268,7 @@ async function meme(prompt,urls,userid,channel){
           img = await image.toBuffer()
         }catch(err){log(err)}
       }
+      timeEnd('animateseed')
       break
     }
     case 'animate':
@@ -1258,6 +1300,7 @@ async function meme(prompt,urls,userid,channel){
       bot.createMessage(channel, msg, {file: img, name: cmd+'-'+getRandomSeed()+extension})
     }
   }catch(err){debugLog(err)}
+  timeEnd('meme')
 }
 meme=debounce(meme,1000,true)
 function shuffle(array) {for (let i = array.length - 1; i > 0; i--) {let j = Math.floor(Math.random() * (i + 1));[array[i], array[j]] = [array[j], array[i]]}} // fisher-yates shuffle
@@ -1372,6 +1415,7 @@ async function clearParent(interaction){
 }
 
 function viewQueue(){ // admin function to view queue data
+  time('viewQueue')
   var queueNew=queue.filter((q)=>q.status==='new')
   var queueRendering=queue.filter((q)=>q.status==='rendering')
   var queueFailed=queue.filter((q)=>q.status==='failed')
@@ -1383,6 +1427,7 @@ function viewQueue(){ // admin function to view queue data
   msg+='```yaml\n!cancel                 to cancel the current render\n!canceljob jobid        to cancel a specific job id\n!canceluser userid      to cancel all jobs from that user id\n```'
   //var components=[{type:1,components:[{type:2,label:'Refresh',custom_id:'viewQueue',emoji:{name:'🔄',id:null},disabled:false}]}]
   sliceMsg(msg).forEach((m)=>{try{directMessageUser(config.adminID, {content:m})}catch(err){debugLog(err)}})
+  timeEnd('viewQueue')
 }
 
 function cancelCurrentRender(){
@@ -1407,15 +1452,33 @@ function cancelUser(userid){
   dbWrite()
 }
 
-async function preloadModels(){
-  Object.keys(models).forEach(async(m)=>{
-    await socket.emit('requestModelChange',m)
+var nsfwWords=config.nsfwWords?.split(',')||['sex','nude','nudity','nsfw','naked','porn','fuck']
+
+function isPromptSFW(prompt){
+  if(!prompt)return true
+  var isSFW=true
+  nsfwWords.forEach(w=>{
+    prompt = prompt.replaceAll('['+w+']','') // remove negative terms that would match
+    if(prompt.toLowerCase().includes(w)){isSFW=false}
   })
+  return isSFW
+}
+
+function makePromptSFW(prompt){
+  time('makePromptSFW')
+  if(!prompt)return ''
+  var newPrompt=prompt
+  var nsfwWordsRegex = new RegExp('\\b(' + nsfwWords.join('|') + ')', 'g')
+  var nwords = newPrompt.match(nsfwWordsRegex)
+  if(nwords.length>0){nwords.forEach((w)=>{newPrompt = newPrompt.replace('['+w+']','').replace(w,'['+w+']')})} // remove term from orig prompt, replace with negative
+  timeEnd('makePromptSFW')
+  return newPrompt
 }
 
 // Initial discord bot setup and listeners
 bot.on("ready", async () => {
   log("Connected to discord".bgGreen)
+  log('Invite bot to server: https://discord.com/oauth2/authorize?client_id='+bot.application.id+'&scope=bot&permissions=124992')
   log("Guilds:".bgGreen+' '+bot.guilds.size)
   log('Queue db: '+tidyNumber(queue.length)+' , Users: '+users.length+' , Payments: '+payments.length)
   processQueue()
@@ -1423,7 +1486,7 @@ bot.on("ready", async () => {
     bot.commands = new Collection()
     for (const c of slashCommands) {
       if(cmds.filter(cmd=>cmd.name===c.name).length>0) {
-        debugLog('slash command '+c.name+' already registered')
+        //debugLog('slash command '+c.name+' already registered')
         bot.commands.set(c.name, c) // needed ?
       } else {
         log('Slash command '+c.name+' is unregistered, registering')
@@ -1462,7 +1525,7 @@ bot.on("interactionCreate", async (interaction) => {
       newJob.results=[]
     }
     if(cid.startsWith('random')){
-      request({cmd: getRandom('prompt'), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: []})
+      request({cmd: getRandom('prompt'), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id,guildid:interaction.guildID?interaction.guildID:undefined, attachments: []})
       return clearParent(interaction) //return interaction.editParent({}).catch((e)=>{log(e)})
     }else if(cid.startsWith('refresh')){
       //try{await interaction.deferUpdate()}catch(err){log(err)}
@@ -1473,7 +1536,7 @@ bot.on("interactionCreate", async (interaction) => {
           var variantseed = cid.split('-')[3]
           if (variantseed){ // variant of a variant
             newJob.with_variations = [[parseInt(variantseed),0.1]]
-            log(newJob.with_variations)
+            //log(newJob.with_variations)
           }
         } else if (cid.startsWith('refreshUpscale-')) {
           newJob.upscale_level = 2
@@ -1485,7 +1548,7 @@ bot.on("interactionCreate", async (interaction) => {
           newJob.variation_amount=0
           newJob.seed=getRandomSeed()
         }
-        request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
+        request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, guildid:interaction.guildID?interaction.guildID:undefined, attachments: newJob.attachments})
         //if (cid.startsWith('refreshEdit-')){return clearParent(interaction)}
         return clearParent(interaction)
       } else {
@@ -1644,9 +1707,9 @@ bot.on("interactionCreate", async (interaction) => {
       } else { // submit as new job with changes
         if(newCmd===''){newCmd=getCmd(newJob)}
         if (interaction.member) {
-          request({cmd: newCmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
+          request({cmd: newCmd, userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, guildid:interaction.guildID?interaction.guildID:undefined, attachments: newJob.attachments})
         } else if (interaction.user){
-          request({cmd: newCmd, userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
+          request({cmd: newCmd, userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, guildid:interaction.guildID?interaction.guildID:undefined, attachments: newJob.attachments})
         }
       }
       return clearParent(interaction)
@@ -1692,9 +1755,9 @@ bot.on("interactionCreate", async (interaction) => {
         var attach=[]
         if (newJob.attachments.length>0){attach=newJob.attachments}
         if(interaction.member){
-          request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: attach})
+          request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, guildid:interaction.guildID?interaction.guildID:undefined, attachments: attach})
         } else if (interaction.user){
-          request({cmd: getCmd(newJob), userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, attachments: attach})
+          request({cmd: getCmd(newJob), userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, guildid:interaction.guildID?interaction.guildID:undefined, attachments: attach})
         }
         return interaction.editParent({content:':floppy_disk: ** Model '+interaction.data.values[0]+'** selected',components:[]}).catch((e) => {console.error(e)})
       }
@@ -1709,9 +1772,9 @@ bot.on("interactionCreate", async (interaction) => {
       if(newJob&&newSampler){
         newJob.sampler=newSampler // set the new model
         if(interaction.member){
-          request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
+          request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, guildid:interaction.guildID?interaction.guildID:undefined, attachments: newJob.attachments})
         } else if (interaction.user){
-          request({cmd: getCmd(newJob), userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
+          request({cmd: getCmd(newJob), userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, guildid:interaction.guildID?interaction.guildID:undefined, attachments: newJob.attachments})
         }
         return interaction.editParent({content:':eye: ** Sampler '+interaction.data.values[0]+'** selected',components:[]}).catch((e) => {console.error(e)})
       }
@@ -1772,9 +1835,9 @@ bot.on("interactionCreate", async (interaction) => {
       if(newJob&&newLora){
         newJob.prompt+=' withLora('+newLora+',0.8)' // add lora to prompt
         if(interaction.member){
-          request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
+          request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, guildid:interaction.guildID?interaction.guildID:undefined, attachments: newJob.attachments})
         } else if (interaction.user){
-          request({cmd: getCmd(newJob), userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
+          request({cmd: getCmd(newJob), userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, guildid:interaction.guildID?interaction.guildID:undefined, attachments: newJob.attachments})
         }
         return interaction.editParent({content:':eye: ** LORA embed '+interaction.data.values[0]+'** selected',components:[]}).catch((e) => {console.error(e)})
       }
@@ -1784,9 +1847,9 @@ bot.on("interactionCreate", async (interaction) => {
         newJob.prompt+=' \<'+newTi+'\>' // add ti to prompt
         newJob.number=1
         if(interaction.member){
-          request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
+          request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, guildid:interaction.guildID?interaction.guildID:undefined, attachments: newJob.attachments})
         } else if (interaction.user){
-          request({cmd: getCmd(newJob), userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
+          request({cmd: getCmd(newJob), userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, guildid:interaction.guildID?interaction.guildID:undefined, attachments: newJob.attachments})
         }
         return interaction.editParent({content:':eye: ** Textual inversion '+interaction.data.values[0]+'** selected',components:[]}).catch((e) => {console.error(e)})
       }
@@ -1823,9 +1886,9 @@ bot.on("interactionCreate", async (interaction) => {
         newJob.width=Math.round(Math.sqrt(oldPixelCount * newAspectWidth / newAspectHeight))
         newJob.height=Math.round(newJob.width * newAspectHeight / newAspectWidth)
         if(interaction.member){
-          request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
+          request({cmd: getCmd(newJob), userid: interaction.member.user.id, username: interaction.member.user.username, discriminator: interaction.member.user.discriminator, bot: interaction.member.user.bot, channelid: interaction.channel.id, guildid:interaction.guildID?interaction.guildID:undefined, attachments: newJob.attachments})
         } else if (interaction.user){
-          request({cmd: getCmd(newJob), userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, attachments: newJob.attachments})
+          request({cmd: getCmd(newJob), userid: interaction.user.id, username: interaction.user.username, discriminator: interaction.user.discriminator, bot: interaction.user.bot, channelid: interaction.channel.id, guildid:interaction.guildID?interaction.guildID:undefined, attachments: newJob.attachments})
         }
         return interaction.editParent({content:':eye: ** Aspect '+interaction.data.values[0]+'** selected',components:[]}).catch((e) => {console.error(e)})
       }
@@ -1848,10 +1911,13 @@ async function directMessageUser(id,msg,channel){ // try, fallback to channel
 }
 
 async function sendToGalleryChannel(serverId, originalChannelId, messageId, msg) { // Make a copy without buttons for the gallery
+  time('sendToGalleryChannel')
   const galleryChannel = allGalleryChannels[serverId]
   if (!galleryChannel) {log(`No gallery channel found for server ID: ${serverId}`);return}
   if (originalChannelId===galleryChannel) return
+  time('getChannel')
   const channel = await bot.getChannel(galleryChannel)
+  timeEnd('getChannel')
   var alreadyInGallery=false
   //if(channel.messages.length<50){debugLog('fetching gallery message history');await channel.getMessages({limit: 100})} // if theres less then 50 in the channel message cache, fetch 100
   // await channel.getMessages({limit: 100})
@@ -1864,9 +1930,11 @@ async function sendToGalleryChannel(serverId, originalChannelId, messageId, msg)
       await channel.createMessage({ content: msg.content, embeds: msg.embeds, components: components }).catch(() => {log(`Failed to send message to the specified channel for server ID: ${serverId}`)})
     } else {await channel.createMessage({ content: msg.content, components: components }).catch(() => {log(`Failed to send message to the specified channel for server ID: ${serverId}`)})}
   } else {debugLog('Found identical existing star gallery message')}
+  timeEnd('sendToGalleryChannel')
 }
 
 async function moveToNSFWChannel(serverId, originalChannelId, messageId, msg) {
+  time('sendToNSFWChannel')
   // similar to above, but transplant as-is with buttons and remove original
   const nsfwChannel = allNSFWChannels[serverId]
   if(originalChannelId===nsfwChannel) return
@@ -1876,6 +1944,7 @@ async function moveToNSFWChannel(serverId, originalChannelId, messageId, msg) {
   content = msg.content
   components = msg.components
   try{await channel.createMessage({ content: msg.content, components: components, embeds: embeds }).catch((err) => {debugLog(err);log(`Failed to move message to the NSFW channel for server ID: ${serverId}`)})}catch(err){log(err)}
+  timeEnd('sendToNSFWChannel')
 }
 
 function progressBar(total,current,size=20,line = '🟥', slider = '🟦'){ // line = '▬', slider = '🔘' // size=40, line='□',slider='■'
@@ -1907,7 +1976,7 @@ function emojiProgressBar(percent,emojis){
   const numEmojis = emojis.length
   const emojiIndex = Math.floor(percent / 100 * numEmojis)
   var emoji = emojis[emojiIndex]
-  if(emoji===undefined){debugLog(percent);emoji=emojis[emojis.length-1]}
+  if(emoji===undefined){emoji=emojis[emojis.length-1]}
   return emoji
 }
 
@@ -2025,7 +2094,7 @@ bot.on("messageCreate", (msg) => {
                 if(modelsToTestString==='all'){modelsToTest=modelKeys}else{modelsToTestString.split(' ').forEach(m=>{if(modelKeys.includes(m)){modelsToTest.push(m)}})}
                 modelsToTest.forEach(m=>{
                   newJob.model=m
-                  request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
+                  request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, guildid: msg.channel.guild.id, attachments: msg.attachments})
                 })
             } else if (msg.content.startsWith('samplers')){
                 var samplersToTest=[]
@@ -2034,7 +2103,7 @@ bot.on("messageCreate", (msg) => {
                 if(samplersToTestString.length>0&&samplersToTestString.includes('all')){samplersToTest=samplers;debugLog(samplersToTest)}else if(samplersToTestString.length>0){samplersToTestString.forEach(s=>{if(samplers.includes(s)){samplersToTest.push(s)}})}
                 samplersToTest.forEach(s=>{
                   newJob.sampler=s
-                  request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
+                  request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, guildid: msg.channel.guild.id, attachments: msg.attachments})
                 })
             } else if (msg.content.startsWith('embeds')){
                 var tisToTest=[];var lorasToTest=[];var tisToTestString=msg.content.substring(7);var lorasToTestString=tisToTestString
@@ -2051,11 +2120,11 @@ bot.on("messageCreate", (msg) => {
                   sliceMsg(newMsg).forEach((m)=>{try{bot.createMessage(msg.channel.id, m)}catch(err){debugLog(err)}})
                   tisToTest.forEach(t=>{
                     newJob.prompt=basePrompt+' <'+t+'>'
-                    request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
+                    request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, guildid: msg.channel.guild.id, attachments: msg.attachments})
                   })
                   lorasToTest.forEach(l=>{
                     newJob.prompt=basePrompt+' withLora('+l+',0.8)'
-                    request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
+                    request({cmd: getCmd(newJob), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, guildid: msg.channel.guild.id, attachments: msg.attachments})
                   })
                 } else {try{bot.createMessage(msg.channel.id, 'No results found for your search, see `/embeds`')}catch(err){debugLog(err)}}
             }
@@ -2100,13 +2169,14 @@ bot.on("messageCreate", (msg) => {
   }
   if (msg.author.id !== bot.id && authorised(msg, msg.channel.id, msg.guildID)) {
     var lines = msg.content.split('\n')
+    //debugLog('msg.channel.id:'+msg.channel.id+',msg.author.id:'+msg.author.id+',msg.channel.id:'+msg.channel.id+',msg.channel.guild.id:'+msg.channel.guild.id+',msg.guildID:'+msg.guildID)
     var re = /^(\d+\.\s*)?(!dream.*)$/
     lines.forEach(line => {
       var match = line.match(re)
       if (match !== null) {
         var c = match[2].split(' ')[0]
         switch (c) {
-          case '!dream':request({cmd: match[2].substr(7), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments})
+          case '!dream':request({cmd: match[2].substr(7), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, guildid: msg.guildID, attachments: msg.attachments})
             break
         }
       }
@@ -2116,7 +2186,6 @@ bot.on("messageCreate", (msg) => {
   if (msg.author.id!==bot.id&&authorised(msg,msg.channel.id,msg.guildID,)){ // Work anywhere its authorized
     switch(c){
       case '!help':{help(msg.channel.id);break}
-      //case '!dream':{request({cmd: msg.content.substr(7, msg.content.length), userid: msg.author.id, username: msg.author.username, discriminator: msg.author.discriminator, bot: msg.author.bot, channelid: msg.channel.id, attachments: msg.attachments});break}
       case '!recharge':rechargePrompt(msg.author.id,msg.channel.id);break
       case '!lexica':lexicaSearch(msg.content.substr(8, msg.content.length),msg.channel.id);break
       case '!meme':{
