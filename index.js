@@ -2,7 +2,6 @@
 const fs = require('fs')
 const config = fs.existsSync('./config/.env') ? require('dotenv').config({ path:'./config/.env'}).parsed : require('dotenv').config().parsed
 if (!config||!config.apiUrl||!config.basePath||!config.channelID||!config.adminID||!config.discordBotKey||!config.pixelLimit||!config.fileWatcher||!config.samplers) { throw('Please re-read the setup instructions at https://github.com/ausbitbank/stable-diffusion-discord-bot , you are missing the required .env configuration file or options') }
-if (config.basePath==="INVOKEAI OUTPUT FOLDER"){ throw('You need to configure the basePath setting in the bots .env file to point to your invokeAI output path')}
 const Eris = require("eris")
 const Constants = Eris.Constants
 const Collection = Eris.Collection
@@ -75,6 +74,8 @@ const basePath = config.basePath
 const maxAnimateImages = 100 // Only will fetch most recent X images for animating
 const allGalleryChannels = fs.existsSync('./config/dbGalleryChannels.json') ? JSON.parse(fs.readFileSync('./config/dbGalleryChannels.json', 'utf8')) : {}
 const allNSFWChannels = fs.existsSync('./config/dbNSFWChannels.json') ? JSON.parse(fs.readFileSync('./config/dbNSFWChannels.json', 'utf8')) : {}
+var nsfwWords=config.nsfwWords?.split(',')||['sex','nude','nudity','nsfw','naked','porn','fuck']
+if(nsfwWords===['']){nsfwWord=[]}
 var rembg=config.rembg||'http://127.0.0.1:5000?url='
 var defaultModel=config.defaultModel||'stable-diffusion-1.5'
 var currentModel='notInitializedYet'
@@ -1451,8 +1452,6 @@ function cancelUser(userid){
   })
   dbWrite()
 }
-
-var nsfwWords=config.nsfwWords?.split(',')||['sex','nude','nudity','nsfw','naked','porn','fuck']
 
 function isPromptSFW(prompt){
   if(!prompt)return true
