@@ -75,7 +75,7 @@ const maxAnimateImages = 100 // Only will fetch most recent X images for animati
 const allGalleryChannels = fs.existsSync('./config/dbGalleryChannels.json') ? JSON.parse(fs.readFileSync('./config/dbGalleryChannels.json', 'utf8')) : {}
 const allNSFWChannels = fs.existsSync('./config/dbNSFWChannels.json') ? JSON.parse(fs.readFileSync('./config/dbNSFWChannels.json', 'utf8')) : {}
 var nsfwWords=config.nsfwWords?.split(',')||['sex','nude','nudity','nsfw','naked','porn','fuck']
-if(nsfwWords===['']){nsfwWord=[]}
+if(config.nsfwWords&&config.nsfwWords===''){nsfwWords=[]}
 var rembg=config.rembg||'http://127.0.0.1:5000?url='
 var defaultModel=config.defaultModel||'stable-diffusion-1.5'
 var currentModel='notInitializedYet'
@@ -345,8 +345,8 @@ async function request(request){
     var channelNsfw=false
     if((channel&&Object.keys(channel).includes('nsfw'))){channelNsfw=channel.nsfw} // enforce consistency, undefined===false & probably DM
     if(channelNsfw===undefined) channelNsfw=false
-    if(nsfwWords.length>0&&!channelNsfw && (request.userid !== request.channelid) && !isPromptSFW(args.prompt)){ // SFW channel, not a DM channel, NSFW prompt // NSFW words defined
-      debugLog('triggered censor - channel.nsfw:'+channelNsfw+' , isPromptSFW:'+isPromptSFW(args.prompt)+' , channelid: '+request.channelid+' , userid: '+request.userid)
+    if(config.nsfwWords!==''&&!channelNsfw&&(request.userid !== request.channelid) && !isPromptSFW(args.prompt)){ // NSFW words defined, SFW channel, not a DM channel, NSFW prompt
+      debugLog('Censoring - Channel is nsfw: '+channelNsfw+' , Prompt is nsfw:'+!isPromptSFW(args.prompt)+' , Channel id: '+request.channelid+' , User id: '+request.userid)
       // todo if SFW channel, attempt to find NSFW channel for guild before falling back to filter prompts
       censoredPrompt=true
       args.prompt=makePromptSFW(args.prompt)
@@ -1466,6 +1466,7 @@ function isPromptSFW(prompt){
 function makePromptSFW(prompt){ 
   time('makePromptSFW')
   if(!prompt)return ''
+  if(nsfwWords===[]) return prompt
   var newPrompt=prompt
   var nsfwWordsRegex = new RegExp('\\b(' + nsfwWords.join('|') + ')', 'g')
   var nwords = newPrompt.match(nsfwWordsRegex)
