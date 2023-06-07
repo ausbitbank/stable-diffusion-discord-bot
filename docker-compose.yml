@@ -4,6 +4,11 @@ services:
   discord-bot:
     build: .
     container_name: stable-diffusion-discord-bot
+    tty: true
+    x-develop:
+      watch:
+        - action: rebuild
+          path: index.js
     volumes:
       - ~/invokeai/outputs:/app/outputs
       - ./config:/app/config
