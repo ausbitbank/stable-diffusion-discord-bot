@@ -3,5 +3,4 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 COPY . .
-RUN npm install -g forever
-CMD ["forever", "index.js"]
+CMD ["node", "index.js"]
