@@ -21,6 +21,8 @@
   "author": "ausbitbank <ausbitbank@gmail.com> (https://ausbit.dev)",
   "dependencies": {
     "@hiveio/hive-js": "^2.0.5",
+    "@tensorflow/tfjs": "^3.21.0",
+    "@tensorflow/tfjs-node": "^4.7.0",
     "axios": "^1.4.0",
     "chokidar": "^3.5.3",
     "colors": "1.4.0",
@@ -35,6 +37,7 @@
     "minimist": "^1.2.6",
     "moment": "^2.29.4",
     "node-cron": "^3.0.2",
+    "nsfwjs": "^2.4.2",
     "sharp-gif2": "^0.1.3",
     "socket.io": "^4.5.2",
     "socket.io-client": "^4.5.2"
