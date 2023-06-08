@@ -27,9 +27,7 @@ const FormData = require('form-data')
 const io = require("socket.io-client")
 const socket = io(config.apiUrl,{reconnect: true})
 const ExifReader = require('exifreader')
-const tf = require('@tensorflow/tfjs-node')
-tf.enableProdMode()
-const nsfwjs = require('nsfwjs')
+if(config.nsfwChecksEnabled==="true"){config.nsfwChecksEnabled=true}else{config.nsfwChecksEnabled=false}
 var paused=false
 var queue = []
 var users = []
@@ -986,6 +984,7 @@ async function postRender(render){
       var channelNsfw=false;var imageNsfw=false // Is this a NSFW channel ?
       if((channel&&Object.keys(channel).includes('nsfw'))){channelNsfw=channel.nsfw}
       if(channelNsfw===undefined) channelNsfw=false
+      if(!config.nsfwChecksEnabled){channelNsfw=true} // bypass if disabled in config
       if(!channelNsfw){ // If in SFW channel, 
         imageNsfw = await isImageNSFW(data) // scan result with nsfwjs
         if(imageNsfw){
@@ -1230,6 +1229,7 @@ async function listEmbeds(channel){ // list available embeds
 }
 
 async function nsfwjsClassify(buffer) {
+  if(!config.nsfwChecksEnabled) return false
   const nsfwjsmodel = await nsfwjs.load()
   var nsfwjstensor3d = await tf.node.decodeImage(buffer,3)// Image must be in tf.tensor3d format
   const nsfwjspredictions = await nsfwjsmodel.classify(nsfwjstensor3d)// you can convert image to tf.tensor3d with tf.node.decodeImage(Uint8Array,channels)
@@ -1238,9 +1238,12 @@ async function nsfwjsClassify(buffer) {
 }
 
 async function isImageNSFW(buffer){
-  var thresholdPorn=0.7
-  //var thresholdSexy=0.9
-  var thresholdHentai=0.7
+  if(!config.nsfwChecksEnabled) return false
+  var thresholdPorn=config.nsfwPornThreshold||0.7
+  var thresholdSexy=config.nsfwSexyThreshold||0.9
+  var thresholdHentai=config.nsfwHentaiThreshold||0.7
+  //var thresholdNeutral=0.7
+  //var thresholdDrawing=0.7
   var predict = await nsfwjsClassify(buffer)
   debugLog(predict)
   if(predict&&predict.length>0){
@@ -2592,7 +2595,16 @@ socket.on('error', (error) => {
   rendering=false
 })
 
+var tf=null;var nsfwjs=null // declare globally
+loadnsfwjs = async()=>{
+  log('loading nsfwjs')
+  tf = await import('@tensorflow/tfjs-node') //update globals
+  nsfwjs = await import('nsfwjs')
+  tf.enableProdMode()
+}
+
 main = async()=>{
+  if(config.nsfwChecksEnabled) loadnsfwjs() // only load if needed
   await bot.connect()
   if(!models){socket.emit('requestSystemConfig')}
   socket.emit("getLoraModels")
