@@ -1,5 +1,7 @@
 // Setup, loading libraries and initial config
 const fs = require('fs')
+const fsPromises = require('fs').promises
+const fsExists = require('fs.promises.exists')
 const config = fs.existsSync('./config/.env') ? require('dotenv').config({ path:'./config/.env'}).parsed : require('dotenv').config().parsed
 if (!config||!config.apiUrl||!config.basePath||!config.channelID||!config.adminID||!config.discordBotKey||!config.pixelLimit||!config.fileWatcher||!config.samplers) { throw('Please re-read the setup instructions at https://github.com/ausbitbank/stable-diffusion-discord-bot , you are missing the required .env configuration file or options') }
 const Eris = require("eris")
@@ -25,11 +27,24 @@ const FormData = require('form-data')
 const io = require("socket.io-client")
 const socket = io(config.apiUrl,{reconnect: true})
 const ExifReader = require('exifreader')
+const tf = require('@tensorflow/tfjs-node')
+tf.enableProdMode()
+const nsfwjs = require('nsfwjs')
 var paused=false
 var queue = []
 var users = []
 var payments = []
 dbRead()
+// Shutdown gracefully
+//const process = require('node:process')
+var signals = {'SIGHUP': 1,'SIGINT': 2,'SIGTERM': 15}
+Object.keys(signals).forEach((signal)=>{
+  process.on(signal, () =>{
+    log('Bye! ('+signal+' '+signals[signal]+')')
+    process.exit(128+signals[signal])
+  })
+})
+
 // Setup scheduler, start repeating checks
 var schedule = []
 var dbScheduleFile='./config/dbSchedule.json' // flat file db for schedule
@@ -37,7 +52,6 @@ dbScheduleRead()
 var cron = require('node-cron')
 // hive payment checks. On startup, every 15 minutes and on a !recharge call
 const hive = require('@hiveio/hive-js')
-const { exit } = require('process')
 if(config.creditsDisabled==='true'){var creditsDisabled=true}else{var creditsDisabled=false}
 if(config.showFilename==='true'){var showFilename=true}else{var showFilename=false}
 if(config.showPreviews==='true'){var showPreviews=true}else{var showPreviews=false}
@@ -346,7 +360,7 @@ async function request(request){
     if((channel&&Object.keys(channel).includes('nsfw'))){channelNsfw=channel.nsfw} // enforce consistency, undefined===false & probably DM
     if(channelNsfw===undefined) channelNsfw=false
     if(config.nsfwWords!==''&&!channelNsfw&&(request.userid !== request.channelid) && !isPromptSFW(args.prompt)){ // NSFW words defined, SFW channel, not a DM channel, NSFW prompt
-      debugLog('Censoring - Channel is nsfw: '+channelNsfw+' , Prompt is nsfw:'+!isPromptSFW(args.prompt)+' , Channel id: '+request.channelid+' , User id: '+request.userid)
+      debugLog('Censoring Prompt - Channel is nsfw: '+channelNsfw+' , Prompt is nsfw:'+!isPromptSFW(args.prompt)+' , Channel id: '+request.channelid+' , User id: '+request.userid)
       // todo if SFW channel, attempt to find NSFW channel for guild before falling back to filter prompts
       censoredPrompt=true
       args.prompt=makePromptSFW(args.prompt)
@@ -448,7 +462,7 @@ function queueStatus() {
     if(next&&next.channel!=='webhook'){var chan=next.channel}else{var chan=config.channelID}
     if(dialogs.queue!==null){
       if(dialogs.queue.channel.id!==next.channel){dialogs.queue.delete().catch((err)=>{}).then(()=>{dialogs.queue=null})}
-      if(showPreviews&&intermediateImage!==null){
+      if(showPreviews&&intermediateImage!==null){ // todo check if channel is nsfw, hide if not
         var previewImg=intermediateImage
         if(previewImg!==null){statusObj.file={file:previewImg,contentType:'image/png',name:next.id+'.png'}}
       }
@@ -606,7 +620,7 @@ function freeRecharge(){
   }
 }
 
-function dbWrite() {
+/*function dbWrite() {
   time('dbWrite')
   const files = [{name:'./config/dbQueue.json',data:{queue:queue}},{name:'./config/dbUsers.json',data:{users:users}},{name:'./config/dbPayments.json',data:{payments:payments}}] 
   files.forEach((file) => {
@@ -618,7 +632,25 @@ function dbWrite() {
     }
   })
   timeEnd('dbWrite')
+}*/
+
+async function dbWrite() {
+  time('dbWrite')
+  const files = [{name:'./config/dbQueue.json',data:{queue:queue}},{name:'./config/dbUsers.json',data:{users:users}},{name:'./config/dbPayments.json',data:{payments:payments}}] 
+  files.forEach(async (file) => {
+    const dataExists = await fsExists(file.name)
+    var dataOnDisk = await fsPromises.readFile(file.name,'utf8')
+    const dataIsDifferent = dataExists && JSON.stringify(file.data) !== dataOnDisk
+    if(dataIsDifferent){
+      try{
+        await fsPromises.writeFile(`${file.name}.tmp.json`, JSON.stringify(file.data))
+        await fsPromises.rename(`${file.name}.tmp.json`, file.name)
+      }catch(err){log('Failed to write db file'.bgRed);log(err)}
+    }
+  })
+  timeEnd('dbWrite')
 }
+dbWrite=debounce(dbWrite,10000,true) // at least 15 seconds between writes
 
 function dbRead() {
   time('dbRead')
@@ -918,10 +950,8 @@ async function postRender(render){
   time('postRender')
   try{fs.readFile(render.filename, null, async function(err, data){
     if(err){console.error(err)}else{
-      // TODO: OS agnostic folder seperators
       // NOTE: filename being wrong wasn't breaking because slashes get replaced automatically in createMessage, but makes filename long/ugly
-      filename=render.filename.split('\\')[render.filename.split('\\').length-1].replace(".png","") // win
-      //filename=render.filename.split('/')[render.filename.split('/').length-1].replace(".png","") // lin
+      filename=render.filename.split('\\')[render.filename.split('\\').length-1].replace(".png","")
       var job=queue[queue.findIndex(x=>x.id===render.id)]
       var msg=':brain:<@'+job.userid+'>'
       if (showRenderSettings){
@@ -950,7 +980,19 @@ async function postRender(render){
         chargeCredits(job.userid,(costCalculator(job))/job.number) // only charge successful renders, if enabled
         msg+=':coin:`'+(job.cost/job.number).toFixed(2).replace(/[.,]00$/, "")+'/'+ creditsRemaining(job.userid) +'`'
       }
+      var postFilename=filename+'.png'
       var nsfwWarning = job.censoredPrompt ? ':warning: **NSFW prompt modified for SFW channel**\n' : ''
+      var channel = job.channel ? await bot.getChannel(job.channel) : undefined
+      var channelNsfw=false;var imageNsfw=false // Is this a NSFW channel ?
+      if((channel&&Object.keys(channel).includes('nsfw'))){channelNsfw=channel.nsfw}
+      if(channelNsfw===undefined) channelNsfw=false
+      if(!channelNsfw){ // If in SFW channel, 
+        imageNsfw = await isImageNSFW(data) // scan result with nsfwjs
+        if(imageNsfw){
+          postFilename='SPOILER_'+postFilename
+          nsfwWarning+=':see_no_evil: **Possible NFSW image detected in SFW channel**\n'
+        }
+      }
       var newMessage = { content: msg, embeds: [{description: nsfwWarning+job.prompt, color: getRandomColorDec()}], components: [ { type: 1, components: [ ] } ] }
       if(job.prompt.replaceAll(' ','').length===0){newMessage.embeds=[]}
       newMessage.components[0].components.push({ type: 2, style: 2, label: "ReDream", custom_id: "refresh-" + job.id, emoji: { name: '🎲', id: null}, disabled: false })
@@ -958,10 +1000,11 @@ async function postRender(render){
       newMessage.components[0].components.push({ type: 2, style: 2, label: "Tweak", custom_id: "tweak-"+job.id+'-'+render.resultNumber, emoji: { name: '🧪', id: null}, disabled: false })
       if(newMessage.components[0].components.length<5){newMessage.components[0].components.push({ type: 2, style: 2, label: "Random", custom_id: "editRandom-"+job.id, emoji: { name: '🔀', id: null}, disabled: false })}
       if(newMessage.components[0].components.length===0){delete newMessage.components} // If no components are used there will be a discord api error so remove it
-      var filesize=fs.statSync(render.filename).size
+      var filestats=await fsPromises.stat(render.filename)
+      var filesize=filestats.size
       if(filesize<defaultMaxDiscordFileSize){ // Within discord 25mb filesize limit
         try{
-          bot.createMessage(job.channel, newMessage, {file: data, name: filename + '.png'})
+          bot.createMessage(job.channel, newMessage, {file: data, name: postFilename})
             .then(async m=>{
               debugLog('Posted msg id '+m.id+' to channel id '+m.channel.id)
               if(m.attachments.length>0){debugLog('"'+job.prompt+'" - '+m.attachments[0].proxy_url)}
@@ -1186,6 +1229,32 @@ async function listEmbeds(channel){ // list available embeds
   sliceMsg(newMsg).forEach((m)=>{try{bot.createMessage(channel, m)}catch(err){debugLog(err)}})
 }
 
+async function nsfwjsClassify(buffer) {
+  const nsfwjsmodel = await nsfwjs.load()
+  var nsfwjstensor3d = await tf.node.decodeImage(buffer,3)// Image must be in tf.tensor3d format
+  const nsfwjspredictions = await nsfwjsmodel.classify(nsfwjstensor3d)// you can convert image to tf.tensor3d with tf.node.decodeImage(Uint8Array,channels)
+  nsfwjstensor3d.dispose() // Tensor memory must be managed explicitly (it is not sufficient to let a tf.Tensor go out of scope for its memory to be released).
+  return nsfwjspredictions
+}
+
+async function isImageNSFW(buffer){
+  var thresholdPorn=0.7
+  //var thresholdSexy=0.9
+  var thresholdHentai=0.7
+  var predict = await nsfwjsClassify(buffer)
+  debugLog(predict)
+  if(predict&&predict.length>0){
+    log('Image is '+predict[0].className+' with '+(predict[0].probability*100).toFixed(0)+'% confidence')
+    var probabilityPorn = predict.find(p=>p.className==='Porn').probability
+    if(probabilityPorn>thresholdPorn) return true
+    //var probabilitySexy = predict.find(p=>p.className==='Sexy').probability
+    //if(probabilitySexy>thresholdSexy) return true
+    var probabilityHentai = predict.find(p=>p.className==='Hentai').probability
+    if(probabilityHentai>thresholdHentai) return true
+    return false
+  }
+}
+
 async function meme(prompt,urls,userid,channel){
   time('meme')
   params = prompt.split(' ')
@@ -1380,7 +1449,7 @@ async function metaDataMsg(imageurl,channel){
   if(newMsg.length>0&&newMsg.length<10000){sliceMsg(newMsg).forEach((m)=>{try{bot.createMessage(channel, m)}catch(err){debugLog(err)}})} else {debugLog('Aborting metadata message, response too long')}
 }
 
-function process (file){// Monitor new files entering watchFolder, post image with filename.
+function processFile(file){// Monitor new files entering watchFolder, post image with filename.
   try {
     if (file.endsWith('.png')||file.endsWith('jpg')){
       fs.readFile(file, null, function(err, data) {
@@ -1395,7 +1464,7 @@ function process (file){// Monitor new files entering watchFolder, post image wi
 }
 if(config.filewatcher==="true") {
   const renders=chokidar.watch(config.watchFolder, {persistent: true,ignoreInitial: true,usePolling: false,awaitWriteFinish:{stabilityThreshold: 500,pollInterval: 500}})
-  renders.on('add',file=>{process(file)})
+  renders.on('add',file=>{processFile(file)})
 }
 function tidyNumber (x) {if (x) {var parts = x.toString().split('.');parts[0] = parts[0].replaceAll(/\B(?=(\d{3})+(?!\d))/g, ',');return parts.join('.')}else{return null}}
 function sliceMsg(str) {
@@ -1466,11 +1535,11 @@ function isPromptSFW(prompt){
 function makePromptSFW(prompt){ 
   time('makePromptSFW')
   if(!prompt)return ''
-  if(nsfwWords===[]) return prompt
+  if(nsfwWords.length===0) return prompt
   var newPrompt=prompt
   var nsfwWordsRegex = new RegExp('\\b(' + nsfwWords.join('|') + ')', 'g')
   var nwords = newPrompt.match(nsfwWordsRegex)
-  if(nwords?.length>0){nwords.forEach((w)=>{newPrompt = newPrompt.replace('['+w+']','').replace(w,'['+w+']')})} // remove term from orig prompt, replace with negative
+  if(nwords?.length>0){nwords.forEach((w)=>{newPrompt = newPrompt.replaceAll('['+w+']','').replaceAll(w,'['+w+']')})} // remove term from orig prompt, replace with negative
   timeEnd('makePromptSFW')
   return newPrompt
 }
@@ -2522,8 +2591,12 @@ socket.on('error', (error) => {
   }
   rendering=false
 })
+
+main = async()=>{
+  await bot.connect()
+  if(!models){socket.emit('requestSystemConfig')}
+  socket.emit("getLoraModels")
+  socket.emit("getTextualInversionTriggers")
+}
 // Actual start of execution flow
-bot.connect()
-if(!models){socket.emit('requestSystemConfig')}
-socket.emit("getLoraModels")
-socket.emit("getTextualInversionTriggers")
+main()
