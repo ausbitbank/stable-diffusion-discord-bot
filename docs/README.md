@@ -1,4 +1,4 @@
-# stable-diffusion-discord-bot
+![stable-diffusion-discord-bot](https://github.com/ausbitbank/stable-diffusion-discord-bot/assets/1692203/ab84734b-1c40-4216-8c5b-14cecc93f69d)
 
 A discord bot built to interface with the [InvokeAI](https://github.com/invoke-ai/InvokeAI) fork of stable-diffusion.
 
