@@ -83,6 +83,7 @@ const maxSteps = parseInt(config.maxSteps)||100
 const maxIterations = parseInt(config.maxIterations)||10
 const defaultMaxDiscordFileSize=parseInt(config.defaultMaxDiscordFileSize)||25000000
 const basePath = config.basePath
+const invokePath = config.invokePath ? config.invokePath : config.basePath
 const maxAnimateImages = 100 // Only will fetch most recent X images for animating
 const allGalleryChannels = fs.existsSync('./config/dbGalleryChannels.json') ? JSON.parse(fs.readFileSync('./config/dbGalleryChannels.json', 'utf8')) : {}
 const allNSFWChannels = fs.existsSync('./config/dbNSFWChannels.json') ? JSON.parse(fs.readFileSync('./config/dbNSFWChannels.json', 'utf8')) : {}
@@ -648,7 +649,7 @@ async function dbWrite() {
   })
   timeEnd('dbWrite')
 }
-dbWrite=debounce(dbWrite,10000,true) // at least 15 seconds between writes
+dbWrite=debounce(dbWrite,10000,true) // at least 10 seconds between writes
 
 function dbRead() {
   time('dbRead')
@@ -699,7 +700,7 @@ function getPrices () {
     .then((response)=>{hiveUsd=response.data[0].current_price;lastHiveUsd=hiveUsd;log('HIVE: $'+hiveUsd)})
     .catch(()=>{
       log('Failed to load data from coingecko api, trying internal market'.red.bold)
-      axios.post('https://rpc.ausbit.dev/', {id: 1,jsonrpc: '2.0',method: 'condenser_api.get_ticker',params: []})
+      axios.post(hiveEndpoints[0], {id: 1,jsonrpc: '2.0',method: 'condenser_api.get_ticker',params: []})
         .then((hresponse)=>{hiveUsd=parseFloat(hresponse.data.result.latest);log('HIVE (internal market): $'+hiveUsd)})
         .catch((err)=>{log('Failed to load data from hive market api');log(err);hiveUsd=lastHiveUsd})
     })
@@ -808,9 +809,6 @@ async function checkNewPayments(){
       }
     })
   }
-  // todo tip.cc payments
-  if(config.allowTipccPayments){
-  }
   timeEnd('checkNewPayments')
 }
 checkNewPayments=debounce(checkNewPayments,30000,true) // at least 30 seconds between checks
@@ -819,14 +817,6 @@ function sendWebhook(job){ // TODO eris has its own internal webhook method, inv
   axios({method:"POST",url:job.webhook.url,headers:{ "Content-Type": "application/json" },data:JSON.stringify({embeds})})
     .then((response) => {log("Webhook delivered successfully")})
     .catch((error) => {console.error(error)})
-}
-function postprocessingResult(data){ // TODO unfinished, untested, awaiting new invokeai api release
-  //log(data)
-  var url=data.url
-  url=config.basePath+data.url.split('/')[data.url.split('/').length-1]
-  var postRenderObject={filename: url, seed: data.metadata.image.seed, width:data.metadata.image.width,height:data.metadata.image.height}
-  //log(postRenderObject)
-  //postRender(postRenderObject)
 }
 function requestModelChange(newmodel){log('Requesting model change to '+newmodel);if(newmodel===undefined||newmodel==='undefined'){newmodel=defaultModel}socket.emit('requestModelChange',newmodel,()=>{log('requestModelChange loaded')})}
 function generationResult(data){
@@ -845,17 +835,6 @@ function generationResult(data){
   if(dialogs.queue!==null){dialogs.queue.delete().catch((err)=>{}).then(()=>{dialogs.queue=null;intermediateImage=null})}
   timeEnd('generationResult')
 }
-function initialImageUploaded(data){
-  var filename=config.basePath+"/"+data.url.replace('outputs/','')
-  var id=data.url.split('/')[data.url.split('/').length-1].split('.')[0]
-  var job=queue[id-1]
-  if(job){job.init_img=filename;emitRenderApi(job)}
-}// response unparsed 42["imageUploaded",{"url":"outputs/init-images/002834.4241631408.postprocessed.40678651.png","mtime":1667534834.4564033,"width":1920,"height":1024,"category":"user","destination":"img2img"}]
-function runPostProcessing(result, options){socket.emit('runPostProcessing',result,options)}//options={"type":"gfpgan","gfpgan_strength":0.8}
-// capture result
-// 42["postprocessingResult",{"url":"outputs/000313.3208696952.postprocessed.png","mtime":1665588046.4130075,"metadata":{"model":"stable diffusion","model_id":"stable-diffusion-1.4","model_hash":"fe4efff1e174c627256e44ec2991ba279b3816e364b49f9be2abc0b3ff3f8556","app_id":"lstein/stable-diffusion","app_version":"v1.15","image":{"prompt":[{"prompt":"insanely detailed. instagram photo, kodak portra. by wlop, ilya kuvshinov, krenz cushart, greg rutkowski, pixiv. zbrush sculpt, octane, maya, houdini, vfx. closeup anonymous by ayami kojima in gran turismo for ps 5 cinematic dramatic atmosphere, sharp focus, volumetric lighting","weight":1.0}],"steps":50,"cfg_scale":7.5,"threshold":0,"perlin":0,"width":512,"height":512,"seed":3208696952,"seamless":false,"postprocessing":[{"type":"gfpgan","strength":0.8}],"sampler":"k_lms","variations":[],"type":"txt2img"}}}]
-//{type:'gfpgan',gfpgan_strength:0.8}
-//{"type":"esrgan","upscale":[4,0.75]}
 
 async function emitRenderApi(job){
   var prompt=job.prompt
@@ -912,12 +891,15 @@ async function addRenderApi(id){
   job.status='rendering'
   if(job.attachments[0]&&job.attachments[0].content_type&&job.attachments[0].content_type.startsWith('image')){
     log('fetching attachment from '.bgRed + job.attachments[0].proxy_url)
+    time('get attachment')
     await axios.get(job.attachments[0].proxy_url,{responseType: 'arraybuffer'})
       .then(res=>{initimg = Buffer.from(res.data)})
       .catch(err=>{ console.error('unable to fetch url: ' + job.attachments[0].proxy_url); console.error(err) })
+    timeEnd('get attachment')
   }
   if (initimg!==null){
     debugLog('uploadInitialImage')
+    time('upload image to invokeai')
     let form = new FormData()
     form.append("data",JSON.stringify({kind:'init'}))
     form.append("file",initimg,{contentType:'image/png',filename:job.id+'.png'})
@@ -933,15 +915,13 @@ async function addRenderApi(id){
     getHeaders(form).then((headers)=>{
       return axios.post(config.apiUrl+'/upload',form, {headers:headers})
     }).then((response)=>{
-      debugLog('initimg: '+response.data.url)
-      var filename=config.basePath+"/"+response.data.url.replace('outputs/','')
-      job.init_img=filename
+      timeEnd('upload image to invokeai')
+      // also have template width, height,mtime,thumbnail in response
+      job.init_img=invokePath+'/'+response.data.url.replace('outputs/','')
       job.initimg=null
       emitRenderApi(job)
     }).catch((error) => console.error(error))
-  }else{
-    emitRenderApi(job)
-  }
+  }else{emitRenderApi(job)}
   timeEnd('addRenderApi')
 }
 async function postRender(render){
@@ -1240,7 +1220,7 @@ async function nsfwjsClassify(buffer) {
 async function isImageNSFW(buffer){
   if(!config.nsfwChecksEnabled) return false
   var thresholdPorn=config.nsfwPornThreshold||0.7
-  var thresholdSexy=config.nsfwSexyThreshold||0.9
+  var thresholdSexy=config.nsfwSexyThreshold||0.7
   var thresholdHentai=config.nsfwHentaiThreshold||0.7
   //var thresholdNeutral=0.7
   //var thresholdDrawing=0.7
@@ -1250,8 +1230,8 @@ async function isImageNSFW(buffer){
     log('Image is '+predict[0].className+' with '+(predict[0].probability*100).toFixed(0)+'% confidence')
     var probabilityPorn = predict.find(p=>p.className==='Porn').probability
     if(probabilityPorn>thresholdPorn) return true
-    //var probabilitySexy = predict.find(p=>p.className==='Sexy').probability
-    //if(probabilitySexy>thresholdSexy) return true
+    var probabilitySexy = predict.find(p=>p.className==='Sexy').probability
+    if(probabilitySexy>thresholdSexy) return true
     var probabilityHentai = predict.find(p=>p.className==='Hentai').probability
     if(probabilityHentai>thresholdHentai) return true
     return false
@@ -2546,8 +2526,6 @@ bot.on("messageCreate", (msg) => {
 //socket.on("connect", (socket) => {log(socket)})
 socket.on("generationResult", (data) => {generationResult(data)})
 socket.on("postprocessingResult", (data) => {postprocessingResult(data)})
-socket.on("initialImageUploaded", (data) => {debugLog('got init image uploaded');initialImageUploaded(data)})
-socket.on("imageUploaded", (data) => {debugLog('got image uploaded');initialImageUploaded(data)})
 socket.on("systemConfig", (data) => {debugLog('systemConfig received');currentModel=data.model_weights;models=data.model_list})
 socket.on("modelChanged", (data) => {currentModel=data.model_name;models=data.model_list;debugLog('modelChanged to '+currentModel)})
 var progressUpdate = {currentStep: 0,totalSteps: 0,currentIteration: 0,totalIterations: 0,currentStatus: 'Initializing',isProcessing: false,currentStatusHasSteps: true,hasError: false}
