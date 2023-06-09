@@ -2,6 +2,7 @@
 
 A discord bot built to interface with the [InvokeAI](https://github.com/invoke-ai/InvokeAI) fork of stable-diffusion.
 
+[![top.gg](https://top.gg/api/widget/servers/973484171534172170.svg)](https://top.gg/bot/973484171534172170)
 ![discord](https://img.shields.io/discord/419390618209353730?style=plastic)
 ![license](https://img.shields.io/github/license/ausbitbank/stable-diffusion-discord-bot?style=plastic)
 ![size](https://img.shields.io/github/repo-size/ausbitbank/stable-diffusion-discord-bot?style=plastic)
