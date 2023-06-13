@@ -53,6 +53,7 @@ if(config.creditsDisabled==='true'){var creditsDisabled=true}else{var creditsDis
 if(config.showFilename==='true'){var showFilename=true}else{var showFilename=false}
 if(config.showPreviews==='true'){var showPreviews=true}else{var showPreviews=false}
 if(config.showRenderSettings==='true'){var showRenderSettings=true}else{var showRenderSettings=false}
+if(config.statsAdminOnly==='true'){var statsAdminOnly=true}else{var statsAdminOnly=false}
 if(config.hivePaymentAddress.length>0 && !creditsDisabled){
   var hiveEndpoints = ['https://rpc.ausbit.dev','https://api.hive.blog','https://api.deathwing.me','https://api.c0ff33a.uk','https://hived.emre.sh','https://hive-api.arcange.eu','https://api.hive.blue','https://techcoderx.com','https://hive-api.3speak.tv','https://rpc.mahdiyari.info']
   shuffle(hiveEndpoints)
@@ -2559,7 +2560,14 @@ bot.on("messageCreate", (msg) => {
         break
       }
       case '!embeds':{listEmbeds(msg.channel.id);break}
-      case '!stats':{getStats(msg.channel.id,msg.content.split(' ')[1],msg.content.split(' ')[2],msg.content.split(' ')[3]);break}
+      case '!stats':{
+        if(msg.author.id!==config.adminID&&statsAdminOnly){ // not allowed if non-admin and admin only 
+          log('rejected attempt to view stats by non-admin')
+        } else {
+          getStats(msg.channel.id,msg.content.split(' ')[1],msg.content.split(' ')[2],msg.content.split(' ')[3])
+        }
+        break
+      }
     }
   if (msg.author.id===config.adminID) { // admins only
     if (c.startsWith('!')){log('admin command: '.bgRed+c)}
