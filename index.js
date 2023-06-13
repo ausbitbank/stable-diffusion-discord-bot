@@ -2696,6 +2696,7 @@ getStats = async(channel,unit=30,period="days",max=50)=>{
     userindex=topUsers.findIndex(u=>u.id===j.userid) // find index of user in user db
     if(userindex===-1){topUsers.push({'id':j.userid, 'count':j.number, 'username':j.username});userindex=topUsers.findIndex(u=>u.id===j.userid)} // if user not in stat count, add them and find index
     topUsers[userindex].count = topUsers[userindex].count + j.number // add renders to users count
+    if(topUsers[userindex].username!==j.username)topUsers[userindex].username=j.username // display most recent username
     // channel counts
     channelindex=topChannels.findIndex(c=>c.id===j.channel) // find job channel
     if(topChannels.findIndex(c=>c.id===j.channel)===-1){topChannels.push({'id':j.channel, 'count':1});channelindex=topChannels.findIndex(c=>c.id===j.channel)} // if not in stat count, add them and find index
@@ -2703,7 +2704,7 @@ getStats = async(channel,unit=30,period="days",max=50)=>{
   }
   // todo calculate buyers, add to topUsers[userindex].bought
   //for (var p of payments){} // txid can be txid,transfer,free,manual
-  var response='\n**'+c+'** jobs in '+bot.guilds.size+' guilds in the last :stopwatch: **'+unit+' '+period+'**'
+  var response='\n**'+c+'** jobs in **'+bot.guilds.size+'** guilds in the last :stopwatch: **'+unit+' '+period+'**'
   var topxUsers = topUsers.sort((b,a)=>a.count-b.count).slice(0,max)
   response+='\n**Top '+topxUsers.length+'** :artist: users of **'+topUsers.length+'** active'
   awards=[':first_place:',':second_place:',':third_place:',':cookie:']
@@ -2738,7 +2739,7 @@ getStats=debounce(getStats,10000,true)
 main = async()=>{
   if(config.nsfwChecksEnabled) loadnsfwjs() // only load if needed
   await bot.connect()
-  if(config.topggKey.length>0){loadtopggposter()}
+  if(config.topggKey&&config.topggKey.length>0){loadtopggposter()}
   if(!models){socket.emit('requestSystemConfig')}
   socket.emit("getLoraModels")
   socket.emit("getTextualInversionTriggers")
