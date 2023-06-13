@@ -1,20 +1,33 @@
 version: '3'
 
 services:
-  discord-bot:
+  # stable-diffusion-discord-bot
+  arty:
     build: .
     container_name: stable-diffusion-discord-bot
-    tty: true
-    x-develop:
-      watch:
-        - action: rebuild
-          path: index.js
+    tty: true # enable colorized logs
+    restart: always # should this be on-failure ?
     volumes:
-      - ~/invokeai/outputs:/app/outputs
-      - ./config:/app/config
-      - ./txt:/app/txt
+      - ~/invokeai/outputs:/app/outputs # Invokeai render output folder default settings
+      - ./config:/app/config # configuration file and database folder that must persist
+      - ./txt:/app/txt # randomizer files
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # Allow refering to host gateway to access rembg (more reliable then hostname?)
+  # Background removal
   rembg:
     image: "danielgatis/rembg"
+    container_name: rembg
+    restart: always
     ports:
-    - "5000"
+      - "127.0.0.1:5000:5000"
     entrypoint: "rembg s"
+  # Redis database system WIP
+  #redis:
+  #  container_name: redis
+  #  image: "redis/redis-stack:latest"
+  #  ports:
+  #    - "6379:6379"
+  #    - "8001:8001"
+  #  volumes:
+  #    - ./config/redis:/data
+
