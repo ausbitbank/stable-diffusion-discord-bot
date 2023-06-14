@@ -357,11 +357,14 @@ async function request(request){
   // todo can we tell if the user themselves are age verified besides requesting inside nsfw channel ?
   var censoredPrompt=false
   try{
-    var channel = request.channelid ? await bot.getChannel(request.channelid) : undefined
+    var channel=undefined
+    if(request.channelid){channel = await bot.getChannel(request.channelid)}
     var channelNsfw=false
+    if(!channel){channelNsfw=true} // If missing channel completely its a DM, enable nsfw
     if((channel&&Object.keys(channel).includes('nsfw'))){channelNsfw=channel.nsfw} // enforce consistency, undefined===false & probably DM
     if(channelNsfw===undefined) channelNsfw=false
-    if(config.nsfwWords!==''&&!channelNsfw&&(request.userid !== request.channelid) && !isPromptSFW(args.prompt)){ // NSFW words defined, SFW channel, not a DM channel, NSFW prompt
+    if(config.nsfwWords===''||config.nsfwWords===undefined||config.nsfwWords.length===0) channelNsfw=true // if wordlist disabled, skip
+    if(!channelNsfw&&!isPromptSFW(args.prompt)){ // NSFW words defined, SFW channel, not a DM channel, NSFW prompt
       debugLog(('Censoring Prompt - Channel is nsfw: '+channelNsfw+' , Prompt is nsfw:'+!isPromptSFW(args.prompt)+' , Channel id: '+request.channelid+' , User id: '+request.userid).bgRed.black)
       // todo if SFW channel, attempt to find NSFW channel for guild before falling back to filter prompts
       censoredPrompt=true
@@ -513,7 +516,6 @@ function sanitize(prompt){
   if(config.bannedWords.length>0){config.bannedWords.split(',').forEach((bannedWord,index)=>{var regex = new RegExp(bannedWord, 'gi');prompt=prompt.replaceAll(regex,'')})}
   return prompt.replaceAll(/[^一-龠ぁ-ゔァ-ヴーa-zA-Z0-9_ａ-ｚＡ-Ｚ０-９々〆〤ヶ+()=!\"\&\*\[\]<>\\\/\- ,.\:\u0023-\u0039\u200D\u20E3\u2194-\u2199\u21A9-\u21AA\u231A-\u231B\u23E9-\u23EC\u23F0\u23F3\u25AA-\u25AB\u25B6\u25C0\u25FB-\u25FE\u2600-\u2604\u260E\u2611\u2614-\u2615\u261D\u263A\u2648-\u2653\u2660\u2663\u2665-\u2666\u2668\u267B\u267F\u2693\u26A0-\u26A1\u26AA-\u26AB\u26BD-\u26BE\u26C4-\u26C5\u26CE\u26D1\u26D3-\u26D4\u26E9\u26F0-\u26F5\u26F7-\u26FA\u26FD\u2702\u2705\u2708-\u270D\u270F\u2712\u2714\u2716\u271D\u2721\u2733-\u2734\u2744\u2747\u274C-\u274D\u274E\u2753-\u2755\u2757\u2763-\u2764\u2795-\u2797\u27A1\u27B0\u27BF\u2934-\u2935\u2B05-\u2B07\u2B1B-\u2B1C\u2B50\u2B55\u3030\u303D\u3297\u3299àáâãäåçèéêëìíîïñòóôõöøùúûüýÿ\u00A0\uFEFF]/g, '').replaceAll('`','')
 }
-function base64Encode(file){var body=fs.readFileSync(file);return body.toString('base64')}
 function authorised(who,channel,guild) {
   if (userid===config.adminID){return true} // always allow admin
   var bannedUsers=[];var allowedGuilds=[];var allowedChannels=[];var ignoredChannels=[];var userid=null;var username=null
@@ -718,7 +720,7 @@ function getPixelStepsTotal(jobArray){
 function balancePrompt(userid,channel){
   userCreditCheck(userid,1) // make sure the account exists first
   var msg='<@'+userid+'> you have `'+creditsRemaining(userid)+'` :coin:'
-  try{bot.createMessage(channel,msg)}catch(err){log(err)}
+  bot.createMessage(channel,msg).then().catch(err=>{log(err)})
 }
 function rechargePrompt(userid,channel){
   userCreditCheck(userid,1) // make sure the account exists first
@@ -806,7 +808,7 @@ async function checkNewPayments(){
   timeEnd('checkNewPayments')
 }
 checkNewPayments=debounce(checkNewPayments,30000,true) // at least 30 seconds between checks
-function sendWebhook(job){ // TODO eris has its own internal webhook method, investigate and maybe replace this
+const sendWebhook=(job)=>{ // TODO eris has its own internal webhook method, investigate and maybe replace this
   let embeds=[{color:getRandomColorDec(),footer:{text:job.prompt},image:{url:job.webhook.imgurl}}]
   axios({method:"POST",url:job.webhook.url,headers:{ "Content-Type": "application/json" },data:JSON.stringify({embeds})})
     .then((response) => {log("Webhook delivered successfully")})
@@ -830,101 +832,14 @@ function generationResult(data){
   timeEnd('generationResult')
 }
 
-async function emitRenderApi(job){
-  var prompt=job.prompt
-  var postObject={
-      "prompt": prompt,
-      "iterations": job.number,
-      "steps": job.steps,
-      "cfg_scale": job.scale,
-      "threshold": job.threshold,
-      "perlin": job.perlin,
-      "sampler_name": job.sampler,
-      "width": job.width,
-      "height": job.height,
-      "seed": job.seed,
-      "progress_images": false,
-      "variation_amount": job.variation_amount,
-      "strength": job.strength,
-      "fit": true,
-      "progress_latents": true,
-      "generation_mode": 'txt2img',
-      "infill_method": 'patchmatch'
-  }
-  if(job.text_mask){
-    var mask_strength=0.5
-    if(job.mask_strength){mask_strength=job.mask_strength}
-    if(job.invert_mask&&job.invert_mask===true){postObject.invert_mask=true}
-    log('adding text mask');postObject.text_mask=[job.text_mask,mask_strength]
-  }
-  if(job.with_variations.length>0){log('adding with variations');postObject.with_variations=job.with_variations}
-  if(job.seamless&&job.seamless===true){postObject.seamless=true}
-  if(job.hires_fix&&job.hires_fix===true){postObject.hires_fix=true}
-  var upscale=false
-  var facefix=false
-  if(job.gfpgan_strength!==0){facefix={type:'gfpgan',strength:job.gfpgan_strength}}
-  if (job.codeformer_strength===undefined){job.codeformer_strength=0}
-  if(job.codeformer_strength!==0){facefix={type:'codeformer',strength:job.codeformer_strength,codeformer_fidelity:1}}
-  if(job.upscale_level!==''){upscale={level:job.upscale_level,strength:job.upscale_strength,denoise_str: 0.75}}
-  if(job.symh||job.symv){postObject.h_symmetry_time_pct=job.symh;postObject.v_symmetry_time_pct=job.symv}
-  if(job.init_img){postObject.init_img=job.init_img}
-  if(job&&job.model&&currentModel&&job.model!==currentModel){debugLog('job.model is different to currentModel, switching');requestModelChange(job.model)}
-  [postObject,upscale,facefix,job].forEach((o)=>{
-    var key=getObjKey(o,undefined)
-    if(key!==undefined){log('Missing property for '+key);if(key==='codeformer_strength'){upscale.strength=0}} // not undefined in this context means there is a key that IS undefined, confusing
-  })
-  socket.emit('generateImage',postObject,upscale,facefix)
-  dbWrite() // can we gracefully recover if we restart right after sending the request to backend?
-  //debugLog('sent request',postObject,upscale,facefix)
-}
-function getObjKey(obj, value){return Object.keys(obj).find(key=>obj[key]===value)}
-async function addRenderApi(id){
-  time('addRenderApi')
-  var job=queue[queue.findIndex(x=>x.id===id)]
-  var initimg=null
-  job.status='rendering'
-  if(job.attachments[0]&&job.attachments[0].content_type&&job.attachments[0].content_type.startsWith('image')){
-    log('fetching attachment from '.bgRed + job.attachments[0].proxy_url)
-    time('get attachment')
-    await axios.get(job.attachments[0].proxy_url,{responseType: 'arraybuffer'})
-      .then(res=>{initimg = Buffer.from(res.data)})
-      .catch(err=>{ console.error('unable to fetch url: ' + job.attachments[0].proxy_url); console.error(err) })
-    timeEnd('get attachment')
-  }
-  if (initimg!==null){
-    debugLog('uploadInitialImage')
-    time('upload image to invokeai')
-    let form = new FormData()
-    form.append("data",JSON.stringify({kind:'init'}))
-    form.append("file",initimg,{contentType:'image/png',filename:job.id+'.png'})
-    function getHeaders(form) {
-      return new Promise((resolve, reject) => {
-          form.getLength((err, length) => {
-              if(err) { reject(err) }
-              let headers = Object.assign({'Content-Length': length}, form.getHeaders())
-              resolve(headers)
-           })
-      })
-    }
-    getHeaders(form).then((headers)=>{
-      return axios.post(config.apiUrl+'/upload',form, {headers:headers})
-    }).then((response)=>{
-      timeEnd('upload image to invokeai')
-      // also have template width, height,mtime,thumbnail in response
-      job.init_img=invokePath+'/'+response.data.url.replace('outputs/','')
-      job.initimg=null
-      emitRenderApi(job)
-    }).catch((error) => console.error(error))
-  }else{emitRenderApi(job)}
-  timeEnd('addRenderApi')
-}
 async function postRender(render){
   time('postRender')
   try{fs.readFile(render.filename, null, async function(err, data){
     if(err){console.error(err)}else{
       // NOTE: filename being wrong wasn't breaking because slashes get replaced automatically in createMessage, but makes filename long/ugly
       filename=render.filename.split('\\')[render.filename.split('\\').length-1].replace(".png","")
-      var job=queue[queue.findIndex(x=>x.id===render.id)]
+      //var job=queue[queue.findIndex(x=>x.id===render.id)]
+      var job=idToJob(render.id)
       var msg=':brain:<@'+job.userid+'>'
       if (showRenderSettings){
         msg+=':straight_ruler:`'+render.width+'x'+render.height+'`'
@@ -999,16 +914,24 @@ async function postRender(render){
   timeEnd('postRender')
 }
 
-async function repostFails(){ // bugged ? sometimes failing to repost in channels where new posts work fine // DiscordRestError [50001]: Missing Access
-  debugLog('Attempting to repost '+failedToPost.length+' failed message')
+var repostFailCount=0
+var repostFailLimit=5 // dont try to repost indefinately
+async function repostFails(){
   failedToPost.forEach((p)=>{
       bot.createMessage(p.channel,p.msg,{file:p.file,name:p.filename})
-        .then(m=>{debugLog('successfully reposted failed image');failedToPost=failedToPost.filter(f=>{f.file!==p.file})}) // remove successful posts
-        .catch(err=>{log('Unable to repost to channel '+p.channel);debugLog(err)})
+        .then(m=>{
+          failedToPost=failedToPost.filter(f=>{f.file!==p.file})
+          if(repostFailCount>0)repostFailCount--
+        })
+        .catch(err=>{
+          debugLog(err)
+          repostFailCount++
+          if(repostFailCount>=repostFailLimit)failedToPost=failedToPost.filter(f=>{f.file!==p.file})
+        })
   })
 }
 
-function processQueue(){
+const processQueue=()=>{
   // WIP attempt to make a harder to dominate queue
   // TODO make a queueing system that prioritizes the users that have recharged the most
   time('ProcessQueue')
@@ -1016,7 +939,8 @@ function processQueue(){
   if(queueNew.length>0){
     var queueUnique=queueNew//.filter((value,index,self)=>{return self.findIndex(v=>v.userid===value.userid)===index}) // reduce to 1 entry in queue per username // expensive/slow
     var nextJobId=queueUnique[Math.floor(Math.random()*queueUnique.length)].id // random select
-    var nextJob=queue[queue.findIndex(x=>x.id===nextJobId)]
+    //var nextJob=queue[queue.findIndex(x=>x.id===nextJobId)]
+    var nextJob=idToJob(nextJobId)
   }else{var nextJob=queue[queue.findIndex(x=>x.status==='new')]}
   if(nextJob&&!rendering&&!paused){
     if(userCreditCheck(nextJob.userid,costCalculator(nextJob))){
@@ -1057,7 +981,7 @@ function processQueue(){
   }
   timeEnd('ProcessQueue')
 }
-function lexicaSearch(query,channel){
+lexicaSearch=(query,channel)=>{
   // Quick and dirty lexica search api, needs docs to make it more efficient (query limit etc)
   var api = 'https://lexica.art/api/v1/search?q='+query
   var link = 'https://lexica.art/?q='+require('querystring').escape(query)
@@ -1076,7 +1000,7 @@ function lexicaSearch(query,channel){
 }
 lexicaSearch=debounce(lexicaSearch,1000,true)
 
-async function textOverlay(imageurl,text,gravity='south',channel,user,color='white',blendmode='overlay',width=false,height=125,font='Arial',extendimage=false,extendcolor='black'){
+const textOverlay=async(imageurl,text,gravity='south',channel,user,color='white',blendmode='overlay',width=false,height=125,font='Arial',extendimage=false,extendcolor='black')=>{
   // todo caption area as a percentage of image size
   time('textOverlay')
   try{
@@ -1103,7 +1027,7 @@ async function textOverlay(imageurl,text,gravity='south',channel,user,color='whi
   timeEnd('textOverlay')
 }
 
-async function removeBackground(url,channel,user,model='u2net',a=false,ab=10,af=240,ae=10,om=false,ppm=true,bgc='0,0,0,0'){
+const removeBackground=async(url,channel,user,model='u2net',a=false,ab=10,af=240,ae=10,om=false,ppm=true,bgc='0,0,0,0')=>{
   time('removeBackground')
 // js implementation of python rembg lib, degrades quality, needs more testing
 //  var image=(await axios({ url: url, responseType: "arraybuffer" })).data
@@ -1136,7 +1060,7 @@ async function removeBackground(url,channel,user,model='u2net',a=false,ab=10,af=
   timeEnd('removeBackground')
 }
 
-async function rotate(imageurl,degrees=90,channel,user){
+const rotate=async(imageurl,degrees=90,channel,user)=>{
   time('rotate')
   try{
     var image=(await axios({ url: imageurl, responseType: "arraybuffer" })).data
@@ -1148,7 +1072,7 @@ async function rotate(imageurl,degrees=90,channel,user){
   timeEnd('rotate')
 }
 
-async function inpaint(attachments,prompt=defaultInpaintPrompt,channel,user,username,guild=undefined,mask=undefined){
+const inpaint=async(attachments,prompt=defaultInpaintPrompt,channel,user,username,guild=undefined,mask=undefined)=>{
   try{
     var image=(await axios({ url: attachments[0].proxy_url, responseType: "arraybuffer" })).data
     res=await sharp(image)
@@ -1161,7 +1085,7 @@ async function inpaint(attachments,prompt=defaultInpaintPrompt,channel,user,user
   }catch(err){log(err)}
 }
 
-async function expand(url,direction='out',amount=null,channel,user,msgid){ // todo not using msgid
+const expand=async(url,direction='out',amount=null,channel,user,msgid)=>{ // todo not using msgid
   if(!url||!channel||!user)return
   // need to ensure a transparent background color on the newly created area
   // blur original input image, scale it up then 0 the opacity and overlay the original
@@ -1197,7 +1121,7 @@ async function expand(url,direction='out',amount=null,channel,user,msgid){ // to
     .catch(err=>log(err))
 }
 
-async function help(channel){
+const help=async(channel)=>{
   var helpTitles=['let\'s get wierd','help me help you','help!','wait, what ?']
   shuffle(helpTitles)
   var helpMsgObject={
@@ -1221,11 +1145,11 @@ async function help(channel){
     ]}
   ] 
   }
-  try{bot.createMessage(channel, helpMsgObject)}catch(err){log(err)}
+  bot.createMessage(channel, helpMsgObject).then().catch(err=>log(err))
 }
 
-async function listModels(channel){ // list available models
-  if(!models){await socket.emit('requestSystemConfig')}
+const listModels=async(channel)=>{ // list available models
+  if(!models)await socket.emit('requestSystemConfig')
   var newMsg=''
   if(models){
     newMsg='**'+Object.keys(models).length+' models available**\n:green_circle: =loaded in VRAM :orange_circle: =cached in RAM :red_circle: = unloaded\n'
@@ -1252,7 +1176,8 @@ async function listEmbeds(channel){ // list available embeds
   sliceMsg(newMsg).forEach((m)=>{try{bot.createMessage(channel, m)}catch(err){debugLog(err)}})
 }
 
-async function nsfwjsClassify(buffer) {
+const nsfwjsClassify = async(buffer)=>{
+//async function nsfwjsClassify(buffer) {
   if(!config.nsfwChecksEnabled) return false
   const nsfwjsmodel = await nsfwjs.load()
   var nsfwjstensor3d = await tf.node.decodeImage(buffer,3)// Image must be in tf.tensor3d format
@@ -1261,7 +1186,8 @@ async function nsfwjsClassify(buffer) {
   return nsfwjspredictions
 }
 
-async function isImageNSFW(buffer){
+const isImageNSFW = async(buffer)=>{
+//async function isImageNSFW(buffer){
   if(!config.nsfwChecksEnabled) return false
   var thresholdPorn=config.nsfwPornThreshold||0.7
   var thresholdSexy=config.nsfwSexyThreshold||0.7
@@ -1282,7 +1208,8 @@ async function isImageNSFW(buffer){
   }
 }
 
-async function meme(prompt,urls,userid,channel){
+meme = async(prompt,urls,userid,channel)=>{
+//async function meme(prompt,urls,userid,channel){
   time('meme')
   params = prompt.split(' ')
   cmd = prompt.split(' ')[0]
@@ -1297,7 +1224,6 @@ async function meme(prompt,urls,userid,channel){
     case 'animateseed':{
       time('animateseed')
       if(params.length<2){return} // bugfix crash on animateseed with no seed
-      //debugLog('Seed match count:' + queue.filter((j)=>j.seed==params[1]).length)
       let urlseed=[] // prompt image urls
       let promptseed = [] // prompt texts
       let delay = parseInt(params[2])||1000 // delay between frames
@@ -1402,20 +1328,17 @@ async function meme(prompt,urls,userid,channel){
 meme=debounce(meme,1000,true)
 function shuffle(array) {for (let i = array.length - 1; i > 0; i--) {let j = Math.floor(Math.random() * (i + 1));[array[i], array[j]] = [array[j], array[i]]}} // fisher-yates shuffle
 const unique = (value, index, self) => { return self.indexOf(value) === index }
-function getRandomColorDec(){return Math.floor(Math.random()*16777215)}
-function timeDiff(date1,date2) { return date2.diff(date1, 'seconds') }
-function getRandom(what){
+const getRandomColorDec=()=>{return Math.floor(Math.random()*16777215)}
+const timeDiff=(date1,date2)=>{return date2.diff(date1, 'seconds')}
+const getRandom=(what)=>{
   if(randoms.includes(what)){
     try{
       var lines=randomsCache[randoms.indexOf(what)]
       return lines[Math.floor(Math.random()*lines.length)]
-    }catch(err){console.error(err)}
-  }else{
-    debugLog('Randomiser ' +what+ ' not found')
-    return what
-  }
+    }catch(err){log(err)}
+  }else{return what}
 }
-function replaceRandoms(input){
+const replaceRandoms=(input)=>{
   var output=input
   randoms.forEach(x=>{
     var wordToReplace='{'+x+'}'
@@ -1441,23 +1364,19 @@ function replaceRandoms(input){
   return output
 }
 
-function partialMatches(strings, search) {
+const partialMatches=(strings,search)=>{
   let results = []
-  for(let i=0;i<strings.length;i++){
-    if (searchString(strings[i], search)) {
-      results.push(strings[i])
-    }
-  }
+  for(let i=0;i<strings.length;i++){if(searchString(strings[i], search)){results.push(strings[i])}}
   return results 
 } 
 
-function searchString(str, searchTerm) {
+const searchString=(str,searchTerm)=>{
   let searchTermLowerCase = searchTerm.toLowerCase() 
   let strLowerCase = str.toLowerCase() 
   return strLowerCase.includes(searchTermLowerCase) 
 }
-
-async function metaDataMsg(imageurl,channel){
+const metaDataMsg=async(imageurl,channel)=>{
+//async function metaDataMsg(imageurl,channel){
   debugLog('attempting metadata extraction from '+imageurl)
   try{var metadata = await ExifReader.load(imageurl)
   }catch(err){log(err)}
@@ -1476,7 +1395,7 @@ async function metaDataMsg(imageurl,channel){
   if(newMsg.length>0&&newMsg.length<10000){sliceMsg(newMsg).forEach((m)=>{try{bot.createMessage(channel, m)}catch(err){debugLog(err)}})} else {debugLog('Aborting metadata message, response too long')}
 }
 
-function processFile(file){// Monitor new files entering watchFolder, post image with filename.
+const processFile=(file)=>{// Monitor new files entering watchFolder, post image with filename.
   try {
     if (file.endsWith('.png')||file.endsWith('jpg')){
       fs.readFile(file, null, function(err, data) {
@@ -1493,31 +1412,30 @@ if(config.filewatcher==="true") {
   const renders=chokidar.watch(config.watchFolder, {persistent: true,ignoreInitial: true,usePolling: false,awaitWriteFinish:{stabilityThreshold: 500,pollInterval: 500}})
   renders.on('add',file=>{processFile(file)})
 }
-function tidyNumber (x) {if (x) {var parts = x.toString().split('.');parts[0] = parts[0].replaceAll(/\B(?=(\d{3})+(?!\d))/g, ',');return parts.join('.')}else{return null}}
-function sliceMsg(str) {
-  const chunkSize=1999 // max discord message is 2k characters
-  let chunks=[];let i=0;let len=str.length
-  while (i < len) {
-    chunks.push(str.slice(i, i += chunkSize))}
-  return chunks
-}
-function sliceMsg2(str) {
+const tidyNumber=(x)=>{if(x){var parts=x.toString().split('.');parts[0]=parts[0].replaceAll(/\B(?=(\d{3})+(?!\d))/g, ',');return parts.join('.')}else{return null}}
+const sliceMsg=(str)=>{
   const chunkSize=1999
   let chunks=[];let i=0;let len=str.length
-  while (i < len) {
-    let chunk = str.slice(i, i + chunkSize)
-    let lastNewlineIndex = chunk.lastIndexOf('\n')
-    if (lastNewlineIndex !== -1 && chunkSize - lastNewlineIndex <= 30) {
-      chunks.push(chunk.slice(0, lastNewlineIndex))
-      i += lastNewlineIndex + 1
-    } else {
+  while(i<len){chunks.push(str.slice(i,i+=chunkSize))}
+  return chunks
+}
+const sliceMsg2=(str)=>{
+  const chunkSize=1999
+  let chunks=[];let i=0;let len=str.length
+  while(i<len){
+    let chunk=str.slice(i,i+chunkSize)
+    let lastNewlineIndex=chunk.lastIndexOf('\n')
+    if(lastNewlineIndex!==-1&&chunkSize-lastNewlineIndex<=40){
+      chunks.push(chunk.slice(0,lastNewlineIndex))
+      i+=lastNewlineIndex+1
+    }else{
       chunks.push(chunk)
-      i += chunkSize
+      i+=chunkSize
     }
   }
   return chunks
 }
-async function clearParent(interaction){
+const clearParent=async(interaction)=>{
   var label=':saluting_face: **'+interaction.data.custom_id.split('-')[0].replace('twk','')+'** selected'
   try{
     if(interaction?.message?.flags){// ephemeral message that cannot be deleted by us, only edited
@@ -1527,8 +1445,7 @@ async function clearParent(interaction){
     }
   }catch(err){log(err)}
 }
-
-function viewQueue(){ // admin function to view queue data
+const viewQueue=()=>{ // admin function to view queue data
   time('viewQueue')
   var queueNew=queue.filter((q)=>q.status==='new')
   var queueRendering=queue.filter((q)=>q.status==='rendering')
@@ -1543,12 +1460,14 @@ function viewQueue(){ // admin function to view queue data
   sliceMsg(msg).forEach((m)=>{try{directMessageUser(config.adminID, {content:m})}catch(err){debugLog(err)}})
   timeEnd('viewQueue')
 }
-
-function cancelCurrentRender(){
-  log('Cancelling current render'.bgRed);queue[queue.findIndex((q)=>q.status==='rendering')-1].status='cancelled';socket.emit('cancel');rendering=false
+const cancelCurrentRender=()=>{
+  log('Cancelling current render'.bgRed)
+  queue[queue.findIndex((q)=>q.status==='rendering')-1].status='cancelled'
+  socket.emit('cancel')
+  rendering=false
 }
 
-function cancelJob(jobid){
+const cancelJob=(jobid)=>{
   var job=queue[jobid]
   log('Cancelling job '+jobid.bgRed)
   //if(job&&['rendering'].includes(job.status)){socket.emit('cancel')}
@@ -1556,7 +1475,7 @@ function cancelJob(jobid){
   dbWrite()
 }
 
-function cancelUser(userid){
+const cancelUser=(userid)=>{
   log('Cancelling user jobs '+userid.bgRed)
   var jobs=queue.filter((q)=>q.userid===userid)
   jobs?.forEach((j)=>{
@@ -1566,7 +1485,7 @@ function cancelUser(userid){
   dbWrite()
 }
 
-function isPromptSFW(prompt){
+const isPromptSFW=(prompt)=>{
   if(!prompt)return true
   var isSFW=true
   nsfwWords.forEach(w=>{
@@ -1576,7 +1495,7 @@ function isPromptSFW(prompt){
   return isSFW
 }
 
-function makePromptSFW(prompt){ 
+const makePromptSFW=(prompt)=>{ 
   time('makePromptSFW')
   if(!prompt)return ''
   if(nsfwWords.length===0) return prompt
@@ -1599,7 +1518,6 @@ bot.on("ready", async () => {
     bot.commands = new Collection()
     for (const c of slashCommands) {
       if(cmds.filter(cmd=>cmd.name===c.name).length>0) {
-        //debugLog('slash command '+c.name+' already registered')
         bot.commands.set(c.name, c) // needed ?
       } else {
         log('Slash command '+c.name+' is unregistered, registering')
@@ -2666,7 +2584,7 @@ socket.on("intermediateResult", (data) => {
   }
 })
 socket.on("foundLoras", (answer) =>{lora=answer.map(item=>item.name).sort()})
-socket.on("foundTextualInversionTriggers", (answer) =>{ti=answer.local_triggers.map(item=>item.name).map(str => str.replaceAll('<', '').replaceAll('>', '')).sort()})
+socket.on("foundTextualInversionTriggers", (answer) =>{debugLog(answer);ti=answer.local_triggers.map(item=>item.name).map(str => str.replaceAll('<', '').replaceAll('>', '')).sort()})
 socket.on('error', (error) => {
   log('Api socket error'.bgRed);log(error)
   var nowJob=queue[queue.findIndex((j)=>j.status==="rendering")]
@@ -2676,6 +2594,92 @@ socket.on('error', (error) => {
   }
   rendering=false
 })
+
+getObjKey = (obj,value)=>{return Object.keys(obj).find(key=>obj[key]===value)}
+idToJob = (id)=>{return queue[queue.findIndex(x=>x.id===id)]}
+urlToBuffer = async(url)=>{
+    return new Promise((resolve,reject)=>{
+    axios.get(url,{responseType:'arraybuffer'})
+      .then(res=>{resolve(Buffer.from(res.data))})
+      .catch(err=>{reject(err)})
+    })
+}
+getHeaders=(form)=>{
+  return new Promise((resolve, reject) => {
+      form.getLength((err, length) => {
+          if(err){reject(err)}
+          let headers=Object.assign({'Content-Length': length}, form.getHeaders())
+          resolve(headers)
+      })
+  })
+}
+uploadInitImage=async(buf,id)=>{
+    return new Promise((resolve,reject)=>{
+        let form = new FormData()
+        form.append("data",JSON.stringify({kind:'init'}))
+        form.append("file",buf,{contentType:'image/png',filename:id+'.png'})
+        getHeaders(form).then(headers=>{
+            return axios.post(config.apiUrl+'/upload',form, {headers:headers})
+        }).then((response)=>{resolve(response.data)}).catch(err=>reject(err))// {url,width,height,mtime,thumbnail}
+    })
+}
+addRenderApi = async(id,initimg=null)=>{
+  var job=idToJob(id)
+  job.status='rendering'
+  if(job.attachments[0]?.content_type?.startsWith('image')) initimg = await urlToBuffer(job.attachments[0].proxy_url)
+  if(initimg!==null){
+    var uploadresponse=await uploadInitImage(initimg,id)
+    job.init_img=invokePath+'/'+uploadresponse.url.replace('outputs/','')
+    job.initimg=null
+    emitRenderApi(job)
+  }else{emitRenderApi(job)}
+}
+
+emitRenderApi = async(job)=>{
+  var upscale=false;var facefix=false
+  var mask_strength=0.5
+  var prompt=job.prompt
+  var postObject={
+      "prompt": prompt,
+      "iterations": job.number,
+      "steps": job.steps,
+      "cfg_scale": job.scale,
+      "threshold": job.threshold,
+      "perlin": job.perlin,
+      "sampler_name": job.sampler,
+      "width": job.width,
+      "height": job.height,
+      "seed": job.seed,
+      "progress_images": false,
+      "variation_amount": job.variation_amount,
+      "strength": job.strength,
+      "fit": true,
+      "progress_latents": true,
+      "generation_mode": 'txt2img',
+      "infill_method": 'patchmatch'
+  }
+  if(job.text_mask){.5
+    if(job.mask_strength)mask_strength=job.mask_strength
+    if(job.invert_mask&&job.invert_mask===true)postObject.invert_mask=true
+    postObject.text_mask=[job.text_mask,mask_strength]
+  }
+  if(job.with_variations.length>0)postObject.with_variations=job.with_variations
+  if(job.seamless&&job.seamless===true)postObject.seamless=true
+  if(job.hires_fix&&job.hires_fix===true)postObject.hires_fix=true
+  if(job.gfpgan_strength!==0)facefix={type:'gfpgan',strength:job.gfpgan_strength}
+  if(job.codeformer_strength===undefined)job.codeformer_strength=0
+  if(job.codeformer_strength!==0)facefix={type:'codeformer',strength:job.codeformer_strength,codeformer_fidelity:1}
+  if(job.upscale_level!=='')upscale={level:job.upscale_level,strength:job.upscale_strength,denoise_str: 0.75}
+  if(job.symh||job.symv){postObject.h_symmetry_time_pct=job.symh;postObject.v_symmetry_time_pct=job.symv}
+  if(job.init_img)postObject.init_img=job.init_img
+  if(job.model&&currentModel&&job.model!==currentModel)requestModelChange(job.model)
+  [postObject,upscale,facefix,job].forEach((o)=>{
+    var key=getObjKey(o,undefined)
+    if(key!==undefined){log('Missing property for '+key);if(key==='codeformer_strength'){upscale.strength=0}} // not undefined in this context means there is a key that IS undefined, confusing
+  })
+  socket.emit('generateImage',postObject,upscale,facefix)
+  //dbWrite() // can we gracefully recover if we restart right after sending the request to backend?
+}
 
 var tf=null;var nsfwjs=null // declare globally
 loadnsfwjs = async()=>{
@@ -2700,12 +2704,10 @@ getStats = async(channel,unit=30,period="days",max=50)=>{
   for (var j of queue) { // loop all jobs in queue
     try{if(moment().diff(moment(j.timestampRequested),period)>unit)continue}catch(e){log(e)} // check timestamp within range, skip if not
     c=c+j.number // add jobs to count
-    // user counts
     userindex=topUsers.findIndex(u=>u.id===j.userid) // find index of user in user db
     if(userindex===-1){topUsers.push({'id':j.userid, 'count':j.number, 'username':j.username});userindex=topUsers.findIndex(u=>u.id===j.userid)} // if user not in stat count, add them and find index
     topUsers[userindex].count = topUsers[userindex].count + j.number // add renders to users count
     if(topUsers[userindex].username!==j.username)topUsers[userindex].username=j.username // display most recent username
-    // channel counts
     channelindex=topChannels.findIndex(c=>c.id===j.channel) // find job channel
     if(topChannels.findIndex(c=>c.id===j.channel)===-1){topChannels.push({'id':j.channel, 'count':1});channelindex=topChannels.findIndex(c=>c.id===j.channel)} // if not in stat count, add them and find index
     topChannels[channelindex].count = topChannels[channelindex].count+1 // add renders to channel count
@@ -2728,7 +2730,6 @@ getStats = async(channel,unit=30,period="days",max=50)=>{
   await topxChannels.forEach(async c=>{
     var channel = await bot.getChannel(c.id)
     var cn = channel?.name ? channel.name : c.id
-    //if(!cn){var u=topUsers.find(u=>u.id===c.id);var cn=u?.username}
     txc.push({renders:c.count,channel:cn,guild:channel?.guild?channel?.guild?.name:'DM'})
   })
   r=0
