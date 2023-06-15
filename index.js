@@ -1107,7 +1107,7 @@ const expand=async(url,direction='out',amount=null,channel,user,msgid)=>{ // tod
       }
       time('expand image')
       var newWidth=img.bitmap.width+expandWidth;var newHeight=img.bitmap.height+expandHeight
-      img.clone().blur(5).opacity(0).resize(newWidth,newHeight,jimp.RESIZE_BEZIER,(err,imgScaled)=>{
+      img.clone().blur(5).opacity(0).resize(newWidth,newHeight,jimp.RESIZE_NEAREST_NEIGHBOR,(err,imgScaled)=>{
         if(err)log(err)
         imgScaled.blit(img,x,y).getBuffer(jimp.MIME_PNG, (err,buf)=>{
           if(err)log(err)
@@ -2595,7 +2595,7 @@ socket.on('error', (error) => {
   rendering=false
 })
 
-getObjKey = (obj,value)=>{return Object.keys(obj).find(key=>obj[key]===value)}
+function getObjKey(obj,value){return Object.keys(obj).find(key=>obj[key]===value)}
 idToJob = (id)=>{return queue[queue.findIndex(x=>x.id===id)]}
 urlToBuffer = async(url)=>{
     return new Promise((resolve,reject)=>{
@@ -2634,9 +2634,9 @@ addRenderApi = async(id,initimg=null)=>{
     emitRenderApi(job)
   }else{emitRenderApi(job)}
 }
-
-emitRenderApi = async(job)=>{
-  var upscale=false;var facefix=false
+/*emitRenderApi = async(job)=>{
+  var upscale=false
+  var facefix=false
   var mask_strength=0.5
   var prompt=job.prompt
   var postObject={
@@ -2658,7 +2658,7 @@ emitRenderApi = async(job)=>{
       "generation_mode": 'txt2img',
       "infill_method": 'patchmatch'
   }
-  if(job.text_mask){.5
+  if(job.text_mask){
     if(job.mask_strength)mask_strength=job.mask_strength
     if(job.invert_mask&&job.invert_mask===true)postObject.invert_mask=true
     postObject.text_mask=[job.text_mask,mask_strength]
@@ -2679,6 +2679,95 @@ emitRenderApi = async(job)=>{
   })
   socket.emit('generateImage',postObject,upscale,facefix)
   //dbWrite() // can we gracefully recover if we restart right after sending the request to backend?
+}*/
+
+async function emitRenderApi(job){
+  var prompt=job.prompt
+  var postObject={
+      "prompt": prompt,
+      "iterations": job.number,
+      "steps": job.steps,
+      "cfg_scale": job.scale,
+      "threshold": job.threshold,
+      "perlin": job.perlin,
+      "sampler_name": job.sampler,
+      "width": job.width,
+      "height": job.height,
+      "seed": job.seed,
+      "progress_images": false,
+      "variation_amount": job.variation_amount,
+      "strength": job.strength,
+      "fit": true,
+      "progress_latents": true,
+      "generation_mode": 'txt2img',
+      "infill_method": 'patchmatch'
+  }
+  if(job.text_mask){
+    var mask_strength=0.5
+    if(job.mask_strength){mask_strength=job.mask_strength}
+    if(job.invert_mask&&job.invert_mask===true){postObject.invert_mask=true}
+    log('adding text mask');postObject.text_mask=[job.text_mask,mask_strength]
+  }
+  if(job.with_variations.length>0){log('adding with variations');postObject.with_variations=job.with_variations}
+  if(job.seamless&&job.seamless===true){postObject.seamless=true}
+  if(job.hires_fix&&job.hires_fix===true){postObject.hires_fix=true}
+  var upscale=false
+  var facefix=false
+  if(job.gfpgan_strength!==0){facefix={type:'gfpgan',strength:job.gfpgan_strength}}
+  if (job.codeformer_strength===undefined){job.codeformer_strength=0}
+  if(job.codeformer_strength!==0){facefix={type:'codeformer',strength:job.codeformer_strength,codeformer_fidelity:1}}
+  if(job.upscale_level!==''){upscale={level:job.upscale_level,strength:job.upscale_strength,denoise_str: 0.75}}
+  if(job.symh||job.symv){postObject.h_symmetry_time_pct=job.symh;postObject.v_symmetry_time_pct=job.symv}
+  if(job.init_img){postObject.init_img=job.init_img}
+  if(job&&job.model&&currentModel&&job.model!==currentModel){debugLog('job.model is different to currentModel, switching');requestModelChange(job.model)}
+  [postObject,upscale,facefix,job].forEach((o)=>{
+    var key=getObjKey(o,undefined)
+    if(key!==undefined){log('Missing property for '+key);if(key==='codeformer_strength'){upscale.strength=0}} // not undefined in this context means there is a key that IS undefined, confusing
+  })
+  socket.emit('generateImage',postObject,upscale,facefix)
+  dbWrite() // can we gracefully recover if we restart right after sending the request to backend?
+  //debugLog('sent request',postObject,upscale,facefix)
+}
+
+async function addRenderApi(id){
+  time('addRenderApi')
+  var job=queue[queue.findIndex(x=>x.id===id)]
+  var initimg=null
+  job.status='rendering'
+  if(job.attachments[0]&&job.attachments[0].content_type&&job.attachments[0].content_type.startsWith('image')){
+    log('fetching attachment from '.bgRed + job.attachments[0].proxy_url)
+    time('get attachment')
+    await axios.get(job.attachments[0].proxy_url,{responseType: 'arraybuffer'})
+      .then(res=>{initimg = Buffer.from(res.data)})
+      .catch(err=>{ console.error('unable to fetch url: ' + job.attachments[0].proxy_url); console.error(err) })
+    timeEnd('get attachment')
+  }
+  if (initimg!==null){
+    debugLog('uploadInitialImage')
+    time('upload image to invokeai')
+    let form = new FormData()
+    form.append("data",JSON.stringify({kind:'init'}))
+    form.append("file",initimg,{contentType:'image/png',filename:job.id+'.png'})
+    function getHeaders(form) {
+      return new Promise((resolve, reject) => {
+          form.getLength((err, length) => {
+              if(err) { reject(err) }
+              let headers = Object.assign({'Content-Length': length}, form.getHeaders())
+              resolve(headers)
+           })
+      })
+    }
+    getHeaders(form).then((headers)=>{
+      return axios.post(config.apiUrl+'/upload',form, {headers:headers})
+    }).then((response)=>{
+      timeEnd('upload image to invokeai')
+      // also have template width, height,mtime,thumbnail in response
+      job.init_img=invokePath+'/'+response.data.url.replace('outputs/','')
+      job.initimg=null
+      emitRenderApi(job)
+    }).catch((error) => console.error(error))
+  }else{emitRenderApi(job)}
+  timeEnd('addRenderApi')
 }
 
 var tf=null;var nsfwjs=null // declare globally
