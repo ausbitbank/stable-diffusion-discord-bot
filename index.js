@@ -520,11 +520,11 @@ function sanitize(prompt){
 }
 function authorised(who,channel,guild) {
   if (userid===config.adminID){return true} // always allow admin
-  var bannedUsers=[];var allowedGuilds=[];var allowedChannels=[];var ignoredChannels=[];var userid=null;var username=null
+  var bannedUsers=[];var allowedGuilds=[];var bannedGuilds=[]; var allowedChannels=[];var ignoredChannels=[];var userid=null;var username=null
   if (who.user && who.user.id && who.user.username){userid = who.user.id;username = who.user.username} else {userid=who.author.id;username=who.author.username}
   if (config.bannedUsers?.length>0){bannedUsers=config.bannedUsers.split(',')}
   if (config.allowedGuilds?.length>0){allowedGuilds=config.allowedGuilds.split(',')}
-  if (config.bannedGuilds?.length>0){bannedGuilds=config.bannedGuilds.split(',')}
+  if (config.bannedGuilds&&config.bannedGuilds.length>0){bannedGuilds=config.bannedGuilds.split(',')}
   if (config.allowedChannels?.length>0){allowedChannels=config.allowedChannels.split(',')}
   if (config.ignoredChannels?.length>0){ignoredChannels=config.ignoredChannels.split(',')}
   if (bannedUsers.includes(userid)){
