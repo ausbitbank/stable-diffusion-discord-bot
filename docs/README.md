@@ -53,9 +53,13 @@ Once in your server you can right click him and "**manage integrations**" to cho
 <details>
   <summary>Click for installation instructions</summary>
 
-Recommend at least **8gb video ram**, **lots** of storage space and joining the support server for help (see #bot-help)
+Recommend at least **8gb video ram**, **lots of storage space**, and joining the support server for help (see #bot-help)
 
-You'll need to have [InvokeAI](https://github.com/invoke-ai/InvokeAI) installed and running on your system first, as well as [git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git) and [docker-compose](https://docs.docker.com/compose/install/) .
+Requirements:
+-  [InvokeAI](https://github.com/invoke-ai/InvokeAI) installed and running on your system first
+   - Ensure InvokeAI is running in `browser-based UI` mode
+- [git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
+- [docker-compose](https://docs.docker.com/compose/install/)
 
 To download and configure the bot:
 
