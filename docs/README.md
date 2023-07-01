@@ -69,6 +69,13 @@ cd stable-diffusion-discord-bot
 mv config.example config
 ```
 
+Inside the `docker-compose.yml` file, check that the outputs volume maps correctly to your InvokeAI outputs folder.
+
+```yml
+volumes:
+ - ~/invokeai/outputs:/app/outputs # change the left side of the colon (:) to your InvokeAI outputs folder on the host machine
+```
+
 Open the `config\.env` file in a text editor and configure at least the `discordBotKey`,`adminID` and `channelID`
 
 To configure a new discord bot user and get the `discordBotKey` :

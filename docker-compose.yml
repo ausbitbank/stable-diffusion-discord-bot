@@ -1,4 +1,4 @@
-version: '3'
+version: "3"
 
 services:
   # stable-diffusion-discord-bot
@@ -8,7 +8,7 @@ services:
     tty: true # enable colorized logs
     restart: always # should this be on-failure ?
     volumes:
-      - ~/invokeai/outputs:/app/outputs # Invokeai render output folder default settings
+      - ~/invokeai/outputs:/app/outputs # change the left side of the colon (:) to your InvokeAI outputs folder on the host machine
       - ./config:/app/config # configuration file and database folder that must persist
       - ./txt:/app/txt # randomizer files
     extra_hosts:
@@ -30,4 +30,3 @@ services:
   #    - "8001:8001"
   #  volumes:
   #    - ./config/redis:/data
-
