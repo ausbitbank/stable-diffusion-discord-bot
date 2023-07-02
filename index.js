@@ -342,7 +342,6 @@ async function request(request){
   if (!args.sampler){args.sampler=defaultSampler}
   if (args.n){args.number=args.n}
   if (!args.number||!Number.isInteger(args.number)||args.number>maxIterations||args.number<1){args.number=1}
-  if (!args.renderer||['localApi'].includes(args.renderer)){args.renderer='localApi'}
   if (!args.gfpgan_strength){args.gfpgan_strength=0}
   if (!args.codeformer_strength){args.codeformer_strength=0}
   if (!args.upscale_level){args.upscale_level=''}
@@ -393,7 +392,6 @@ async function request(request){
     prompt: args.prompt,
     scale: args.scale,
     sampler: args.sampler,
-    renderer: args.renderer,
     strength: args.strength,
     threshold: args.threshold,
     perlin: args.perlin,
@@ -459,9 +457,7 @@ async function queueStatus() {
         statusMsg+=' Iteration `'+progressUpdate['currentIteration']+'/'+progressUpdate['totalIterations']+'`'
       }
       if(progressUpdate['totalSteps']&&progressUpdate['currentStep']){
-        //statusMsg+='\n'+progressBar(progressUpdate['totalSteps'],progressUpdate['currentStep'])[0]
         statusMsg+=' '+emojiProgressBar(renderPercent)
-        //debugLog(emojiProgressBar(renderPercent))
       }
     }
     var statusObj={content:statusMsg}
@@ -617,23 +613,30 @@ async function creditRecharge(credits,txid,userid,amount,from=false){ // add cre
   }
   dbWrite()
 }
-function freeRecharge(){
+async function freeRecharge(){
   // allow for regular topups of empty accounts
   // new users get 100 credits on first appearance, then freeRechargeAmount more every 12 hours IF their balance is less then freeRechargeMinBalance
+  // extra points given if the user voted the bot on top.gg within the last 12 hours
   var freeRechargeMinBalance=parseInt(config.freeRechargeMinBalance)||10
   var freeRechargeAmount=parseInt(config.freeRechargeAmount)||10
   var freeRechargeUsers=users.filter(u=>u.credits<freeRechargeMinBalance)
+  var voters=[]
   if(freeRechargeUsers.length>0&&freeRechargeAmount>0){
     log(freeRechargeUsers.length+' users with balances below '+freeRechargeMinBalance+' getting a free '+freeRechargeAmount+' credit topup')
-    freeRechargeUsers.forEach(u=>{
-      var nc = parseFloat(u.credits)+freeRechargeAmount  // Incentivizes drain down to 9 for max free charge leaving balance at 19
+    if(config.topggKey&&config.topggKey.length>0){voters=await topGGVoterIds().then().catch(e=>log(e))} // Get list of users that voted this month
+    freeRechargeUsers.forEach(async u=>{
+      var voteIncentive=0
+      if(voters.includes(u.id)){
+        voteIncentive=5 // +5 for voting this month
+        var votedRecently=await topGGHasVoted(u)
+        if(votedRecently) voteIncentive=10 // +10 for voting in the last 12 hours
+      }
+      var nc = parseFloat(u.credits)+freeRechargeAmount+voteIncentive  // Incentivizes drain down to 9 for max free charge leaving balance at 19 + vote bonus for max balance of 29
       creditRecharge(nc,'free',u.id,nc+' CREDITS',config.adminID)
-      directMessageUser(u.id,':fireworks: You received a free '+freeRechargeAmount+' :coin: topup!\n:information_source:Everyone with a balance below '+freeRechargeMinBalance+' will get this once every 12 hours')
+      directMessageUser(u.id,':fireworks: You received a free '+(freeRechargeAmount+voteIncentive)+' :coin: topup!\n:information_source:Everyone with a balance below '+freeRechargeMinBalance+' will get this once every 12 hours')
     })
     chat(':fireworks:'+freeRechargeUsers.length+' users with a balance below `'+freeRechargeMinBalance+'`:coin: just received their free credit recharge')
-  }else{
-    log('No users eligible for free credit recharge')
-  }
+  }else{log('No users eligible for free credit recharge')}
 }
 
 async function dbWrite() {
@@ -756,7 +759,7 @@ async function rechargePrompt(userid,channel){
   var lightningInvoiceQr=getLightningInvoiceQr(paymentMemo)
   var paymentMsg=''
   paymentMsg+='<@'+userid+'> you have `'+creditsRemaining(userid)+'` :coin: remaining\n*The rate is `1` **USD** per `500` :coin: *\n'
-  paymentMsg+= 'You can send any amount of HIVE <:hive:1110123056501887007> or HBD <:hbd:1110282940686016643> to `'+config.hivePaymentAddress+'` with the memo `'+paymentMemo+'` to top up your balance\n'
+  paymentMsg+= 'You can send any amount of **HIVE** <:hive:1110123056501887007> or **HBD** <:hbd:1110282940686016643> to `'+config.hivePaymentAddress+'` with the memo `'+paymentMemo+'` to top up your balance\n'
   if(config.allowHiveEnginePayments&&config.allowedHETokens.length>0){
     // hive engine transfers
     // var transferjson=
@@ -765,7 +768,7 @@ async function rechargePrompt(userid,channel){
   }
   //paymentMsg+= '**Pay 1 HBD:** '+paymentLinkHbd+'\n**Pay 1 HIVE:** '+paymentLinkHive
   var freeRechargeMsg='..Or just wait for your FREE recharge of 10 credits twice daily'
-  var rechargeImages=['https://media.discordapp.net/attachments/1024766656347652186/1110852592864595988/237568213750251520-1684918295766-text.png','https://media.discordapp.net/attachments/1024766656347652186/1110862401420677231/237568213750251520-1684920634773-text.png','https://media.discordapp.net/attachments/1024766656347652186/1110865969645105213/237568213750251520-1684921485321-text.png','https://media.discordapp.net/attachments/968822563662860338/1110869028475523174/237568213750251520-1684922214077-text.png','https://media.discordapp.net/attachments/1024766656347652186/1110872463736324106/237568213750251520-1684923032433-text.png','https://media.discordapp.net/attachments/1024766656347652186/1110875096106676256/237568213750251520-1684923660927-text.png','https://media.discordapp.net/attachments/1024766656347652186/1110876051694952498/237568213750251520-1684923889116-text.png','https://media.discordapp.net/attachments/1024766656347652186/1110877696726159370/237568213750251520-1684924281507-text.png','https://media.discordapp.net/attachments/968822563662860338/1110904225384382554/merged_canvas.da2c2db8.png']
+  var rechargeImages=['https://media.discordapp.net/attachments/1024766656347652186/1110852592864595988/237568213750251520-1684918295766-text.png','https://media.discordapp.net/attachments/1024766656347652186/1110862401420677231/237568213750251520-1684920634773-text.png','https://media.discordapp.net/attachments/1024766656347652186/1110865969645105213/237568213750251520-1684921485321-text.png','https://media.discordapp.net/attachments/968822563662860338/1110869028475523174/237568213750251520-1684922214077-text.png','https://media.discordapp.net/attachments/1024766656347652186/1110872463736324106/237568213750251520-1684923032433-text.png','https://media.discordapp.net/attachments/1024766656347652186/1110875096106676256/237568213750251520-1684923660927-text.png','https://media.discordapp.net/attachments/1024766656347652186/1110876051694952498/237568213750251520-1684923889116-text.png','https://media.discordapp.net/attachments/1024766656347652186/1110877696726159370/237568213750251520-1684924281507-text.png','https://media.discordapp.net/attachments/968822563662860338/1110904225384382554/merged_canvas.da2c2db8.png','https://media.discordapp.net/attachments/968822563662860338/1123814289157935154/237568213750251520-1688008605035-text.png','https://media.discordapp.net/attachments/326767097629769741/1123828583979302932/237568213750251520-1688011997096-text.png']
   shuffle(rechargeImages)
   var paymentMsgObject={
     content: paymentMsg,
@@ -1140,7 +1143,7 @@ const removeBackground=async(url,channel,user,model='u2net',a=false,ab=10,af=240
     var newMsg='<@'+user+'> removed background'
     if(!creditsDisabled){newMsg+=' , it cost `0.05`:coin:';chargeCredits(user,0.05)}
     newMsg+='\n**model:**`'+model+'`, **alpha matting:**`'+a+'`, **background threshold:**`'+ab+'`, **alpha erode size:**`'+ae+'` **foreground threshold:**`'+af+'`, **background color:**`'+bgc+'`, **post process:**`'+ppm+'`, **only mask:** `'+om+'`'
-    var newMsgObject={content: newMsg,components:[{type: 1, components:[{ type: 2, style: 2, label: "Fill transparency", custom_id: "twkinpaint", emoji: { name: '🖌️', id: null}, disabled: false }]}]}
+    var newMsgObject={content: newMsg,components:[{type: 1, components:[{type:2,style:2,label:"Fill transparency",custom_id:"twkinpaint",emoji:{name:'🖌️',id:null},disabled:false},{type:2,style:2,label:"Crop",custom_id:"twkcrop",emoji:{name:'✂️',id:null},disabled:false}]}]}
     try{bot.createMessage(channel, newMsgObject, {file: buffer, name: user+'-bg.png'})}catch(err){log(err)}
   }).catch((err)=>{log(err)})
   timeEnd('removeBackground')
@@ -1157,6 +1160,38 @@ const rotate=async(imageurl,degrees=90,channel,user)=>{
   }catch(err){log(err)}
   timeEnd('rotate')
 }
+
+const crop=async(imageurl,channel,user)=>{
+  time('crop')
+  try{
+    var image=(await axios({ url: imageurl, responseType: "arraybuffer" })).data
+    var img=await jimp.read(image)
+    try{img.autocrop()}catch(err){debugLog(err)}
+    var buffer = await img.getBufferAsync(jimp.MIME_PNG)
+    bot.createMessage(channel, '<@'+user+'> cropped image', {file: buffer, name: user+'-'+new Date().getTime()+'-rotate.png'})
+  }catch(err){log(err)}
+  timeEnd('crop')
+}
+
+/*
+msg.attachments.map((u)=>{return u.proxy_url})
+if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){
+  var attachmentsUrls = msg.attachments.map((u)=>{return u.proxy_url})
+  attachmentsUrls.forEach((url)=>{
+    log('cropping '+url)
+    jimp.read(url,(err,img)=>{
+      if(err){log('Error during cropping'.bgRed);log(err)}
+      try{img.autocrop()}catch(err){debugLog(err)}
+      var newMsg='<@'+msg.author.id+'> used `!crop`'
+      //if(!creditsDisabled){chargeCredits(msg.author.id,0.05);newMsg+=', it cost :coin:`0.05`/`'+creditsRemaining(msg.author.id)+'`'}
+      img.getBuffer(jimp.MIME_PNG, (err,buffer)=>{
+        if(err){log(err)}
+        bot.createMessage(msg.channel.id, newMsg, {file: buffer, name: 'cropped.png'})
+      })
+    })
+  })
+}
+*/
 
 const inpaint=async(attachments,prompt=defaultInpaintPrompt,channel,user,username,guild=undefined,mask=undefined)=>{
   try{
@@ -1771,6 +1806,9 @@ bot.on("interactionCreate", async (interaction) => {
                 {type: 2, style: 1, label: "Rotate", custom_id: "editRotate-"+id+'-'+rn+'-'+msgid, emoji: { name: '🔄', id: null}, disabled: false },
                 {type: 2, style: 1, label: "Expand Canvas", custom_id: "editExpandDirection-"+id+'-'+rn+'-'+msgid, emoji: { name: '🪄', id: null}, disabled: false },
                 {type: 2, style: 1, label: "Seamless Tiling", custom_id: "twkseamless-"+id+'-'+rn, emoji: { name: '🪢', id: null}, disabled: false },
+              ]},
+              {type:1,components:[
+                {type: 2, style: 1, label: "Crop", custom_id: "twkcrop", emoji: { name: '✂️', id: null}, disabled: true }
               ]}
             ]
           }
@@ -1820,6 +1858,14 @@ bot.on("interactionCreate", async (interaction) => {
           try{inpaint(interaction.message.attachments,defaultInpaintPrompt,interaction.channel.id,userid,username,guild)}catch(err){log(err)}
           break
         }
+        case 'crop': {
+          var userid=interaction.member.id ? interaction.member.id : interaction.user.id
+          var username=interaction.member.user ? interaction.member.user.username : interaction.user.username
+          var guild=interaction.guildID?interaction.guildID:undefined
+          var urls=interaction.message.attachments.map((u)=>{return u.proxy_url})
+          try{crop(urls[0],interaction.channel.id,userid)}catch(err){log(err)}
+          break
+        }
         case 'expand': {
           //var direction=interaction.custom_id.split('-')[4]
           var direction=interaction.data.components[0].components[0].value
@@ -1844,7 +1890,8 @@ bot.on("interactionCreate", async (interaction) => {
       }
       if (postProcess){ // submit as postProcess request
         //todo
-      } else if (interaction.data.custom_id.startsWith('twkbackground')||interaction.data.custom_id.startsWith('twktext')||interaction.data.custom_id.startsWith('twkrotate')||interaction.data.custom_id.startsWith('twkexpand')||interaction.data.custom_id.startsWith('twkinpaint')){
+        // dont submit as new job
+      } else if (interaction.data.custom_id.startsWith('twkbackground')||interaction.data.custom_id.startsWith('twktext')||interaction.data.custom_id.startsWith('twkrotate')||interaction.data.custom_id.startsWith('twkexpand')||interaction.data.custom_id.startsWith('twkcrop')){
         // dont submit as new job
       } else { // submit as new job with changes
         if(newCmd===''){newCmd=getCmd(newJob)}
@@ -2362,7 +2409,8 @@ bot.on("messageCreate", (msg) => {
         if (msg.attachments.length>0&&msg.attachments[0].content_type.startsWith('image/')){
           var attachmentsUrls = msg.attachments.map((u)=>{return u.proxy_url})
           attachmentsUrls.forEach((url)=>{
-            log('cropping '+url)
+            crop(url,msg.channel.id,msg.author.id) // todo test swap to new crop method
+            /*log('cropping '+url)
             jimp.read(url,(err,img)=>{
               if(err){log('Error during cropping'.bgRed);log(err)}
               try{img.autocrop()}catch(err){debugLog(err)}
@@ -2372,7 +2420,7 @@ bot.on("messageCreate", (msg) => {
                 if(err){log(err)}
                 bot.createMessage(msg.channel.id, newMsg, {file: buffer, name: 'cropped.png'})
               })
-            })
+            })*/
           })
         }
         break
@@ -2583,9 +2631,10 @@ bot.on("messageCreate", (msg) => {
       case '!resume':{socket.emit('requestSystemConfig');paused=false;rendering=false;bot.editStatus('online');chat(':play_pause: Bot is back online');processQueue();break}
       case '!checkpayments':{checkNewPayments();break}
       case '!repostfails':{repostFails();break}
-      case '!restart':{log('Admin triggered bot restart'.bgRed.white);exit(0);break}
+      case '!restart':{log('Admin triggered bot restart'.bgRed.white);process.exit(0);break}
       case '!creditdisabled':{log('Credits have been disabled'.bgRed.white);creditsDisabled=true;bot.createMessage(msg.channel.id,'Credits have been disabled');break}
       case '!creditenabled':{log('Credits have been enabled'.bgRed.white);creditsDisabled=false;bot.createMessage(msg.channel.id,'Credits have been enabled');break}
+      case '!freerecharge':{freeRecharge();break}
       case '!credit':{
         if (msg.mentions.length>0){
           var creditsToAdd=parseFloat(msg.content.split(' ')[1])
@@ -2632,7 +2681,7 @@ bot.on("messageCreate", (msg) => {
 // Socket listeners for invokeai backend api
 //socket.on("connect", (socket) => {log(socket)})
 socket.on("generationResult", (data) => {generationResult(data)})
-socket.on("postprocessingResult", (data) => {postprocessingResult(data)})
+//socket.on("postprocessingResult", (data) => {postprocessingResult(data)})
 socket.on("systemConfig", (data) => {debugLog('systemConfig received');currentModel=data.model_weights;models=data.model_list})
 socket.on("modelChanged", (data) => {currentModel=data.model_name;models=data.model_list;debugLog('modelChanged to '+currentModel)})
 var progressUpdate = {currentStep: 0,totalSteps: 0,currentIteration: 0,totalIterations: 0,currentStatus: 'Initializing',isProcessing: false,currentStatusHasSteps: true,hasError: false}
@@ -2768,7 +2817,7 @@ async function emitRenderApi(job){
   //debugLog('sent request',postObject,upscale,facefix)
 }
 
-async function addRenderApi(id){
+/*async function addRenderApi(id){
   time('addRenderApi')
   var job=queue[queue.findIndex(x=>x.id===id)]
   var initimg=null
@@ -2807,7 +2856,7 @@ async function addRenderApi(id){
     }).catch((error) => console.error(error))
   }else{emitRenderApi(job)}
   timeEnd('addRenderApi')
-}
+}*/
 
 var tf=null;var nsfwjs=null // declare globally
 loadnsfwjs = async()=>{
@@ -2817,13 +2866,16 @@ loadnsfwjs = async()=>{
   tf.enableProdMode()
 }
 
-loadtopggposter = async()=>{ // autopost server count to top.gg every 30 mins if changed
+var topggapi = null
+const topGGVoterIds=async()=>{return new Promise(async(resolve,reject)=>{topggapi.getVotes().then(v=>{resolve([...new Set(v.map(v=>{return v.id}))])}).catch(e=>{reject(e)})})}
+const topGGHasVoted=async(id)=>{return new Promise(async(resolve,reject)=>{topggapi.hasVoted(id).then(b=>{resolve(b)}).catch(e=>{reject(e)})})}
+loadtopgg = async()=>{ // autopost server count to top.gg every 30 mins if changed
   const { AutoPoster } = require('topgg-autoposter') // todo write our own minimalist topgg client
   const topggStatPoster = AutoPoster(config.topggKey, bot)
   topggStatPoster.on('posted', (stats) => {log(`Posted stats to Top.gg | ${stats.serverCount} servers`)})
   topggStatPoster.on('error', (err) => {log(err)})
-  // const Topgg = require("@top-gg/sdk") // https://topgg.js.org/classes/api#getVotes
-  // topggVotes = await Topgg.getVotes() // get users who voted for bot
+  const Topgg = require("@top-gg/sdk")
+  topggapi = new Topgg.Api(config.topggKey)
 }
 
 var Stripe=null;var strip=null
@@ -2911,7 +2963,7 @@ getStats = async(channel,unit=30,period="days",max=10)=>{
     sliceMsg2(response).forEach(r=>{bot.createMessage(channel,r).then().catch(e=>{log(e)})})
   }else{bot.createMessage(channel,'No results found for time period `'+unit+' '+period+'`\nTry `!stats 1 day`').then().catch(e=>{log(e)})}
 }
-getStats=debounce(getStats,10000,true)
+getStats=debounce(getStats,5000,true)
 
 generateStripeLink = async(id)=>{
     var paymentLink = await stripe.paymentLinks.create({line_items: [{price: config.stripePriceId,quantity: 1}],metadata:{discord_id:id}})
@@ -2924,7 +2976,7 @@ getStripePayments = async()=>{
         if(e.data.object.payment_status==='paid'&&e.data.object.status==='complete'&&e.data.object.mode==='payment'){
             var pastPayment=payments.find(x=>x.txid===e.data.object.id)
             if(pastPayment===undefined){
-              var discordid=parseInt(e.data.object.metadata.discord_id)
+              var discordid=e.data.object.metadata.discord_id
               amountCredit=(e.data.object.amount_total/100)*500
               log('New Payment! credits:'.bgBrightGreen.red+amountCredit+' for '+e.data.object.amount_total/100+' '+e.data.object.currency)
               log('checkout session id '+e.data.object.id) // use for payments db txid
@@ -2984,7 +3036,7 @@ reloadConfig = async()=>{
 main = async()=>{
   if(config.nsfwChecksEnabled) loadnsfwjs() // only load if needed
   await bot.connect()
-  if(config.topggKey&&config.topggKey.length>0){loadtopggposter()}
+  if(config.topggKey&&config.topggKey.length>0){loadtopgg()}
   if(config.allowStripePayments==="true"&&config.stripeKey.length>0){loadstripe()}
   if(!models){socket.emit('requestSystemConfig')}
   socket.emit("getLoraModels")
