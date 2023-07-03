@@ -1138,7 +1138,7 @@ const removeBackground=async(url,channel,user,model='u2net',a=false,ab=10,af=240
 // bgc = background color to insert           str 0,0,0,1 default none , 4 ints 0-255 for RGB + alpha
   var fullUrl=rembg+encodeURIComponent(url)+'&model='+model+'&a='+a+'&ab='+ab+'&ae='+ae+'&af='+af+'&bgc='+bgc+'&ppm='+ppm+'&om='+om
   debugLog('Removing background from image using rembg: '+fullUrl)
-  await axios.get(rembg+encodeURIComponent(fullUrl),{responseType: 'arraybuffer'}).then((buffer)=>{
+  await axios.get(fullUrl,{responseType: 'arraybuffer'}).then((buffer)=>{
     buffer = buffer.data ? Buffer.from(buffer.data) : undefined
     var newMsg='<@'+user+'> removed background'
     if(!creditsDisabled){newMsg+=' , it cost `0.05`:coin:';chargeCredits(user,0.05)}
