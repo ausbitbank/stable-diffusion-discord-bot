@@ -3,7 +3,7 @@ const fsPromises = require('fs').promises
 const log = console.log.bind(console)
 const crypto = require('crypto')
 const debounce = require('debounce')
-const debugLog = (m)=>{if(config.showDebug){log(m)}}
+const debugLog = (m)=>{if(config.logging.debug){log(m)}}
 function shuffle(array) {for (let i = array.length - 1; i > 0; i--) {let j = Math.floor(Math.random() * (i + 1));[array[i], array[j]] = [array[j], array[i]]}} // fisher-yates shuffle
 const getRandomColorDec=()=>{return Math.floor(Math.random()*16777215)}
 const partialMatches=(strings,search)=>{
