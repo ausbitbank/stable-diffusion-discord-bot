@@ -3,7 +3,7 @@ const sharp = require('sharp')
 const {log,debugLog} = require('./utils.js')
 //const exiftool = require('exiftool-vendored').ExifTool
 //const ExifParser = require('exif-parser')
-const { PNGImage, PNGChunk_tEXt } = require('png-chunk-editor')
+//const { PNGImage, PNGChunk_tEXt } = require('png-chunk-editor')
 //const pako = require('pako')
 
 load=async(buf)=>{
@@ -81,6 +81,7 @@ save=async(buf,parent,tag,data)=>{
 
 // newbuf = await exif.edit(buf,'initimg','url','arty')
 edit=async(buf,key,value,parent='arty')=>{
+    /*
     let pngimage = PNGImage.fromBytes([...buf])
     log(pngimage.chunks)
     let textChunk = pngimage.getChunk(pngimage.getChunkIndex("tEXt"))
@@ -92,6 +93,7 @@ edit=async(buf,key,value,parent='arty')=>{
     //exifData[parent][key] = value
     let newbuf = pngimage.toBytes()
     //let newbuf=ExifParser.create(exifData).encode()
+    */
     return newbuf
 }
 
