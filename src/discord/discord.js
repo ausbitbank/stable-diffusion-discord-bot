@@ -11,6 +11,7 @@ const {componentCommands}=require('./componentCommands')
 var colors = require('colors')
 const {auth}=require('./auth')
 const {emojiCommands} = require("./emojiCommands")
+const { isFunction } = require("lodash")
 
 chat=async(channel,msg,file=null)=>{
   if(msg!==null&&msg!==''&&msg!=={}){
@@ -117,7 +118,7 @@ async function botInit(){
     // if it's a slash command interaction
     if(interaction instanceof Eris.CommandInteraction){
       // check if its already been registered, send message only visible to user if it's not valid
-      if (!bot.commands.has(interaction.data.name)) return interaction.createMessage({content:'Command does not exist', flags:64}).catch((e) => {log('command does not exist'.bgRed);log(e)})
+      if (isFunction(bot.commands.has) && !bot.commands.has(interaction.data.name)) return interaction.createMessage({content:'Command does not exist', flags:64}).catch((e) => {log('command does not exist'.bgRed);log(e)})
       try{
         // acknowledge the interacton
         await interaction.acknowledge().then(()=>{
