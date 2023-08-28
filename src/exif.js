@@ -53,7 +53,22 @@ load=async(buf)=>{
         }
         let cost=(pixelSteps/7864320) // 1 normal 30 step 512x512 render to 1 coin
         cost = Math.round((cost + Number.EPSILON) * 1000) / 1000 // max 3 decimals, if needed
-        results.invoke={positive_prompt:positive_prompt,negative_prompt:negative_prompt,pixelSteps:pixelSteps,steps:steps,genHeight:genHeight,genWidth:genWidth,loras:loras,seed:seed,cost:cost,scheduler:scheduler,model:model,scale:scale}
+        results.invoke={
+            positive_prompt:positive_prompt,
+            negative_prompt:negative_prompt,
+            pixelSteps:pixelSteps,
+            steps:steps,
+            genHeight:genHeight,
+            genWidth:genWidth,
+            loras:loras,
+            seed:seed,
+            cost:cost,
+            scheduler:scheduler,
+            model:model,
+            scale:scale,
+            controlnets:controlnets,
+            inputimages:inputimages
+        }
         //log(results.invoke)
     }
     return results
