@@ -71,8 +71,6 @@ let logChat=async(msg)=>{ // irc-like view
   msg.components.map((c)=>{return c}).forEach((c)=>{log(c)})
 }
 
-unregisterSlashCommands=()=>{bot.bulkEditCommands([])}
-
 async function botInit(){
   bot.connect()
   bot.on('error', async(err)=>{log(err)})
@@ -135,10 +133,9 @@ async function botInit(){
     if(interaction instanceof Eris.ComponentInteraction){
       componentCommands.parseCommand(interaction).then().catch(e=>log(e))
     }
-
     // If its a modal dialog submisson
     if(interaction instanceof Eris.ModalSubmitInteraction){
-
+      componentCommands.parseCommand(interaction).then().catch(e=>log(e))
     }
   })
   bot.on("messageReactionAdd", async (msg,emoji,reactor) => {
@@ -150,6 +147,6 @@ async function botInit(){
 module.exports={
   discord:{
     botInit,
-    chat,
+    chat
   }
 }
