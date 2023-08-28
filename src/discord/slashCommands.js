@@ -1,15 +1,15 @@
-const {config,log,debugLog,tidyNumber}=require('./js/utils.js')
+const {config,log,debugLog}=require('./js/utils.js')
 
 // Get samplers from config ready for /dream slash command
-var samplers=config.samplers.split(',')
+var samplers=config.schedulers||['euler','deis','ddim','ddpm','dpmpp_2s','dpmpp_2m','dpmpp_2m_sde','dpmpp_sde','heun','kdpm_2','lms','pndm','unipc','euler_k','dpmpp_2s_k','dpmpp_2m_k','dpmpp_2m_sde_k','dpmpp_sde_k','heun_k','lms_k','euler_a','kdpm_2_a']
 var samplersSlash=[]
 samplers.forEach((s)=>{samplersSlash.push({name: s, value: s})})
-var defaultSampler=samplers[0]
+var defaultSampler=config.default.scheduler?config.default.scheduler:'dpmpp_2m_sde_k'
 debugLog('Enabled samplers: '+samplers.join(','))
 debugLog('Default sampler:'+defaultSampler)
 
 // load our own font list from config
-var fonts = config.fonts ? config.fonts.split(',') : ['Arial','Comic Sans MS','Tahoma','Times New Roman','Verdana','Lucida Console']
+var fonts = ['Arial','Comic Sans MS','Tahoma','Times New Roman','Verdana','Lucida Console']
 var fontsSlashCmd = []
 fonts.forEach((f)=>{fontsSlashCmd.push({name: f,value: f})})
 
@@ -30,15 +30,8 @@ var slashCommands = [
       {type: 5, name: 'seamless', description: 'Seamlessly tiling textures', required: false},
       {type: 3, name: 'sampler', description: 'which sampler to use (default is '+defaultSampler+')', required: false, choices: samplersSlash},
       {type: 11, name: 'attachment', description: 'use template image', required: false},
-      {type: 10, name: 'gfpgan_strength', description: 'GFPGan strength (0-1)(low= more face correction, high= more accuracy)', required: false, min_value: 0, max_value: 1},
-      {type: 10, name: 'codeformer_strength', description: 'Codeformer strength (0-1)(low= more face correction, high= more accuracy)', required: false, min_value: 0, max_value: 1},
       {type: 3, name: 'upscale_level', description: 'upscale amount', required: false, choices: [{name: 'none', value: '0'},{name: '2x', value: '2'},{name: '4x', value: '4'}]},
       {type: 10, name: 'upscale_strength', description: 'upscale strength (0-1)(smoothing/detail loss)', required: false, min_value: 0, max_value: 1},
-      {type: 10, name: 'variation_amount', description: 'how much variation from the original image (0-1)(need seed+not k_euler_a sampler)', required: false, min_value:0.01, max_value:1},
-      {type: 3, name: 'with_variations', description: 'Advanced variant control, provide seed(s)+weight eg "seed:weight,seed:weight"', required: false, min_length:4,max_length:100},
-      {type: 10, name: 'threshold', description: 'Advanced threshold control (0-10)', required: false, min_value:0, max_value:40},
-      {type: 10, name: 'perlin', description: 'Add perlin noise to your image (0-1)', required: false, min_value:0, max_value:1},
-      {type: 5, name: 'hires_fix', description: 'High resolution fix (re-renders twice using template)', required: false},
       {type: 3, name: 'model', description: 'Change the model/checkpoint - see /models for more info', required: false,   min_length: 3, max_length:40}
     ],
     cooldown: 500,
@@ -155,7 +148,7 @@ var slashCommands = [
   }
 ]
 // If credits are active, add /recharge and /balance otherwise don't include them
-if(!creditsDisabled)
+if(config.credits.enabled)
 {
   slashCommands.push({
     name: 'recharge',
