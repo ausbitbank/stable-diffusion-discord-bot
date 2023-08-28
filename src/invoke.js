@@ -1,4 +1,4 @@
-const {config,log,debugLog,getUUID,validUUID,urlToBuffer,sleep}=require('./utils.js')
+const {config,log,debugLog,getUUID,validUUID,urlToBuffer,sleep,shuffle}=require('./utils.js')
 const {random}=require('./random.js')
 const {exif}=require('./exif.js')
 const io = require('socket.io-client')
@@ -122,7 +122,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         //      pipes flow backwards only to already created nodes eg
         //      pipe(from id, from field, to id, to field)
         //      id can either be actual id, or a type (type-number for multiples) or reference lastid.clip etc for most recent id's
-        let p=[] // 
+        var p=[] // 
         // Metadata accumulator
         // todo add vae object and controlnets array
         let vae={model_name:'sd-vae-ft-mse',base_model:'sd-1'}
@@ -138,7 +138,8 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
             scheduler:job.scheduler,
             steps:job.steps,
             model:job.model,
-            loras:[{lora:{model_name:'add_detail',base_model:'sd-1'},weight:0.75}],
+            //loras:[{lora:{model_name:'add_detail',base_model:'sd-1'},weight:0.75}],
+            loras:job.loras,
             controlnets:[],
             vae:vae,
             seed:0
@@ -273,7 +274,11 @@ startSession = async(host,id)=>{
 findHost = async(job=null)=>{
     // find host with the required models, embeds, etc that isn't currently busy
     let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
-    if(job===null&&availableHosts.length>0){return availableHosts[0]}
+    shuffle(availableHosts)
+    if(job===null&&availableHosts.length>0){
+        debugLog('No job info supplied, returning random available host')
+        return availableHosts[0]
+    }
     debugLog('Finding host for job')
     if(isString(job?.model)){
         debugLog('Job.model is a string, convert to model object')
@@ -295,7 +300,7 @@ findHost = async(job=null)=>{
 pollSession = async(host,id)=>{
     // I hate this solution, but it works for now.
     // Ideally we should subscribe to session via websocket
-    let ms=2000
+    let ms=1000
     let err=false
     while(!err) {
         try{
@@ -305,7 +310,7 @@ pollSession = async(host,id)=>{
             } else {
                 await sleep(ms)
                 ms=ms*1.20 // increase poll interval by 20% each time
-                if(ms>=30000){ms=1000} // reset once we hit 30 second polling
+                if(ms>=15000){ms=1000} // reset once we hit 30 second polling
             }
         }catch(e){
             log(e)
@@ -501,10 +506,7 @@ jobFromDream = async(cmd,img=null)=>{
 }
 
 jobFromMeta = async(meta,img=null)=>{
-    let prompt = meta.invoke.positive_prompt?meta.invoke.positive_prompt:''
-    //if(meta.invoke.negative_prompt) prompt+='['+meta.invoke.negative_prompt+']'
     let job = {
-        prompt:prompt,
         positive_prompt: meta.invoke.positive_prompt,
         negative_prompt: meta.invoke.negative_prompt,
         steps: meta.invoke.steps,
@@ -512,8 +514,11 @@ jobFromMeta = async(meta,img=null)=>{
         height: meta.invoke.genHeight,
         scheduler: meta.invoke.scheduler,
         loras: meta.invoke.loras,
-        scale: meta.invoke.scale
+        scale: meta.invoke.scale,
+        model: meta.invoke.model
     }
+    if(meta.invoke.prompt){ job.prompt=meta.invoke.prompt
+    }else if(job.positive_prompt && job.negative_prompt){ job.prompt = job.positive_prompt+'['+job.negative_prompt+']'}
     if(img){job.initimg=img}
     return validateJob(job)
 }
@@ -532,8 +537,7 @@ getDiffusionResolution = (number)=>{
 }
 
 extractLoras = async(inputstring)=>{
-    // extract Loras in withLora(name,wieght) format into job.loras
-    // todo fix format of returned lora array (convert string to object)
+    // extract Loras in withLora(name,weight) format into job.loras
     const regex = /withLora\((\w+)(?:,(\w+))?\)/g
     const matches = [...inputstring.matchAll(regex)]
     const loras = matches.map(match =>({
@@ -542,15 +546,15 @@ extractLoras = async(inputstring)=>{
     }))
     //log(loras)
     for (const l in loras){
-        //log(loras[l].lora)
         let lo = await loranameToObject(loras[l].lora)
-        //log(lo)
+        if(!lo) return {error:'Lora not found'}
         loras[l].lora = lo
     }
     const strippedString = inputstring.replace(regex,'')
     const response = {
         loras: loras,
-        strippedString: strippedString
+        strippedString: strippedString,
+        error: null
     }
     log(response)
     return response
@@ -565,9 +569,15 @@ validateJob = async(job)=>{
     // convert prompt weighting from auto1111 format to invoke/compel
     job.prompt=auto2invoke(job.prompt)
     // extract Loras in withLora(name,wieght) format into job.loras
-    let el = await extractLoras(job.prompt)
-    job.prompt = el.strippedString
-    job.loras = el.loras
+    try{
+        let el = await extractLoras(job.prompt)
+        if(el.error){return {error:el.error}}
+        job.prompt = el.strippedString
+        job.loras = el.loras
+    } catch(err){
+        return {error: ':warning: '+err}
+        //throw(err)
+    }
     // split into positive/negative prompts
     const npromptregex = /\[(.*?)\]/g // match content of [square brackets]
     const npromptmatches = job.prompt.match(npromptregex)
@@ -630,7 +640,14 @@ modelnameToObject = async(modelname)=>{
     for (const h in availableHosts){
         let host=cluster[h]
         let model=host.models.find(m=>{return m.model_name===modelname})
-        if(isObject(model)){ return model
+        if(isObject(model)){
+            //return model
+            return {
+                model_name: model.model_name,
+                base_model: model.base_model,
+                model_type: model.model_type,
+                description: model.description
+            }
         }else{ log('No model with name '+modelname+' on host '+host.name)}
     }
     throw('Unable to find online host with model: `'+modelname+'`')
@@ -642,8 +659,14 @@ loranameToObject = async(loraname)=>{
     for (const h in availableHosts){
         let host=cluster[h]
         let lora=host.lora.find(m=>{return m.model_name===loraname})
-        if(isObject(lora)){ return lora
-        }else{ log('No lora with name '+loraname+' on host '+host.name)}
+        if(isObject(lora)){ 
+            return {
+                model_name: lora.model_name,
+                base_model: lora.base_model,
+                model_type: lora.model_type,
+                description: lora.description
+            }
+        }else{log('Error: No lora with name '+loraname+' on host '+host.name)}
     }
     throw('Unable to find online host with lora: `'+loraname+'`')
 }
