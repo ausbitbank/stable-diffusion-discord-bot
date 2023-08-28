@@ -1,4 +1,4 @@
-const {config,log,debugLog,getRandomColorDec,shuffle,urlToBuffer, getUUID}=require('../utils')
+const {config,log,debugLog,getRandomColorDec,shuffle,urlToBuffer,getUUID}=require('../utils')
 const {exif}=require('../exif')
 const {invoke}=require('../invoke')
 const {bot}=require('./bot')
@@ -15,6 +15,7 @@ let commands = [
         prefix:'!',
         command: async (args,msg)=>{
             debugLog('new dream request:'+args.join(' '))
+            msg.addReaction('🫡')
             let img
             if(messageHasImageAttachments(msg)){ img = await extractImageBufferFromMessage(msg)
             }else if(msg.messageReference?.messageID){
@@ -68,17 +69,33 @@ let commands = [
         prefix:'!',
         command: async (args,msg)=>{
             log('new metadata request')
-            return true
+            if(msg.messageReference?.messageID){
+                sourcemsg = await bot.getMessage(msg.channel.id,msg.messageReference.messageID)
+                let meta = await extractMetadataFromMessage(sourcemsg)
+                log('Got meta from sourcemsg')
+                log(meta)
+            } else {
+                let meta = await extractMetadataFromMessage(msg)
+                log('Got meta from image')
+                log(meta)
+            }
+            if(meta){
+                return {message:[{content:meta}]}
+            } else {
+                return {error:'Unable to find metadata'}
+            }
+            return {message:[{content:meta}]}
         }
     },
     {
         name: 'help',
         description: 'Show help dialog, about this bot',
         permissionLevel: 'all',
-        aliases: ['halp'],
+        aliases: ['help'],
         prefix:'!',
         command: async(args,msg)=>{
-            return [await help()]
+            let response = await help()
+            return {messages:[response]}
         }
     },
     {
@@ -93,6 +110,44 @@ let commands = [
             if(messageHasImageAttachments(msg)){ img = await extractImageBufferFromMessage(msg)}
             result = await imageEdit.textOverlay(text,img)
             return result
+        }
+    },
+    {
+        name: 'append',
+        description: 'Append to a renders prompt and arguments',
+        permissionLevel: 'all',
+        aliases: ['..'],
+        prefix:'',
+        command: async(args,msg)=>{
+            // todo need to be sure this is a reply to a render result
+            // bot.application.id
+            log(args)
+            log(msg)
+            let response = {content:''}
+            return {messages:[response]}
+        }
+    },
+    {
+        name: 'unregisterSlashCommands',
+        description: 'forcibly remove all registered slash commands from the server',
+        permissionLevel: 'admin',
+        aliases: ['unregisterslashcommands'],
+        prefix:'!!!',
+        command: async(args,msg)=>{
+            let r = await bot.bulkEditCommands([])
+            log(r)
+            let response = {content:':information_source: Unregistered Slash Commands'}
+            return {messages:[response]}
+        }
+    },
+    {
+        name: 'restart',
+        description: 'forcibly restart the bot process',
+        permissionLevel: 'admin',
+        aliases: ['restart'],
+        prefix:'!!!',
+        command: async(args,msg)=>{
+            process.exit(0)
         }
     }
 ]
@@ -111,9 +166,19 @@ parseMsg=async(msg)=>{
                 if(firstword===c.prefix+a){
                     let args=msg.content.split(' ')
                     args.shift() // only pass on the message without the prefix and command
+                    // check permissionLevel
+                    switch(c.permissionLevel){
+                        case 'all':{break} // k fine
+                        case 'admin':{
+                            if(parseInt(msg.member.id)!==config.adminID){
+                                log('Denied admin command for '+msg.member.username)
+                                return
+                            }
+                        }
+                    }
                     //let [messages,files] = await c.command(args,msg)
                     let result = await c.command(args,msg)
-                    log(result)
+                    debugLog(result)
                     let messages = result?.messages
                     let files = result?.files
                     let error = result?.error
@@ -178,6 +243,16 @@ extractImageBufferFromMessage = async (msg)=>{
     return buf
 }
 
+extractMetadataFromMessage = async (msg)=>{
+    if(messageHasImageAttachments(msg)){
+        buf = await extractImageBufferFromMessage(msg)
+        meta = await exif.load(buf)
+        return meta
+    } else {
+        return null
+    }
+}
+
 messageHasImageAttachments = (msg)=>{
     if(msg.attachments.length>0){
         for (const a of msg.attachments){
@@ -219,7 +294,10 @@ imageResultMessage = (userid,img,result,meta)=>{
         ],
         components:[
             {type: 1,components:[
-                {type:2,style:1,label:'refresh',custom_id:'refresh',emoji:{name:'🎲',id:null}}
+                {type:2,style:1,label:'Refresh',custom_id:'refresh',emoji:{name:'🎲',id:null}},
+                {type:2,style:1,label:'Edit Prompt',custom_id:'editPrompt',emoji:{name:'✏️',id:null},disabled:false},
+                {type:2,style:1,label:'Random',custom_id:'editPromptRandom',emoji:{name:'🔀',id:null},disabled:false},
+                {type:2,style:1,label:'Tweak',custom_id:'tweak',emoji:{name:'🧪',id:null},disabled:false}
             ]}
         ]
     }
@@ -234,7 +312,6 @@ help=()=>{
         {
         type: 'rich',
         title: helpTitles[0],
-        //description: '```diff\n-| To create art: \n /dream\n !dream *your idea here*\n /random\n\n-| For text overlays / memes:\n /text\n !text words (reply to image result)\n\n-| Accounting:\n /balance\n /recharge\n !gift 10 @whoever\n\n-| Advanced customisation:\n /models\n /embeds\n !randomisers\n\n+| See these link buttons below for more commands and info\n```',
         description: '```diff\n-| To create art: \n+| /dream\n+| !dream *your idea here*\n+| /random\n\n-| For text overlays & memes:\n+| /text\n+| !text words (reply to image result)\n\n-| Accounting:\n+| /balance\n+| /recharge\n+| !gift 10 @whoever\n\n-| Advanced customisation:\n+| /models\n+| /embeds\n+| !randomisers\n``` ```yaml\nSee these link buttons below for more commands and info```',
         color: getRandomColorDec()
         }
@@ -258,6 +335,7 @@ module.exports = {
         prefixes,
         parseMsg,
         extractImageBufferFromMessage,
+        extractMetadataFromMessage,
         messageHasImageAttachments,
         returnMessageResult
     }
