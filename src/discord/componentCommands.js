@@ -16,13 +16,18 @@ let commands = [
         command: async (interaction)=>{
             interaction.createMessage({content:':saluting_face: refreshing',flags:64})
             let img=null
+            /*
             // if there is a message reference, and that has an image attachment, use it as an imit img
             if(interaction.message.messageReference?.messageID){
                 let parentmsg = await bot.getMessage(interaction.message.messageReference.channelID, interaction.message.messageReference.messageID)
-                if(messageCommands.messageHasImageAttachments(parentmsg)){img=await messageCommands.extractImageBufferFromMessage(parentmsg)}
+                // todo testing if below line is still needed
+                //if(messageCommands.messageHasImageAttachments(parentmsg)){img=await messageCommands.extractImageBufferFromMessage(parentmsg)}
             }
+            */
             let meta = await messageCommands.extractMetadataFromMessage(interaction.message)
+            if(meta.invoke.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
             let result = await invoke.jobFromMeta(meta,img)
+            if(meta.invoke.inputImageUrl && !result.error && result.images?.length > 0){result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke.inputImageUrl)}
             let newmsg = interaction.message
             newmsg.member = interaction.member
             return messageCommands.returnMessageResult(newmsg,result)
@@ -36,6 +41,7 @@ let commands = [
         command: async (interaction)=>{
             let msgid = interaction.data.custom_id.split('-')[1]
             let channelid = interaction.channel.id
+            let img = null
             let key = interaction.data.components[0].components[0].custom_id
             let value = interaction.data.components[0].components[0].value
             await interaction.createMessage({content:':saluting_face: refreshing with **'+key+'** of `'+value+'`',flags:64})
@@ -46,9 +52,11 @@ let commands = [
             }
             let sourcemsg = await bot.getMessage(channelid, msgid)
             let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
-            debugLog('edit '+key+' to: '+value)
+            debugLog(interaction.member?.username||interaction.author?.username||interaction.user?.username+' edit '+key+' to: '+value)
             meta.invoke[key] = value
-            let result = await invoke.jobFromMeta(meta,null)
+            if(meta.invoke.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
+            let result = await invoke.jobFromMeta(meta,img)
+            if(meta.invoke.inputImageUrl && !result.error && result.images?.length > 0){result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke.inputImageUrl)}
             let newmsg = sourcemsg
             newmsg.member = interaction.member
             return messageCommands.returnMessageResult(newmsg,result)
@@ -221,11 +229,97 @@ let commands = [
                             {type: 2, style: 1, label: 'Scale', custom_id: 'editScale-'+msgid, emoji: { name: '⚖️', id: null}, disabled: false },
                             {type: 2, style: 1, label: 'Steps', custom_id: 'editSteps-'+msgid, emoji: { name: '♻️', id: null}, disabled: false },
                             {type: 2, style: 1, label: 'Strength', custom_id: 'editStrength-'+msgid, emoji: { name: '💪', id: null}, disabled: true },
-                            {type: 2, style: 1, label: 'Sampler', custom_id: 'chooseSampler-'+msgid, emoji: { name: '👁️', id: null}, disabled: true }
+                            {type: 2, style: 1, label: 'Sampler', custom_id: 'chooseSampler-'+msgid, emoji: { name: '👁️', id: null}, disabled: false }
                       ]}
                 ]
             }
             interaction.createMessage(tweakmsg)
+        }
+    },
+    {
+        name: 'remove',
+        description: 'Allow either the creator or bot admin to remove a result',
+        permissionLevel: ['all'],
+        aliases: ['remove'],
+        command: async (interaction)=>{
+            let msgid=interaction.message.id
+            let msg=await bot.getMessage(interaction.channel.id,msgid)
+            // should immediately delete for admin, creator, guild admin
+            // otherwise add 🗑️ emoji if not already existing 
+            // and tell user to click it to confirm their vote for removal
+            // todo needs more testing for private DM's where we cannot delete
+            if(
+                (interaction.member?.id===config.adminID)|| // admin
+                (msg.mentions.length>0&&interaction.member?.id===msg.mentions[0].id) // creator
+                ){
+                // admin or owner can delete
+                // tag the original request so its obvious what happened
+                if(interaction.message.messageReference?.messageID){
+                    let sourcemsg = await bot.getMessage(interaction.channel.id,interaction.message.messageReference.messageID)
+                    if(sourcemsg.member.id!==bot.application.id){
+                        sourcemsg.addReaction('🗑️')
+                    }
+                }
+                msg.delete()
+            } else {
+                // otherwise make them show their vote
+                msg.addReaction('🗑️')
+                interaction.createMessage({content:'Confirm your vote for removal by clicking the :wastebasket: emoji on the render',flags:64})
+            }
+        }
+    },
+    {
+        name:'chooseSampler',
+        description:'Collect a scheduler / sampler choice from the user via a dropdown menu',
+        permissionLevel: ['all'],
+        aliases: ['chooseSampler'],
+        command: async (interaction)=>{
+            let msgid = interaction.data.custom_id.split('-')[1]
+            if(interaction.data.values){
+                // capture a response instead of asking for one
+                //interaction.acknowledge()
+                interaction.editParent({
+                    content:':saluting_face: refreshing with **Scheduler** of `'+interaction.data.values[0]+'`',
+                    components:[],
+                    embeds:[]
+                })
+                let channelid = interaction.channel.id
+                let sourcemsg = await bot.getMessage(channelid,msgid)
+                let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
+                let img = null
+                meta.invoke.scheduler = interaction.data.values[0]
+                if(meta.invoke.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
+                let result = await invoke.jobFromMeta(meta,img)
+                if(meta.invoke.inputImageUrl && !result.error && result.images?.length > 0){result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke.inputImageUrl)}
+                let newmsg = interaction.message
+                newmsg.member = interaction.member
+                newmsg.message_reference=null
+                newmsg.messageReference=null
+                return messageCommands.returnMessageResult(newmsg,result)    
+            }
+            var changeSamplerResponse={
+                content:':eye: **Sampler / Scheduler Menu**\nUse this menu to change the sampler being used',
+                flags:64,
+                components:[
+                    {
+                        type:1,
+                        components:[
+                            {
+                                type: 3,
+                                custom_id:'chooseSampler-'+msgid,
+                                placeholder:'Choose a sampler / scheduler',
+                                min_values:1,
+                                max_values:1,
+                                options:[]
+                            }
+                        ]
+                    }
+                ]
+            }
+            config.schedulers.forEach((s)=>{
+                changeSamplerResponse.components[0].components[0].options.push({label: s,value: s})
+            })
+            return interaction.editParent(changeSamplerResponse)//.then((r)=>{}).catch((e)=>{console.error(e)})
         }
     }
 ]
@@ -234,20 +328,38 @@ let prefixes=[]
 commands.forEach(c=>{c.aliases.forEach(a=>{prefixes.push(a)})})
 
 parseCommand = async(interaction)=>{
-    if(!auth.check(interaction.member.id,interaction.guildId,interaction.channel?.id)){return} // if not authorised, ignore
+    //debugLog(interaction)
+    if(!auth.check(interaction.member?.id||interaction.author?.id,interaction.guildID,interaction.channel?.id)){return} // if not authorised, ignore
     let command = interaction.data.custom_id.split('-')[0]
     if(prefixes.includes(command)){
         commands.forEach(c=>{
             c.aliases.forEach(async a=>{
                 if(command===a){
                     try{
+                        // todo multi-tier permissions system
+                        switch(c.permissionLevel){
+                            case 'all':{break} // k fine
+                            case 'admin':{
+                                if(parseInt(msg.member.id)!==config.adminID){
+                                    log('Denied admin command for '+msg.member.username)
+                                    return
+                                }
+                                break
+                            }
+                            case 'creator':{
+                                // todo need creator discord id
+                                break
+                            }
+                        }
+                        log(c.name+' triggered by '+interaction.member?.username||interaction.author?.username||interaction.user?.username+' in '+interaction.channel?.name||interaction.channel?.id+' ('+interaction.member?.guild?.name||'DM'+')')
                         let result = await c.command(interaction)
                         let messages = result?.messages
                         let files = result?.files
                         let error = result?.error
                         if(error){
                             log('Error: '.bgRed+' '+error)
-                            chat(msg.channel.id,{content:':warning: '+error})
+                            interaction.createMessage({content:':warning: '+error,flags:64})
+                            //chat(interaction.channel.id,{content:':warning: '+error,flags:64})
                             return
                         }
                         if(!Array.isArray(messages)){messages=[messages]}
