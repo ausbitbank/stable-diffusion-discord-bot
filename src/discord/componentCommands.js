@@ -1,4 +1,4 @@
-const {config,log,debugLog,getRandomColorDec,shuffle,urlToBuffer}=require('../utils')
+const {config,log,debugLog,getRandomColorDec,shuffle,urlToBuffer, getUUID}=require('../utils')
 const {messageCommands}=require('./messageCommands')
 const {exif}=require('../exif')
 const {invoke}=require('../invoke')
@@ -6,6 +6,8 @@ const {auth}=require('./auth')
 const {bot}=require('./bot')
 const {random}=require('../random')
 const { intersection } = require('lodash')
+const imageEdit = require('../imageEdit')
+const {removeBackground}=require('../removeBackground')
 
 let commands = [
     {
@@ -16,18 +18,10 @@ let commands = [
         command: async (interaction)=>{
             interaction.createMessage({content:':saluting_face: refreshing',flags:64})
             let img=null
-            /*
-            // if there is a message reference, and that has an image attachment, use it as an imit img
-            if(interaction.message.messageReference?.messageID){
-                let parentmsg = await bot.getMessage(interaction.message.messageReference.channelID, interaction.message.messageReference.messageID)
-                // todo testing if below line is still needed
-                //if(messageCommands.messageHasImageAttachments(parentmsg)){img=await messageCommands.extractImageBufferFromMessage(parentmsg)}
-            }
-            */
             let meta = await messageCommands.extractMetadataFromMessage(interaction.message)
-            if(meta.invoke.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
+            if(meta.invoke?.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
             let result = await invoke.jobFromMeta(meta,img)
-            if(meta.invoke.inputImageUrl && !result.error && result.images?.length > 0){result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke.inputImageUrl)}
+            if(meta.invoke?.inputImageUrl && !result.error && result.images?.length > 0){result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke.inputImageUrl)}
             let newmsg = interaction.message
             newmsg.member = interaction.member
             return messageCommands.returnMessageResult(newmsg,result)
@@ -53,10 +47,10 @@ let commands = [
             let sourcemsg = await bot.getMessage(channelid, msgid)
             let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
             debugLog(interaction.member?.username||interaction.author?.username||interaction.user?.username+' edit '+key+' to: '+value)
-            meta.invoke[key] = value
-            if(meta.invoke.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
+            if(meta.invoke){meta.invoke[key] = value}
+            if(meta.invoke?.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
             let result = await invoke.jobFromMeta(meta,img)
-            if(meta.invoke.inputImageUrl && !result.error && result.images?.length > 0){result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke.inputImageUrl)}
+            if(meta.invoke?.inputImageUrl && !result.error && result.images?.length > 0){result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke.inputImageUrl)}
             let newmsg = sourcemsg
             newmsg.member = interaction.member
             return messageCommands.returnMessageResult(newmsg,result)
@@ -69,7 +63,7 @@ let commands = [
         aliases: ['editPrompt'],
         command: async (interaction)=>{
             let meta = await messageCommands.extractMetadataFromMessage(interaction.message)
-            let prompt = meta.invoke.positive_prompt+' ['+meta.invoke.negative_prompt+']'
+            let prompt = meta.invoke?.positive_prompt+' ['+meta.invoke?.negative_prompt+']'
             return interaction.createModal({
                 custom_id:'edit-'+interaction.message.id,
                 title:'Edit the random prompt?',
@@ -182,9 +176,9 @@ let commands = [
             let sourcemsg = await bot.getMessage(channelid,msgid)
             let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
             let strength = meta.invoke.strength
-            log('strength')
-            log(meta)
-            log(strength)
+            //log('strength')
+            //log(meta)
+            //log(strength)
             return interaction.createModal({
                 custom_id:'edit-'+sourcemsg.id,
                 title:'Edit the strength',
@@ -220,7 +214,8 @@ let commands = [
                             {type: 2, style: 1, label: 'Aspect Ratio', custom_id: 'chooseAspect-'+msgid, emoji: { name: '📐', id: null}, disabled: true },
                             {type: 2, style: 1, label: 'Models', custom_id: 'chooseModel-'+msgid, emoji: { name: '💾', id: null}, disabled: true },
                             {type: 2, style: 1, label: 'Textual Inversions', custom_id: 'chooseTi-'+msgid, emoji: { name: '💊', id: null}, disabled: true },
-                            {type: 2, style: 1, label: 'Loras', custom_id: 'chooseLora-'+msgid, emoji: { name: '💊', id: null}, disabled: true }        
+                            {type: 2, style: 1, label: 'Loras', custom_id: 'chooseLora-'+msgid, emoji: { name: '💊', id: null}, disabled: true }        ,
+                            {type: 2, style: 1, label: 'Remove Background', custom_id: 'removeBackground-'+msgid, emoji: { name: '🪄', id: null}, disabled: false }        
                     ]},
                     {
                         type:1,
@@ -265,6 +260,51 @@ let commands = [
                 // otherwise make them show their vote
                 msg.addReaction('🗑️')
                 interaction.createMessage({content:'Confirm your vote for removal by clicking the :wastebasket: emoji on the render',flags:64})
+            }
+        }
+    },
+    {
+        name: 'removeBackground',
+        description: 'Remove the background from an image using rembg',
+        permissionLevel: ['all'],
+        aliases: ['removeBackground'],
+        command: async (interaction)=>{
+            interaction.acknowledge()
+            let userid = interaction.member?.id||interaction.author?.id||interaction.user?.id
+            let channelid = interaction.channel.id
+            let msgid=interaction.data.custom_id.split('-')[1]
+            let msg=await bot.getMessage(channelid,msgid)
+            if(messageCommands.messageHasImageAttachments(msg)){
+                let url = await messageCommands.extractImageUrlFromMessage(msg)
+                let response = await removeBackground(url)
+                reply = {
+                    content:'<@'+userid+'> removed image background',
+                    embeds:[{description:response.msg}],
+                    components:[{type:1,components:[
+                        {type: 2, style: 1, label: 'Crop', custom_id: 'crop-'+msgid, emoji: { name: '✂️', id: null}, disabled: false }
+                    ]}
+                    ]
+                }
+                interaction.createMessage(reply,{file:response.image,name:getUUID()+'.png'})
+                //log(response)
+            }
+        }
+    },
+    {
+        name: 'crop',
+        description: 'Automatically crop the image using jimp',
+        permissionLevel: ['all'],
+        aliases: ['crop'],
+        command: async (interaction)=>{
+            interaction.acknowledge()
+            let userid = interaction.member?.id||interaction.author?.id||interaction.user?.id
+            let msgid=interaction.data.custom_id.split('-')[1]
+            let msg=await bot.getMessage(interaction.channel.id,msgid)
+            if(messageCommands.messageHasImageAttachments(msg)){
+                let url = await messageCommands.extractImageUrlFromMessage(msg)
+                let response = await removeBackground(url)
+                reply = {content:'<@'+userid+'> cropped image',}
+                interaction.createMessage(reply,{file:response.image,name:getUUID()+'.png'})
             }
         }
     },
@@ -329,7 +369,13 @@ commands.forEach(c=>{c.aliases.forEach(a=>{prefixes.push(a)})})
 
 parseCommand = async(interaction)=>{
     //debugLog(interaction)
-    if(!auth.check(interaction.member?.id||interaction.author?.id,interaction.guildID,interaction.channel?.id)){return} // if not authorised, ignore
+    // normalise values between responses in channel and DM
+    let userid = interaction.member?.id||interaction.author?.id||interaction.user?.id
+    let username = interaction.user?.username||interaction.member?.username||interaction.author?.username
+    let channelid = interaction.channel.id
+    let guildid = interaction.guildID||'DM'
+    //log(guildid)
+    if(!auth.check(userid,guildid,channelid)){return} // if not authorised, ignore
     let command = interaction.data.custom_id.split('-')[0]
     if(prefixes.includes(command)){
         commands.forEach(c=>{
@@ -340,8 +386,8 @@ parseCommand = async(interaction)=>{
                         switch(c.permissionLevel){
                             case 'all':{break} // k fine
                             case 'admin':{
-                                if(parseInt(msg.member.id)!==config.adminID){
-                                    log('Denied admin command for '+msg.member.username)
+                                if(parseInt(userid)!==config.adminID){
+                                    log('Denied admin command for '+username)
                                     return
                                 }
                                 break
@@ -351,7 +397,8 @@ parseCommand = async(interaction)=>{
                                 break
                             }
                         }
-                        log(c.name+' triggered by '+interaction.member?.username||interaction.author?.username||interaction.user?.username+' in '+interaction.channel?.name||interaction.channel?.id+' ('+interaction.member?.guild?.name||'DM'+')')
+                        //log(interaction)
+                        log(c.name+' triggered by '+username+' in '+interaction.channel?.name||interaction.channel?.id+' ('+interaction.member?.guild?.name||'DM'+')')
                         let result = await c.command(interaction)
                         let messages = result?.messages
                         let files = result?.files
@@ -359,7 +406,6 @@ parseCommand = async(interaction)=>{
                         if(error){
                             log('Error: '.bgRed+' '+error)
                             interaction.createMessage({content:':warning: '+error,flags:64})
-                            //chat(interaction.channel.id,{content:':warning: '+error,flags:64})
                             return
                         }
                         if(!Array.isArray(messages)){messages=[messages]}
@@ -371,9 +417,9 @@ parseCommand = async(interaction)=>{
                         messages.forEach(message=>{
                             if(files.length>0)file=files.shift() // grab the top file
                             if(message&&file){
-                            chat(interaction.channel.id,message,file) // Send message with attachment
+                            chat(channelid,message,file) // Send message with attachment
                             }else if(message){
-                            chat(interaction.channel.id,message) // Send message, no attachment
+                            chat(channelid,message) // Send message, no attachment
                             }
                         })
                     }catch(e){log(e)}
