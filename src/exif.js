@@ -1,17 +1,18 @@
 const ExifReader = require('exifreader')
 const sharp = require('sharp')
 const {log,debugLog} = require('./utils.js')
-//const exiftool = require('exiftool-vendored').ExifTool
-//const ExifParser = require('exif-parser')
-//const { PNGImage, PNGChunk_tEXt } = require('png-chunk-editor')
-//const pako = require('pako')
+const pngextract = require('png-chunks-extract')
+const pngencode = require('png-chunks-encode')
+const pngtext = require('png-chunk-text')
+
+
 
 load=async(buf)=>{
+    //buf = await modify(buf,'arty_meta','keyname','value')
     exif = ExifReader.load(buf)
     let width = exif['Image Width'].value
     let height = exif['Image Height'].value
     let results = {}
-    //log(exif)
     // todo move this to invoke module after polish
     if(exif.invokeai_metadata&&exif.invokeai_graph){
         meta=JSON.parse(exif.invokeai_metadata.value)
@@ -29,7 +30,7 @@ load=async(buf)=>{
         let genHeight=0
         let lscale=1
         let controlnets=meta.controlnets
-        let inputimages=[]
+        let inputImageUrl=null
         let scheduler=meta.scheduler
         for (const i in graph.nodes){
             let n = graph.nodes[i]
@@ -48,68 +49,65 @@ load=async(buf)=>{
             }
             if(n.type==='controlnet'){
                 controlnets.push({controlnet:n.control_model,weight:n.control_weight,begin:n.begin_step_percent,end:n.end_step_percent,mode:n.control_mode,resize:n.resize_mode})
-                if(n.image){inputimages.push({name:n.image.image_name})}
             }
         }
         let cost=(pixelSteps/7864320) // 1 normal 30 step 512x512 render to 1 coin
+        if(exif.arty){
+            let arty = JSON.parse(exif.arty.value)
+            inputImageUrl=arty.inputImageUrl
+        }
         cost = Math.round((cost + Number.EPSILON) * 1000) / 1000 // max 3 decimals, if needed
         results.invoke={
-            positive_prompt:positive_prompt,
-            negative_prompt:negative_prompt,
-            pixelSteps:pixelSteps,
-            steps:steps,
-            genHeight:genHeight,
-            genWidth:genWidth,
-            loras:loras,
-            seed:seed,
-            cost:cost,
-            scheduler:scheduler,
-            model:model,
-            scale:scale,
-            controlnets:controlnets,
-            inputimages:inputimages
+            positive_prompt,
+            negative_prompt,
+            pixelSteps,
+            steps,
+            width,
+            height,
+            genHeight,
+            genWidth,
+            loras,
+            seed,
+            cost,
+            scheduler,
+            model,
+            scale,
+            controlnets,
+            inputImageUrl,
+            clipskip
         }
-        //log(results.invoke)
     }
+    //debugLog(results)
     return results
 }
 
-read=async(buf)=>{ // fails to detect invokeai_graph tags, totally different output to load ^^
-    let img=sharp(buf)
-    let exif=await img.metadata()
-    return exif
+modify=async(buf,parent,key,value)=>{
+    // load all the chunk data from the buffer
+    let chunks = pngextract(buf)
+    // find the tEXt chunks
+    let textChunks = chunks.filter(chunk=>{
+        return chunk.name === 'tEXt'
+    }).map(chunk=>{
+        return pngtext.decode(chunk.data)
+    })
+    newdata = {}
+    newdata[key] = value
+    dataAlreadyExists=()=>{
+        d = textChunks.filter(c=>{return c.value===JSON.stringify(newdata)})
+        if(d.length>0){return true}else{return false}
+    }
+    if(dataAlreadyExists()){
+        debugLog('already existed in original png metadata')
+    } else {
+        debugLog('Splicing in new metadata')
+        // splice in the new encoded tEXt chunk
+        chunks.splice(-1,0,pngtext.encode(parent,JSON.stringify(newdata)))
+    }
+    // turn it all back into the original buffer format and return
+    let output = pngencode(chunks)
+    buf = Buffer.from(pngencode(chunks))
+    return buf
+
 }
 
-save=async(buf,parent,tag,data)=>{
-    let img = sharp(buf)
-    let newbuffer=img.withMetadata().withMetadata({exif:{parent:{tag:data}}}).toBuffer().then((newbuffer=>{return newbuffer}))
-    //let meta = await read(buf)
-    //log(meta)
-    let newmeta=meta
-    newmeta[parent] = meta[parent] ? meta[parent] : {} // if parent exists, copy, if not create it
-    if(newmeta[parent][tag]){log('exif: key '+parent+' '+tag+' already existed with data, overwriting: '+newmeta[parent][tag])}
-    newmeta[parent][tag]=data
-    log(newmeta)
-    //await img.withMetadata({exif: {IFD0: {ImageDescription: 'example'}}})
-    await img.withMetadata(newmeta)
-}
-
-// newbuf = await exif.edit(buf,'initimg','url','arty')
-edit=async(buf,key,value,parent='arty')=>{
-    /*
-    let pngimage = PNGImage.fromBytes([...buf])
-    log(pngimage.chunks)
-    let textChunk = pngimage.getChunk(pngimage.getChunkIndex("tEXt"))
-    log(textChunk)
-    //log(pako.deflate(textChunk))
-    //pngimage.insertChunk(new PNGChunk_tEXt(key,value), 1)
-    //log(exifData)
-    //exifData[parent] = {}
-    //exifData[parent][key] = value
-    let newbuf = pngimage.toBytes()
-    //let newbuf=ExifParser.create(exifData).encode()
-    */
-    return newbuf
-}
-
-module.exports={exif:{load,save,read,edit}}
+module.exports={exif:{load,modify}}
