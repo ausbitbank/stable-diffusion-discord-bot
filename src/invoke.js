@@ -26,7 +26,7 @@ const init=async()=>{
             }
             // on connect, get all the backend info we can in parallel
             c.id=getUUID()
-            const [version, models, lora, ti, vae, controlnet, cfg] = await Promise.all([getVersion(c),getModels(c,'main'),getModels(c,'lora'),getModels(c,'embedding'),getModels(c,'vae'),getConfig(c)])
+            const [version, models, lora, ti, vae, controlnet, cfg] = await Promise.all([getVersion(c),getModels(c,'main'),getModels(c,'lora'),getModels(c,'embedding'),getModels(c,'vae'),getModels(c,'controlnet'),getConfig(c)])
             c.version = version
             c.models = models
             c.lora = lora
@@ -52,8 +52,6 @@ const init=async()=>{
 
 
 buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
-    log(job.initimg)
-    log(job.initimgObject)
     let graph = {
         id: getUUID(),
         nodes:{},
@@ -66,12 +64,13 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         graph.nodes[newid]={}
         graph.nodes[newid].type=type
         graph.nodes[newid].id=newid
+        graph.nodes[newid].workflow=null
         Object.keys(params).forEach((k)=>{graph.nodes[newid][k]=params[k]})
         // by tracking and updating most recent used ids we can break the job into components easier
         if(['main_model_loader','lora_loader'].includes(type)){lastid.unet=newid}
         if(['main_model_loader','clip_skip','lora_loader'].includes(type)){lastid.clip=newid}
         if(['main_model_loader','vae_loader'].includes(type)){lastid.vae=newid}
-        if(['t2l','ttl','lscale','l2l','i2l'].includes(type)){lastid.latents=newid}
+        if(['t2l','ttl','lscale','l2l','i2l','denoise_latents'].includes(type)){lastid.latents=newid}
         if(['noise'].includes(type)){lastid.noise=newid}
         if(['controlnet'].includes(type)){lastid.control=newid}
         if(['openpose_image_processor','l2i'].includes(type)){lastid.image=newid}
@@ -144,9 +143,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         node('main_model_loader',{model:job.model},[])
         node('vae_loader',{vae_model:vae},[])
         if(job.initimgObject){
-            log('Adding init img to graph')
-            log(job.initimgObject)
-            //log(job.initimg)
+            debugLog('Adding init img to graph')
             // todo add auto preprocessing of init images for each type of controlnet
             if(job.control==='openpose'){
                 debugLog('Adding openpose preprocessor')
@@ -195,11 +192,23 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
             // bring the latent noise, using cpu for reproducibility, set initial dimensions
             node('noise',{width:job.width,height:job.height,use_cpu:true},[pipe('iterate','item','SELF','seed')])
         }
+        p = [
+            pipe('compel','conditioning','SELF','positive_conditioning'),
+            pipe('compel-2','conditioning','SELF','negative_conditioning'),
+            pipe(lastid.noise,'noise','SELF','noise'),
+            pipe(lastid.unet,'unet','SELF','unet')
+        ]
         // text to latents, use prompt conditioning with latent noise to create latent representation of image at starter resolution
         // input image: If we used i2l earlier, we skip t2l below
-        p =[pipe('compel','conditioning','SELF','positive_conditioning'),pipe('compel-2','conditioning','SELF','negative_conditioning'),pipe(lastid.noise,'noise','SELF','noise'),pipe(lastid.unet,'unet','SELF','unet')]
+
+        // if using controlnet, add that pipe too
         if(lastid.control){p.push(pipe(lastid.control,'control','SELF','control'))}
-        node('t2l',{steps:job.steps,cfg_scale:job.scale,scheduler:job.scheduler},p)
+
+        // this denoise_latents node only applies to invoke >= 3.1
+        node('denoise_latents',{is_intermediate:true,noise:null,steps:job.steps,cfg_scale:job.scale,denoising_start:0.0,denoising_end:1.0,scheduler:job.scheduler},p)
+        // commented out below t2l below applies to invoke < 3.1
+        //node('t2l',{steps:job.steps,cfg_scale:job.scale,scheduler:job.scheduler},p)
+
         if(job.lscale&&job.lscale!==1){ // upscale latents, low fidelity
             node('lscale',{scale_factor:job.lscale,mode:'nearest',antialias:false},[pipe(lastid.latents,'latents','SELF','latents')])
             // add more latent noise at the new resolution, using cpu again
@@ -207,7 +216,6 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
             p=[pipe('lscale','width','SELF','width'),pipe('lscale','height','SELF','height')]
             if(job.seed&&job.number===1){ a.seed=job.seed
             } else { p.push(pipe('iterate','item','SELF','seed'))}
-            //node('noise',a,[pipe('iterate','item','SELF','seed'),pipe('lscale','width','SELF','width'),pipe('lscale','height','SELF','height')])
             node('noise',a,p)
             // latents to latents, combining noise,latents,prompt conditioning
             let p=[pipe('compel','conditioning','SELF','positive_conditioning'),pipe('compel-2','conditioning','SELF','negative_conditioning'),pipe(lastid.noise,'noise','SELF','noise'),pipe(lastid.unet,'unet','SELF','unet'),pipe(lastid.latents,'latents','SELF','latents')]
@@ -220,9 +228,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
             node('l2i',{tiled:false,fp32:false,is_intermediate:(job.upscale&&job.upscale===2)?true:false},[pipe(lastid.vae,'vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
         }
         // optional upscale
-        if(job.upscale&&job.upscale===2){
-            node('esrgan',{model_name:'RealESRGAN_x2plus.pth'},[pipe(lastid.image,'image','SELF','image')])
-        }
+        if(job.upscale&&job.upscale===2){node('esrgan',{model_name:'RealESRGAN_x2plus.pth'},[pipe(lastid.image,'image','SELF','image')])}
         // Tada! Graph built, submit to backend
         if(graph){
             //debugLog(graph)
@@ -513,32 +519,28 @@ const jobFromDream = async(cmd,img=null)=>{
     if(job.sampler){job.scheduler=job.sampler;delete job.sampler}
     // take prompt from what's left
     job.prompt=job._.join(' ')
-    if(img){
-        debugLog('img buffer passed, setting as job.initimg')
-        job.initimg=img
-    }
-    debugLog('passing jobFromDream with job:',job)
+    if(img){job.initimg=img}
     return validateJob(job)
 }
 
 const jobFromMeta = async(meta,img=null)=>{
-    let job = {
-        positive_prompt: meta.invoke.positive_prompt,
-        negative_prompt: meta.invoke.negative_prompt,
-        steps: meta.invoke.steps,
-        width: meta.invoke.width||meta.invoke.genWidth,
-        height: meta.invoke.height||meta.invoke.genHeight,
-        scheduler: meta.invoke.scheduler,
-        loras: meta.invoke.loras,
-        scale: meta.invoke.scale,
-        model: meta.invoke.model
+    let job = {}
+    if(meta.invoke?.prompt){
+        job.prompt=meta.invoke?.prompt
+    }else if(meta.invoke?.positive_prompt && meta.invoke?.negative_prompt){
+        job.prompt = meta.invoke.positive_prompt+'['+meta.invoke.negative_prompt+']'
     }
-    if(meta.invoke.prompt){ job.prompt=meta.invoke.prompt
-    }else if(job.positive_prompt && job.negative_prompt){ job.prompt = job.positive_prompt+'['+job.negative_prompt+']'}
     if(img){job.initimg=img}
-    if(meta.invoke.inputImageUrl){
-        job.initimg=await urlToBuffer(meta.invoke.inputImageUrl)
+    if(meta.invoke?.inputImageUrl){
+        job.initimg=await urlToBuffer(meta.invoke?.inputImageUrl)
     }else{job.initimg=null}
+    job.steps = meta.invoke?.steps ? meta.invoke.steps : config.default.steps
+    job.width = meta.invoke?.width ? meta.invoke.width : config.default.size
+    job.height = meta.invoke?.height ? meta.invoke.height : config.default.size
+    job.scheduler = meta.invoke?.scheduler ? meta.invoke.scheduler : config.default.scheduler
+    job.loras = meta.invoke?.loras ? meta.invoke.loras : []
+    job.scale = meta.invoke?.scale ? meta.invoke.scale : config.default.scale
+    job.model = meta.invoke?.model ? meta.invoke.model : config.default.model
     return validateJob(job)
 }
 
