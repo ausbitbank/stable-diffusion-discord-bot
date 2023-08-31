@@ -45,5 +45,6 @@ module.exports = {
     urlToBuffer,
     sleep,
     shuffle,
-    debounce
+    debounce,
+    tidyNumber
 }
