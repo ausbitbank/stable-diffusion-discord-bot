@@ -1,6 +1,7 @@
 {
     "discordBotKey":"",
     "topggKey":"",
+    "tipccKey":"",
     "adminID":0,
     "rembg":"http://rembg:5000/api/remove?url=",
     "cluster":[
@@ -10,19 +11,25 @@
         "botOwner":"ausbitbank",
         "botDescription":"Just a slave to the art, maaan"
     },
-    "allowedUsers":[],
-    "bannedUsers":[],
-    "allowedGuilds":[],
-    "bannedGuilds":[],
-    "allowedChannels":[],
-    "bannedChannels":[],
+    "authentication":{
+        "allowed":{
+            "users":[],
+            "guilds":[],
+            "channels":[]
+        },
+        "banned":{
+            "users":[],
+            "guilds":[],
+            "channels":[]
+        }
+    },
     "ignoreAllBots":true,
     "default":{
         "size":512,
         "steps":30,
         "scale":4,
         "strength":0.7,
-        "scheduler":"dpmpp_2m_k",
+        "scheduler":"dpmpp_2m_sde_k",
         "model":"swizz8-v3",
         "inpaintModel":"deliberate-inpainting",
         "inpaintPrompt":"amazing",
