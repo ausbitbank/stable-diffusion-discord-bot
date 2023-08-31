@@ -4,6 +4,7 @@ const {invoke}=require('../invoke')
 const {bot}=require('./bot')
 const {auth}=require('./auth')
 const {imageEdit}=require('../imageEdit')
+const parseArgs = require('minimist')
 //const {discord}=require('./discord.js')
 // Process discord text message commands
 let commands = [
@@ -15,15 +16,29 @@ let commands = [
         prefix:'!',
         command: async (args,msg)=>{
             debugLog('new dream request:'+args.join(' '))
-            msg.addReaction('🫡')
-            let img
-            if(messageHasImageAttachments(msg)){ img = await extractImageBufferFromMessage(msg)
+            msg.addReaction('🫡') // salute emoji
+            let img,imgurl
+            if(messageHasImageAttachments(msg)){
+                img = await extractImageBufferFromMessage(msg)
+                imgurl = await extractImageUrlFromMessage(msg)
+                //debugLog('got url for image attachment: '+imgurl)
             }else if(msg.messageReference?.messageID){
                 await bot.getMessage(msg.channel.id, msg.messageReference.messageID)
-                    .then(async m=>{if(messageHasImageAttachments(m)){img = await extractImageBufferFromMessage(m)}})
+                    .then(async m=>{
+                        if(messageHasImageAttachments(m)){
+                            img = await extractImageBufferFromMessage(m)
+                            imgurl = await extractImageUrlFromMessage(m)
+                            //debugLog('got url for image attachment on replied message: '+imgurl)
+                        }
+                    })
                     .catch(e=>{log(e)})
             }else{img=null}
             result = await invoke.jobFromDream(args,img)
+            // inject the original template image url
+            if(imgurl && !result.error && result.images?.length > 0){
+                debugLog('Attaching input image url to png metadata: '+imgurl)
+                result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',imgurl)
+            }
             return returnMessageResult(msg,result)
         }
     },
@@ -119,12 +134,22 @@ let commands = [
         aliases: ['..'],
         prefix:'',
         command: async(args,msg)=>{
-            // todo need to be sure this is a reply to a render result
-            // bot.application.id
-            log(args)
-            log(msg)
-            let response = {content:''}
-            return {messages:[response]}
+            let replymsg,meta,img
+            let parsedCmd = parseArgs(args,{})
+            debugLog(parsedCmd)
+            if(msg.messageReference?.messageID){
+                replymsg = await bot.getMessage(msg.channel.id, msg.messageReference.messageID)
+                if(replymsg.member.id===bot.application.id&&messageHasImageAttachments(replymsg)){
+                    meta = await extractMetadataFromMessage(replymsg)
+                    meta.invoke.prompt = meta.invoke.positive_prompt+'['+meta.invoke.negative_prompt+'] '+parsedCmd._.join(' ')
+                }
+            }
+            Object.keys(parsedCmd).forEach(k=>{
+                if(k!=='_'){meta.invoke[k] = parsedCmd[k]}
+            })
+            if(meta.invoke.inputImageUrl){img=urlToBuffer(meta.invoke.inputImageUrl)}
+            result = await invoke.jobFromMeta(meta,img)
+            return returnMessageResult(msg,result)
         }
     },
     {
@@ -157,7 +182,9 @@ let prefixes=[]
 commands.forEach(c=>{c.aliases.forEach(a=>{prefixes.push(c.prefix+a)})})
 
 parseMsg=async(msg)=>{
-    if(!auth.check(msg.member.id,msg.guildId,msg.channel?.id)){return} // if not authorised, ignore
+    if(!auth.check(msg.member?.id,msg.guildID,msg.channel?.id)){
+        return
+    } // if not authorised, ignore
     if(msg.length===0||msg.content.length===0){return} // if empty message (or just an image) ignore
     let firstword = msg.content.split(' ')[0].toLowerCase()
     if(prefixes.includes(firstword)){
@@ -177,8 +204,10 @@ parseMsg=async(msg)=>{
                         }
                     }
                     //let [messages,files] = await c.command(args,msg)
+                    //log(msg)
+                    log(c.name+' triggered by '+msg.author?.username+' in '+msg.channel.name||msg.channel.id+' ('+msg.member?.guild?.name+')')
                     let result = await c.command(args,msg)
-                    debugLog(result)
+                    //debugLog(result)
                     let messages = result?.messages
                     let files = result?.files
                     let error = result?.error
@@ -211,14 +240,15 @@ parseMsg=async(msg)=>{
 
 returnMessageResult = async(msg,result)=>{
     // generic response function for invoke results or errors
+    if(result.error)return {error:result.error}
     messages=[];files=[];error=null
-    log(result)
+    //debugLog(result)
     if(result.error){error=result.error}
     if(result?.images){
         for (const i in result.images){
             let image=result.images[i]
             let meta=await exif.load(image.buffer)
-            message = imageResultMessage(msg.member.id,image,result,meta)
+            message = imageResultMessage(msg.member?.id||msg.author?.id,image,result,meta)
             message.messageReference={message_id:msg.id}
             messages.push(message)
             files.push({file:image.buffer,name:image.name})
@@ -243,6 +273,16 @@ extractImageBufferFromMessage = async (msg)=>{
     return buf
 }
 
+extractImageUrlFromMessage = async (msg)=>{
+    for (const a of msg.attachments){
+        let validMimetypes=['image/png','image/jpeg']
+        if(validMimetypes.includes(a.content_type)){
+            log(a)
+            return a.proxy_url
+        }
+    }
+}
+
 extractMetadataFromMessage = async (msg)=>{
     if(messageHasImageAttachments(msg)){
         buf = await extractImageBufferFromMessage(msg)
@@ -264,22 +304,20 @@ messageHasImageAttachments = (msg)=>{
 }
 
 imageResultMessage = (userid,img,result,meta)=>{
-    //log('meta in imageresultmessage')
-    //log(meta)
     let p=result.job.prompt
-    //log(meta.invoke)
-    let t='\n :brain: <@'+userid+'>'
+    let t=''
     if(meta.invoke.cost){t+=' :coin: '+meta.invoke.cost}
-    //if(meta.invoke.pixelSteps){t+=' :fire: '+meta.invoke.pixelSteps/1000000}
     if(img.width&&img.height){t+=' :straight_ruler: '+img.width+'x'+img.height}
     if(meta.invoke.steps){t+=' :recycle: '+meta.invoke.steps}
     if(meta.invoke.scheduler){t+=' :eye: '+meta.invoke.scheduler}
     if(meta.invoke.seed){t+=' :seedling: '+meta.invoke.seed}
     if(meta.invoke.scale){t+=' :scales: '+meta.invoke.scale}
     if(meta.invoke.model){t+=' :floppy_disk: '+meta.invoke.model?.model_name}
+    //debugLog(meta)
+    if(meta.invoke.inputImageUrl){t+=' :paperclip:attachment'}
     let colordec=getRandomColorDec()
     return {
-        content:'',
+        content:':brain: <@'+userid+'>',
         embeds:[
             {
                 color: colordec,
@@ -294,12 +332,14 @@ imageResultMessage = (userid,img,result,meta)=>{
         ],
         components:[
             {type: 1,components:[
-                {type:2,style:1,label:'Refresh',custom_id:'refresh',emoji:{name:'🎲',id:null}},
+                {type:2,style:3,label:'Refresh',custom_id:'refresh',emoji:{name:'🎲',id:null}},
                 {type:2,style:1,label:'Edit Prompt',custom_id:'editPrompt',emoji:{name:'✏️',id:null},disabled:false},
-                {type:2,style:1,label:'Random',custom_id:'editPromptRandom',emoji:{name:'🔀',id:null},disabled:false},
-                {type:2,style:1,label:'Tweak',custom_id:'tweak',emoji:{name:'🧪',id:null},disabled:false}
+                {type:2,style:2,label:'Random',custom_id:'editPromptRandom',emoji:{name:'🔀',id:null},disabled:false},
+                {type:2,style:1,label:'Tweak',custom_id:'tweak',emoji:{name:'🧪',id:null},disabled:false},
+                {type:2,style:4,label:'No',custom_id:'remove',emoji:{name:'🗑️',id:null},disabled:false}
             ]}
-        ]
+        ],
+        allowed_mentions:{users:[userid]}
     }
 }
 
