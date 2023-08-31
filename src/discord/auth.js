@@ -1,11 +1,11 @@
 const {config:config,log:log,debugLog:debugLog,getUUID:getUUID,validateUUID:validateUUID,urlToBuffer:urlToBuffer}=require('../utils.js')
 // true/false for if a user,guild,channel is authorised
-let allowedUsers=config.allowedUsers
-let bannedUsers=config.bannedUsers
-let allowedGuilds=config.allowedGuilds
-let bannedGuilds=config.bannedGuilds
-let allowedChannels=config.allowedChannels
-let bannedChannels=config.bannedChannels
+let allowedUsers=config.authentication.allowed.users
+let bannedUsers=config.authentication.banned.users
+let allowedGuilds=config.authentication.allowed.guilds
+let bannedGuilds=config.authentication.banned.guilds
+let allowedChannels=config.authentication.allowed.channels
+let bannedChannels=config.authentication.banned.channels
 
 // todo TEST MORE
 
@@ -30,7 +30,10 @@ channelAllowed=(channel)=>{
 check=(userid,guildid,channelid)=>{
     if(userAllowed(parseInt(userid))&&guildAllowed(parseInt(guildid))&&channelAllowed(parseInt(channelid))){
         return true
-    }else{return false}
+    }else{
+        debugLog('auth fail for userid '+userid+' in channelid '+channelid+' and guildid '+guildid)
+        return false
+    }
 }
 
 module.exports = {
