@@ -15,20 +15,17 @@ let commands = [
         aliases: ['dream','drm','imagine','magin'],
         prefix:'!',
         command: async (args,msg)=>{
-            debugLog('new dream request:'+args.join(' '))
             msg.addReaction('🫡') // salute emoji
             let img,imgurl
             if(messageHasImageAttachments(msg)){
                 img = await extractImageBufferFromMessage(msg)
                 imgurl = await extractImageUrlFromMessage(msg)
-                //debugLog('got url for image attachment: '+imgurl)
             }else if(msg.messageReference?.messageID){
                 await bot.getMessage(msg.channel.id, msg.messageReference.messageID)
                     .then(async m=>{
                         if(messageHasImageAttachments(m)){
                             img = await extractImageBufferFromMessage(m)
                             imgurl = await extractImageUrlFromMessage(m)
-                            //debugLog('got url for image attachment on replied message: '+imgurl)
                         }
                     })
                     .catch(e=>{log(e)})
@@ -136,7 +133,6 @@ let commands = [
         command: async(args,msg)=>{
             let replymsg,meta,img
             let parsedCmd = parseArgs(args,{})
-            debugLog(parsedCmd)
             if(msg.messageReference?.messageID){
                 replymsg = await bot.getMessage(msg.channel.id, msg.messageReference.messageID)
                 if(replymsg.member.id===bot.application.id&&messageHasImageAttachments(replymsg)){
@@ -182,9 +178,13 @@ let prefixes=[]
 commands.forEach(c=>{c.aliases.forEach(a=>{prefixes.push(c.prefix+a)})})
 
 parseMsg=async(msg)=>{
-    if(!auth.check(msg.member?.id,msg.guildID,msg.channel?.id)){
-        return
-    } // if not authorised, ignore
+    // normalise values between responses in channel and DM
+    let userid = msg.member?.id||msg.author?.id
+    let username = msg.user?.username||msg.member?.username||msg.author?.username
+    let channelid = msg.channel?.id
+    let guildid = msg.guildID||'DM'
+
+    if(!auth.check(userid,guildid,channelid)){return} // if not authorised, ignore
     if(msg.length===0||msg.content.length===0){return} // if empty message (or just an image) ignore
     let firstword = msg.content.split(' ')[0].toLowerCase()
     if(prefixes.includes(firstword)){
@@ -197,23 +197,21 @@ parseMsg=async(msg)=>{
                     switch(c.permissionLevel){
                         case 'all':{break} // k fine
                         case 'admin':{
-                            if(parseInt(msg.member.id)!==config.adminID){
-                                log('Denied admin command for '+msg.member.username)
+                            if(parseInt(userid)!==config.adminID){
+                                log('Denied admin command for '+username)
                                 return
                             }
+                            break
                         }
                     }
-                    //let [messages,files] = await c.command(args,msg)
-                    //log(msg)
-                    log(c.name+' triggered by '+msg.author?.username+' in '+msg.channel.name||msg.channel.id+' ('+msg.member?.guild?.name+')')
+                    log(c.name+' triggered by '+username+' in '+msg.channel.name||msg.channel.id+' ('+guild+')')
                     let result = await c.command(args,msg)
-                    //debugLog(result)
                     let messages = result?.messages
                     let files = result?.files
                     let error = result?.error
                     if(error){
                         log('Error: '.bgRed+' '+error)
-                        chat(msg.channel.id,{content:':warning: '+error})
+                        chat(channelid,{content:':warning: '+error})
                         return
                     }
                     if(!Array.isArray(messages)){messages=[messages]}
@@ -225,11 +223,9 @@ parseMsg=async(msg)=>{
                     messages.forEach(message=>{
                       if(files.length>0)file=files.shift() // grab the top file
                       if(message&&file){
-                        //msg.reply(message,file)
-                        chat(msg.channel.id,message,file) // Send message with attachment
+                        chat(channelid,message,file) // Send message with attachment
                       }else if(message){
-                        //msg.reply(message)
-                        chat(msg.channel.id,message) // Send message, no attachment
+                        chat(channelid,message) // Send message, no attachment
                       }
                     })
                   }
@@ -242,7 +238,6 @@ returnMessageResult = async(msg,result)=>{
     // generic response function for invoke results or errors
     if(result.error)return {error:result.error}
     messages=[];files=[];error=null
-    //debugLog(result)
     if(result.error){error=result.error}
     if(result?.images){
         for (const i in result.images){
@@ -261,7 +256,6 @@ returnMessageResult = async(msg,result)=>{
     }
 }
 
-//
 extractImageBufferFromMessage = async (msg)=>{
     let buf=null
     for (const a of msg.attachments){
@@ -277,7 +271,6 @@ extractImageUrlFromMessage = async (msg)=>{
     for (const a of msg.attachments){
         let validMimetypes=['image/png','image/jpeg']
         if(validMimetypes.includes(a.content_type)){
-            log(a)
             return a.proxy_url
         }
     }
@@ -306,15 +299,15 @@ messageHasImageAttachments = (msg)=>{
 imageResultMessage = (userid,img,result,meta)=>{
     let p=result.job.prompt
     let t=''
-    if(meta.invoke.cost){t+=' :coin: '+meta.invoke.cost}
+    if(meta.invoke?.cost){t+=' :coin: '+meta.invoke.cost}
     if(img.width&&img.height){t+=' :straight_ruler: '+img.width+'x'+img.height}
-    if(meta.invoke.steps){t+=' :recycle: '+meta.invoke.steps}
-    if(meta.invoke.scheduler){t+=' :eye: '+meta.invoke.scheduler}
-    if(meta.invoke.seed){t+=' :seedling: '+meta.invoke.seed}
-    if(meta.invoke.scale){t+=' :scales: '+meta.invoke.scale}
-    if(meta.invoke.model){t+=' :floppy_disk: '+meta.invoke.model?.model_name}
+    if(meta.invoke?.steps){t+=' :recycle: '+meta.invoke.steps}
+    if(meta.invoke?.scheduler){t+=' :eye: '+meta.invoke.scheduler}
+    if(meta.invoke?.seed){t+=' :seedling: '+meta.invoke.seed}
+    if(meta.invoke?.scale){t+=' :scales: '+meta.invoke.scale}
+    if(meta.invoke?.model){t+=' :floppy_disk: '+meta.invoke.model?.model_name}
     //debugLog(meta)
-    if(meta.invoke.inputImageUrl){t+=' :paperclip:attachment'}
+    if(meta.invoke?.inputImageUrl){t+=' :paperclip:attachment'}
     let colordec=getRandomColorDec()
     return {
         content:':brain: <@'+userid+'>',
@@ -376,6 +369,7 @@ module.exports = {
         parseMsg,
         extractImageBufferFromMessage,
         extractMetadataFromMessage,
+        extractImageUrlFromMessage,
         messageHasImageAttachments,
         returnMessageResult
     }
