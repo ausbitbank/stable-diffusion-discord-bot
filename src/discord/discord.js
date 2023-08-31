@@ -39,13 +39,30 @@ chatWin=(response,channel,msg,file)=>{
   debugLog('msg sent to channel '+channel.name+' id '+channel.id)
 }
 
-async function directMessageUser(id,msg,channel){ // try, fallback to channel
+chatDM=async(id,msg,channel)=>{
+  // try to DM, fallback to channel
   d = await bot.getDMChannel(id).catch(() => {
-    log('failed to get dm channel, sending public message instead')
-    if (channel&&channel.length>0){bot.createMessage(channel,msg).then(()=>{log('DM sent to '.dim+id)}).catch((err) => {log(err);log('failed to both dm a user or message in channel'.bgRed.white)})}
+    debugLog('failed to get dm channel, sending public message instead')
+    if (channel&&channel.length>0){
+      bot.createMessage(channel,msg)
+        .then(()=>{
+          debugLog('DM sent to '.dim+id)
+        })
+        .catch((err) => {
+          log(err)
+          log('failed to both dm a user or message in channel'.bgRed.white)
+        })}
   })
   d.createMessage(msg).catch(() => {
-    if (channel&&channel.length>0){bot.createMessage(channel,msg).then(()=>{log('DM sent to '.dim+id)}).catch((err) => {log(err);log('failed to both dm a user or message in channel'.bgRed.white)})}
+    if (channel&&channel.length>0){
+      bot.createMessage(channel,msg)
+        .then(()=>{
+          debugLog('DM sent to '.dim+id)})
+        .catch((err) => {
+          log(err)
+          log('failed to both dm a user or message in channel'.bgRed.white)
+        })
+      }
   })
 }
 
@@ -75,8 +92,8 @@ async function botInit(){
   bot.connect()
   bot.on('error', async(err)=>{log(err)})
   bot.on("disconnect", () => {log('disconnected'.bgRed)})
-  bot.on("guildCreate", (guild) => {var m='joined new guild: '+guild.name;log(m.bgRed);log(guild);directMessageUser(config.adminID,m)})
-  bot.on("guildDelete", (guild) => {var m='left guild: '+guild.name;log(m.bgRed);log(guild);directMessageUser(config.adminID,m)})
+  bot.on("guildCreate", (guild) => {var m='joined new guild: '+guild.name;log(m.bgRed);debugLog(guild);chatDM(config.adminID,m)})
+  bot.on("guildDelete", (guild) => {var m='left guild: '+guild.name;log(m.bgRed);debugLog(guild);chatDM(config.adminID,m)})
   bot.on('ready', async () => {
     log('Connected to '.bgGreen.black+' discord'.bgGreen+' in '+bot.guilds.size+' guilds')
     log(('Invite bot to server: https://discord.com/oauth2/authorize?client_id='+bot.application.id+'&scope=bot&permissions=124992').dim)
@@ -98,7 +115,7 @@ async function botInit(){
   // Runs on all messages received
   bot.on('messageCreate',async(msg)=>{
     if(config.ignoreAllBots&&msg.author.bot) return // ignore all bot messages
-    if(config.showChat)logChat(msg)
+    if(config.logging.chat)logChat(msg)
     parseMsg(msg).then().catch(e=>log(e))
   })
   // Runs on all interactions
@@ -147,6 +164,7 @@ async function botInit(){
 module.exports={
   discord:{
     botInit,
-    chat
+    chat,
+    chatDM
   }
 }
