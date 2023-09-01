@@ -239,7 +239,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         node('noise',{is_intermediate:false,width:1024,height:1024,use_cpu:true,seed:job.seed||random.seed()},[])
         node('denoise_latents',{is_intermediate:false,steps:job.steps,cfg_scale:job.scale,denoising_start:0.0,denoising_end:0.8,scheduler:job.scheduler},[pipe(lastid.unet,'unet','SELF','unet'),pipe('sdxl_compel_prompt','conditioning','SELF','positive_conditioning'),pipe('sdxl_compel_prompt-2','conditioning','SELF','negative_conditioning'),pipe('noise','noise','SELF','noise')])
         node('l2i',{is_intermediate:false,tiled:false,fp32:false},[pipe('denoise_latents','latents','SELF','latents'),pipe('sdxl_model_loader','vae','SELF','vae')])
-        node('sdxl_refiner_model_loader',{is_intermediate:false,model:{model_name:'sdxl_refiner_1.0',base_model:'sdxl-refiner',model_type:'main'}},[])
+        node('sdxl_refiner_model_loader',{is_intermediate:false,model:{model_name:config.default.refinerModel||'sdxl_refiner_1.0',base_model:'sdxl-refiner',model_type:'main'}},[])
         node('sdxl_refiner_compel_prompt',{prompt:job.positive_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024,aesthetic_score:6.0},[pipe('sdxl_refiner_model_loader','clip2','SELF','clip2')])
         node('sdxl_refiner_compel_prompt',{prompt:job.negative_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024,aesthetic_score:2.5},[pipe('sdxl_refiner_model_loader','clip2','SELF','clip2')])
         node('denoise_latents',{is_intermediate:false,steps:job.steps,cfg_scale:job.scale,denoising_start:0.8,denoising_end:1.0,scheduler:job.scheduler},[
