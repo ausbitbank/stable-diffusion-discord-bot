@@ -67,9 +67,10 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         graph.nodes[newid].workflow=null
         Object.keys(params).forEach((k)=>{graph.nodes[newid][k]=params[k]})
         // by tracking and updating most recent used ids we can break the job into components easier
-        if(['main_model_loader','lora_loader'].includes(type)){lastid.unet=newid}
-        if(['main_model_loader','clip_skip','lora_loader'].includes(type)){lastid.clip=newid}
-        if(['main_model_loader','vae_loader'].includes(type)){lastid.vae=newid}
+        if(['main_model_loader','sdxl_model_loader','sdxl_model_refiner_loader','lora_loader'].includes(type)){lastid.unet=newid}
+        if(['main_model_loader','sdxl_model_loader','clip_skip','lora_loader'].includes(type)){lastid.clip=newid}
+        if(['sdx_model_loader','sdxl_refiner_model_loader'].includes(type)){lastid.clip2=newid}
+        if(['main_model_loader','vae_loader','denoise_latents'].includes(type)){lastid.vae=newid}
         if(['t2l','ttl','lscale','l2l','i2l','denoise_latents'].includes(type)){lastid.latents=newid}
         if(['noise'].includes(type)){lastid.noise=newid}
         if(['controlnet'].includes(type)){lastid.control=newid}
@@ -147,12 +148,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
             // todo add auto preprocessing of init images for each type of controlnet
             if(job.control==='openpose'){
                 debugLog('Adding openpose preprocessor')
-                node('openpose_image_processor',{
-                    image:{image_name:job.initimgObject.image_name},
-                    hand_and_face:true,
-                    detect_resolution:512,
-                    image_resolution:512
-                },[])
+                node('openpose_image_processor',{image:{image_name:job.initimgObject.image_name},hand_and_face:true,detect_resolution:512,image_resolution:512},[])
                 p=[pipe('openpose_image_processor','image','SELF','image')]
             }
             node('controlnet',{
@@ -222,7 +218,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
             if(lastid.control){p.push(pipe(lastid.control,'control','SELF','control'))}
             node('l2l',{steps:job.steps,cfg_scale:job.scale,scheduler:job.scheduler,strength:job.strength},p)
             // latent to image
-            node('l2i',{tiled:false,fp32:false},[pipe(lastid.vae,'vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents')])//,pipe('metadata_accumulator','metadata','SELF','metadata')])
+            node('l2i',{tiled:false,fp32:false},[pipe(lastid.vae,'vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
         } else { // bypass extra steps if not using latent scaling
             // latent to image
             node('l2i',{tiled:false,fp32:false,is_intermediate:(job.upscale&&job.upscale===2)?true:false},[pipe(lastid.vae,'vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
@@ -233,9 +229,33 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         if(graph){
             //debugLog(graph)
             return graph
-        }else{}
-    }else{ // SDXL pipeline
-        //todo 
+        }
+    }else{
+        // SDXL pipeline
+        // todo polish, wire up more controls, consider integrating into sd1/2 pipeline if it can be done cleanly
+        node('sdxl_model_loader',{model:job.model},[])
+        node('sdxl_compel_prompt',{prompt:job.positive_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024},[pipe('sdxl_model_loader','clip','SELF','clip'),pipe('sdxl_model_loader','clip2','SELF','clip2')])
+        node('sdxl_compel_prompt',{prompt:job.negative_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024},[pipe('sdxl_model_loader','clip','SELF','clip'),pipe('sdxl_model_loader','clip2','SELF','clip2')])
+        node('noise',{is_intermediate:false,width:1024,height:1024,use_cpu:true,seed:job.seed||random.seed()},[])
+        node('denoise_latents',{is_intermediate:false,steps:job.steps,cfg_scale:job.scale,denoising_start:0.0,denoising_end:0.8,scheduler:job.scheduler},[pipe(lastid.unet,'unet','SELF','unet'),pipe('sdxl_compel_prompt','conditioning','SELF','positive_conditioning'),pipe('sdxl_compel_prompt-2','conditioning','SELF','negative_conditioning'),pipe('noise','noise','SELF','noise')])
+        node('l2i',{is_intermediate:false,tiled:false,fp32:false},[pipe('denoise_latents','latents','SELF','latents'),pipe('sdxl_model_loader','vae','SELF','vae')])
+        node('sdxl_refiner_model_loader',{is_intermediate:false,model:{model_name:'sdxl_refiner_1.0',base_model:'sdxl-refiner',model_type:'main'}},[])
+        node('sdxl_refiner_compel_prompt',{prompt:job.positive_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024,aesthetic_score:6.0},[pipe('sdxl_refiner_model_loader','clip2','SELF','clip2')])
+        node('sdxl_refiner_compel_prompt',{prompt:job.negative_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024,aesthetic_score:2.5},[pipe('sdxl_refiner_model_loader','clip2','SELF','clip2')])
+        node('denoise_latents',{is_intermediate:false,steps:job.steps,cfg_scale:job.scale,denoising_start:0.8,denoising_end:1.0,scheduler:job.scheduler},[
+            pipe('sdxl_refiner_model_loader','unet','SELF','unet'),
+            pipe('sdxl_refiner_compel_prompt','conditioning','SELF','positive_conditioning'),
+            pipe('sdxl_refiner_compel_prompt-2','conditioning','SELF','negative_conditioning'),
+            pipe('denoise_latents','latents','SELF','latents')
+        ])
+        node('l2i',{is_intermediate:false,tiled:false,fp32:false},[
+            pipe('denoise_latents-2','latents','SELF','latents'),
+            pipe('sdxl_refiner_model_loader','vae','SELF','vae')
+        ])
+        if(graph){
+            //debugLog(graph)
+            return graph
+        }
     }
 }
 
@@ -274,6 +294,7 @@ const startSession = async(host,id)=>{
 const findHost = async(job=null)=>{
     // find host with the required models, embeds, etc that isn't currently busy
     let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
+    //if(job?.host){return cluster[job.host]}
     if(job===null&&availableHosts.length>0){
         debugLog('No job info supplied, returning random available host')
         return availableHosts[0]
