@@ -52,11 +52,7 @@ const init=async()=>{
 
 
 buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
-    let graph = {
-        id: getUUID(),
-        nodes:{},
-        edges:[]
-    }
+    let graph = {id: getUUID(),nodes:{},edges:[]}
     let lastid={unet:null,clip:null,vae:null,latents:null,noise:null,image:null,width:null,height:null,controlnet:null}
     let pipe = (fromnode,fromfield,tonode,tofield)=>{return {source:{node_id:fromnode,field:fromfield},destination:{node_id:tonode,field:tofield}}}
     let node = (type,params,edges)=>{
@@ -77,33 +73,28 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         if(['openpose_image_processor','l2i'].includes(type)){lastid.image=newid}
         edges.forEach(e=>{
             if(!validUUID(e.destination.node_id)){ // not already plumbed with a valid UUID
-                if(e.destination.node_id==='SELF'){
-                    e.destination.node_id=newid
+                if(e.destination.node_id==='SELF'){ e.destination.node_id=newid
                 }else{
                     let nodenumber=e.destination.node_id.split('-')[1]?e.destination.node_id.split('-')[1]:0
                     let nodetype=e.destination.node_id.split('-')[0]
                     let i=0
                     Object.keys(graph.nodes).forEach(n=>{
                         if(graph.nodes[n].type===nodetype){
-                            if(i===nodenumber){e.destination.node_id=graph.nodes[n].node_id
-                            }else{}
+                            if(i===nodenumber){e.destination.node_id=graph.nodes[n].node_id}
                             i++
                         }
                     })
                 }
             }
             if(!validUUID(e.source.node_id)){ // not already plumbed with a valid UUID
-                if(e.source.node_id==='SELF'){
-                    e.source.node_id=newid
+                if(e.source.node_id==='SELF'){ e.source.node_id=newid
                 }else{
                     let nodenumber=e.source.node_id.split('-')[1]?parseInt(e.source.node_id.split('-')[1]):0
                     let nodetype=e.source.node_id.split('-')[0]
                     let i=0
                     Object.keys(graph.nodes).forEach(n=>{
                         if(graph.nodes[n].type===nodetype){
-                            if(i===(Math.max(nodenumber-1,0))){
-                                e.source.node_id=graph.nodes[n].id
-                            }else{}
+                            if(i===(Math.max(nodenumber-1,0))){e.source.node_id=graph.nodes[n].id}
                             i++
                         }
                     })
@@ -120,13 +111,14 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     var p=[] // 
     // Metadata accumulator
     // todo add vae object and controlnets array
-    let vae={model_name:'sd-vae-ft-mse',base_model:'sd-1'}
     let metaObject = {
+        is_intermediate:false,
         generation_mode:'txt2img',
         cfg_scale:job.scale,
         clip_skip:job.clipskip,
         height:job.height,
         width:job.width,
+        seed:job.seed,
         positive_prompt:job.positive_prompt,
         negative_prompt:job.negative_prompt,
         rand_device:'cpu',
@@ -135,22 +127,32 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         model:job.model,
         loras:job.loras,
         controlnets:[],
-        vae:vae,
-        seed:0
+        vae:{model_name:'sd-vae-ft-mse',base_model:'sd-1'},
+        positive_style_prompt:job.positive_style_prompt,
+        negative_style_prompt:job.negative_style_prompt,
+        refiner_mode:job.refiner_model,
+        refiner_cfg_scale:job.refiner_scale,
+        refiner_steps:job.refiner_steps,
+        refinder_scheduler:null,
+        refiner_positive_aesthetic_score:null,
+        refiner_negative_aesthetic_score:null,
+        refiner_start:null
     }
     node('metadata_accumulator',metaObject,[])
     if(['sd-1','sd-2'].includes(job.model.base_model)){
         // SD1/2 pipeline
-        node('main_model_loader',{model:job.model},[])
-        node('vae_loader',{vae_model:vae},[])
+        node('main_model_loader',{model:job.model,is_intermediate:true},[])
+        node('vae_loader',{vae_model:{model_name:'sd-vae-ft-mse',base_model:'sd-1'},is_intermediate:true},[])
         if(job.initimgObject){
             debugLog('Adding init img to graph')
             // todo add auto preprocessing of init images for each type of controlnet
+            /*
             if(job.control==='openpose'){
                 debugLog('Adding openpose preprocessor')
                 node('openpose_image_processor',{image:{image_name:job.initimgObject.image_name},hand_and_face:true,detect_resolution:512,image_resolution:512},[])
                 p=[pipe('openpose_image_processor','image','SELF','image')]
             }
+            */
             node('controlnet',{
                 image:{image_name:job.initimgObject.image_name},
                 control_model:{model_name:job.control?job.control:'depth',base_model:'sd-1'},
@@ -164,15 +166,11 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
             p=[] // reset after use
             //node('collect',{is_intermediate:true},[pipe('controlnet','control','SELF','item')])
         }
-        node('clip_skip',{skipped_layers:job.clipskip?job.clipskip:0},[pipe(lastid.clip,'clip','SELF','clip')])
+        node('clip_skip',{skipped_layers:job.clipskip?job.clipskip:0,is_intermediate:true},[pipe(lastid.clip,'clip','SELF','clip')])
         // lora loader, chain multiple loras with clip and unet into each other
         // KISS, hardcode withLora(add_detail,0.75) for now
         //node('lora_loader',{lora:{model_name:'add_detail',base_model:'sd-1'},weight:0.75},[pipe(lastid.clip,'clip','SELF','clip'),pipe(lastid.unet,'unet','SELF','unet')])
-        if(job.loras?.length>0){
-            for (const l in job.loras) {
-                node('lora_loader',job.loras[l],[pipe(lastid.clip,'clip','SELF','clip'),pipe(lastid.unet,'unet','SELF','unet')])
-            }
-        }
+        if(job.loras?.length>0){for (const l in job.loras) {node('lora_loader',job.loras[l],[pipe(lastid.clip,'clip','SELF','clip'),pipe(lastid.unet,'unet','SELF','unet')])}}
         // add positive and negative prompts
         node('compel',{prompt:job.positive_prompt},[pipe(lastid.clip,'clip','SELF','clip')])
         node('compel',{prompt:job.negative_prompt},[pipe(lastid.clip,'clip','SELF','clip')])
@@ -201,6 +199,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         if(lastid.control){p.push(pipe(lastid.control,'control','SELF','control'))}
 
         // this denoise_latents node only applies to invoke >= 3.1
+        // todo expose denoising_start , denoising_end params if useful
         node('denoise_latents',{is_intermediate:true,noise:null,steps:job.steps,cfg_scale:job.scale,denoising_start:0.0,denoising_end:1.0,scheduler:job.scheduler},p)
         // commented out below t2l below applies to invoke < 3.1
         //node('t2l',{steps:job.steps,cfg_scale:job.scale,scheduler:job.scheduler},p)
@@ -208,11 +207,9 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         if(job.lscale&&job.lscale!==1){ // upscale latents, low fidelity
             node('lscale',{scale_factor:job.lscale,mode:'nearest',antialias:false},[pipe(lastid.latents,'latents','SELF','latents')])
             // add more latent noise at the new resolution, using cpu again
-            let a = {use_cpu:true}
             p=[pipe('lscale','width','SELF','width'),pipe('lscale','height','SELF','height')]
-            if(job.seed&&job.number===1){ a.seed=job.seed
-            } else { p.push(pipe('iterate','item','SELF','seed'))}
-            node('noise',a,p)
+            if(job.seed&&job.number===1){ a.seed=job.seed} else { p.push(pipe('iterate','item','SELF','seed'))}
+            node('noise',{use_cpu:true},p)
             // latents to latents, combining noise,latents,prompt conditioning
             let p=[pipe('compel','conditioning','SELF','positive_conditioning'),pipe('compel-2','conditioning','SELF','negative_conditioning'),pipe(lastid.noise,'noise','SELF','noise'),pipe(lastid.unet,'unet','SELF','unet'),pipe(lastid.latents,'latents','SELF','latents')]
             if(lastid.control){p.push(pipe(lastid.control,'control','SELF','control'))}
@@ -221,37 +218,41 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
             node('l2i',{tiled:false,fp32:false},[pipe(lastid.vae,'vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
         } else { // bypass extra steps if not using latent scaling
             // latent to image
-            node('l2i',{tiled:false,fp32:false,is_intermediate:(job.upscale&&job.upscale===2)?true:false},[pipe(lastid.vae,'vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
+            node('l2i',{tiled:false,fp32:false,is_intermediate:(job.upscale&&job.upscale===2)?true:false},[pipe('vae_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
         }
         // optional upscale
         if(job.upscale&&job.upscale===2){node('esrgan',{model_name:'RealESRGAN_x2plus.pth'},[pipe(lastid.image,'image','SELF','image')])}
         // Tada! Graph built, submit to backend
         if(graph){
-            //debugLog(graph)
+            debugLog(graph)
+            debugLog(graph.edges)
             return graph
         }
     }else{
         // SDXL pipeline
         // todo polish, wire up more controls, consider integrating into sd1/2 pipeline if it can be done cleanly
-        node('sdxl_model_loader',{model:job.model},[])
-        node('sdxl_compel_prompt',{prompt:job.positive_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024},[pipe('sdxl_model_loader','clip','SELF','clip'),pipe('sdxl_model_loader','clip2','SELF','clip2')])
-        node('sdxl_compel_prompt',{prompt:job.negative_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024},[pipe('sdxl_model_loader','clip','SELF','clip'),pipe('sdxl_model_loader','clip2','SELF','clip2')])
-        node('noise',{is_intermediate:false,width:1024,height:1024,use_cpu:true,seed:job.seed||random.seed()},[])
-        node('denoise_latents',{is_intermediate:false,steps:job.steps,cfg_scale:job.scale,denoising_start:0.0,denoising_end:0.8,scheduler:job.scheduler},[pipe(lastid.unet,'unet','SELF','unet'),pipe('sdxl_compel_prompt','conditioning','SELF','positive_conditioning'),pipe('sdxl_compel_prompt-2','conditioning','SELF','negative_conditioning'),pipe('noise','noise','SELF','noise')])
-        node('l2i',{is_intermediate:false,tiled:false,fp32:false},[pipe('denoise_latents','latents','SELF','latents'),pipe('sdxl_model_loader','vae','SELF','vae')])
-        node('sdxl_refiner_model_loader',{is_intermediate:false,model:{model_name:config.default.refinerModel||'sdxl_refiner_1.0',base_model:'sdxl-refiner',model_type:'main'}},[])
-        node('sdxl_refiner_compel_prompt',{prompt:job.positive_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024,aesthetic_score:6.0},[pipe('sdxl_refiner_model_loader','clip2','SELF','clip2')])
-        node('sdxl_refiner_compel_prompt',{prompt:job.negative_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024,aesthetic_score:2.5},[pipe('sdxl_refiner_model_loader','clip2','SELF','clip2')])
-        node('denoise_latents',{is_intermediate:false,steps:job.steps,cfg_scale:job.scale,denoising_start:0.8,denoising_end:1.0,scheduler:job.scheduler},[
+        node('sdxl_model_loader',{is_intermediate:true,model:job.model},[])
+        node('sdxl_compel_prompt',{is_intermediate:true,prompt:job.positive_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024},[pipe('sdxl_model_loader','clip','SELF','clip'),pipe('sdxl_model_loader','clip2','SELF','clip2')])
+        node('sdxl_compel_prompt',{is_intermediate:true,prompt:job.negative_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024},[pipe('sdxl_model_loader','clip','SELF','clip'),pipe('sdxl_model_loader','clip2','SELF','clip2')])
+        node('noise',{is_intermediate:true,width:1024,height:1024,use_cpu:true,seed:job.seed},[])
+        node('denoise_latents',{is_intermediate:true,steps:job.steps,cfg_scale:job.scale,denoising_start:0.0,denoising_end:0.8,scheduler:job.scheduler},[pipe(lastid.unet,'unet','SELF','unet'),pipe('sdxl_compel_prompt','conditioning','SELF','positive_conditioning'),pipe('sdxl_compel_prompt-2','conditioning','SELF','negative_conditioning'),pipe('noise','noise','SELF','noise')])
+        node('l2i',{is_intermediate:false,tiled:false,fp32:true},[pipe('denoise_latents','latents','SELF','latents'),pipe('sdxl_model_loader','vae','SELF','vae')])
+        /*
+        /// Refiner
+        node('sdxl_refiner_model_loader',{is_intermediate:true,model:{model_name:config.default.refinerModel||'sdxl_refiner_1.0',base_model:'sdxl-refiner',model_type:'main'}},[])
+        node('sdxl_refiner_compel_prompt',{is_intermediate:true,prompt:job.positive_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024,aesthetic_score:6.0},[pipe('sdxl_refiner_model_loader','clip2','SELF','clip2')])
+        node('sdxl_refiner_compel_prompt',{is_intermediate:true,prompt:job.negative_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024,aesthetic_score:2.5},[pipe('sdxl_refiner_model_loader','clip2','SELF','clip2')])
+        node('denoise_latents',{is_intermediate:true,steps:job.steps,cfg_scale:job.scale,denoising_start:0.8,denoising_end:1.0,scheduler:job.scheduler},[
             pipe('sdxl_refiner_model_loader','unet','SELF','unet'),
             pipe('sdxl_refiner_compel_prompt','conditioning','SELF','positive_conditioning'),
             pipe('sdxl_refiner_compel_prompt-2','conditioning','SELF','negative_conditioning'),
             pipe('denoise_latents','latents','SELF','latents')
         ])
-        node('l2i',{is_intermediate:false,tiled:false,fp32:false},[
+        node('l2i',{is_intermediate:false,tiled:false,fp32:true},[
             pipe('denoise_latents-2','latents','SELF','latents'),
             pipe('sdxl_refiner_model_loader','vae','SELF','vae')
         ])
+        */
         if(graph){
             //debugLog(graph)
             return graph
@@ -703,9 +704,7 @@ const loranameToObject = async(loraname)=>{
         if(isObject(lora)){ 
             return {
                 model_name: lora.model_name,
-                base_model: lora.base_model,
-                model_type: lora.model_type,
-                description: lora.description
+                base_model: lora.base_model
             }
         }else{log('Error: No lora with name '+loraname+' on host '+host.name)}
     }
