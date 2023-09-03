@@ -11,43 +11,44 @@ var colors = require('colors')
 const { isString, isObject } = require('lodash')
 const parseArgs = require('minimist')
 var cluster=config.cluster
+
 const init=async()=>{
     // Setup cluster of invoke ai backends starting with primary
     let initmsg=''
-    let primaryBackendOnline=null
     let err=null
     for (const d in cluster){
     //cluster.forEach(async (c)=>{
         let c=cluster[d]
         try{
-            if(c.disabled){
-                debugLog(c.name+' is disabled, skipping')
-                break
-            }
-            // on connect, get all the backend info we can in parallel
-            c.id=getUUID()
-            const [version, models, lora, ti, vae, controlnet, cfg] = await Promise.all([getVersion(c),getModels(c,'main'),getModels(c,'lora'),getModels(c,'embedding'),getModels(c,'vae'),getModels(c,'controlnet'),getConfig(c)])
-            c.version = version
-            c.models = models
-            c.lora = lora
-            c.ti = ti
-            c.vae = vae
-            c.controlnet = controlnet
-            c.config = cfg
-            c.online=true
-            c.jobs=[] // session id's we haven't collected results for yet
-            msg='Connected to '.bgGreen.black+c.name.bgGreen+' with InvokeAI Version: '+c.version+'\nModels: '+c.models.length+',Loras: '+c.lora.length+', Embeddings: '+c.ti.length+', Vaes: '+c.vae.length+', Controlnets '+c.controlnet.length
-            log(msg)
+            if(c.disabled){debugLog(c.name+' is disabled, skipping');break}
+            initHost(c)
         } catch(err) {
-            c.online=false;initmsg+='Failed to initialize invoke server '+c.name+' at '+c.url+'\n'+err
+            c.online=false
+            initmsg+='Failed to initialize invoke server '+c.name+' at '+c.url+'\n'+err
         }
     }
-    if(primaryBackendOnline){
-        return initmsg
-    }else{
-        throw(initmsg)
-    }
+    return initmsg
+}
 
+const initHost=async(host)=>{
+    try{
+        // on connect, get all the backend info we can in parallel
+        const [version, models, lora, ti, vae, controlnet, cfg] = await Promise.all([getVersion(host),getModels(host,'main'),getModels(host,'lora'),getModels(host,'embedding'),getModels(host,'vae'),getModels(host,'controlnet'),getConfig(host)])
+        host.version = version
+        host.models = models
+        host.lora = lora
+        host.ti = ti
+        host.vae = vae
+        host.controlnet = controlnet
+        host.config = cfg
+        host.online = true
+        host.jobs = [] // session id's we haven't collected results for yet
+        log('Connected to '.bgGreen.black+host.name.bgGreen+' with InvokeAI Version: '+host.version+'\nModels: '+host.models.length+',Loras: '+host.lora.length+', Embeddings: '+host.ti.length+', Vaes: '+host.vae.length+', Controlnets '+host.controlnet.length)
+    } catch (err) {
+        host.online = false
+        log('Failed to init host '+host.name)
+        log(err)
+    }
 }
 
 
@@ -103,6 +104,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
             graph.edges.push(e)
         })
     }
+
     // Actual graph building starts here
     //      node(type,{parameters},[pipes])
     //      pipes flow backwards only to already created nodes eg
@@ -111,6 +113,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     var p=[] // 
     // Metadata accumulator
     // todo add vae object and controlnets array
+    // todo reinsert loras array, format has changed and it breaks atm
     let metaObject = {
         is_intermediate:false,
         generation_mode:'txt2img',
@@ -125,7 +128,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         scheduler:job.scheduler,
         steps:job.steps,
         model:job.model,
-        loras:job.loras,
+        loras:[],
         controlnets:[],
         vae:{model_name:'sd-vae-ft-mse',base_model:'sd-1'},
         positive_style_prompt:job.positive_style_prompt,
@@ -138,6 +141,10 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         refiner_negative_aesthetic_score:null,
         refiner_start:null
     }
+    // Reformat lora array for metadata object
+    if(job.loras?.length>0){for (const l in job.loras){metaObject.loras.push({lora:{model_name:job.loras[l].model.model_name,base_model:job.loras[l].model.base_model},weight:job.loras[l].weight})}}
+    debugLog('metadata accumulator input')
+    debugLog(metaObject)
     node('metadata_accumulator',metaObject,[])
     if(['sd-1','sd-2'].includes(job.model.base_model)){
         // SD1/2 pipeline
@@ -145,14 +152,6 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         node('vae_loader',{vae_model:{model_name:'sd-vae-ft-mse',base_model:'sd-1'},is_intermediate:true},[])
         if(job.initimgObject){
             debugLog('Adding init img to graph')
-            // todo add auto preprocessing of init images for each type of controlnet
-            /*
-            if(job.control==='openpose'){
-                debugLog('Adding openpose preprocessor')
-                node('openpose_image_processor',{image:{image_name:job.initimgObject.image_name},hand_and_face:true,detect_resolution:512,image_resolution:512},[])
-                p=[pipe('openpose_image_processor','image','SELF','image')]
-            }
-            */
             node('controlnet',{
                 image:{image_name:job.initimgObject.image_name},
                 control_model:{model_name:job.control?job.control:'depth',base_model:'sd-1'},
@@ -170,7 +169,13 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         // lora loader, chain multiple loras with clip and unet into each other
         // KISS, hardcode withLora(add_detail,0.75) for now
         //node('lora_loader',{lora:{model_name:'add_detail',base_model:'sd-1'},weight:0.75},[pipe(lastid.clip,'clip','SELF','clip'),pipe(lastid.unet,'unet','SELF','unet')])
-        if(job.loras?.length>0){for (const l in job.loras) {node('lora_loader',job.loras[l],[pipe(lastid.clip,'clip','SELF','clip'),pipe(lastid.unet,'unet','SELF','unet')])}}
+        if(job.loras?.length>0){
+            for (const l in job.loras) {
+                debugLog('raw lora from array')
+                debugLog(job.loras[l])
+                node('lora_loader',{is_intermediate:true,lora:{base_model:job.loras[l].model.base_model,model_name:job.loras[l].model.model_name},weight:job.loras[l].weight},[pipe(lastid.clip,'clip','SELF','clip'),pipe(lastid.unet,'unet','SELF','unet')])
+            }
+        }
         // add positive and negative prompts
         node('compel',{prompt:job.positive_prompt},[pipe(lastid.clip,'clip','SELF','clip')])
         node('compel',{prompt:job.negative_prompt},[pipe(lastid.clip,'clip','SELF','clip')])
@@ -215,25 +220,24 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
             if(lastid.control){p.push(pipe(lastid.control,'control','SELF','control'))}
             node('l2l',{steps:job.steps,cfg_scale:job.scale,scheduler:job.scheduler,strength:job.strength},p)
             // latent to image
-            node('l2i',{tiled:false,fp32:false},[pipe(lastid.vae,'vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
+            node('l2i',{tiled:false,fp32:true},[pipe(lastid.vae,'vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
         } else { // bypass extra steps if not using latent scaling
             // latent to image
-            node('l2i',{tiled:false,fp32:false,is_intermediate:(job.upscale&&job.upscale===2)?true:false},[pipe('vae_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
+            node('l2i',{tiled:false,fp32:true,is_intermediate:(job.upscale&&job.upscale===2)?true:false},[pipe('vae_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
         }
         // optional upscale
         if(job.upscale&&job.upscale===2){node('esrgan',{model_name:'RealESRGAN_x2plus.pth'},[pipe(lastid.image,'image','SELF','image')])}
         // Tada! Graph built, submit to backend
         if(graph){
-            debugLog(graph)
-            debugLog(graph.edges)
+            //debugLog(graph)
             return graph
         }
     }else{
         // SDXL pipeline
         // todo polish, wire up more controls, consider integrating into sd1/2 pipeline if it can be done cleanly
         node('sdxl_model_loader',{is_intermediate:true,model:job.model},[])
-        node('sdxl_compel_prompt',{is_intermediate:true,prompt:job.positive_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024},[pipe('sdxl_model_loader','clip','SELF','clip'),pipe('sdxl_model_loader','clip2','SELF','clip2')])
-        node('sdxl_compel_prompt',{is_intermediate:true,prompt:job.negative_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024},[pipe('sdxl_model_loader','clip','SELF','clip'),pipe('sdxl_model_loader','clip2','SELF','clip2')])
+        node('sdxl_compel_prompt',{is_intermediate:true,prompt:job.positive_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024,style:'photo'},[pipe('sdxl_model_loader','clip','SELF','clip'),pipe('sdxl_model_loader','clip2','SELF','clip2')])
+        node('sdxl_compel_prompt',{is_intermediate:true,prompt:job.negative_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024,style:'sketch artifacts blur'},[pipe('sdxl_model_loader','clip','SELF','clip'),pipe('sdxl_model_loader','clip2','SELF','clip2')])
         node('noise',{is_intermediate:true,width:1024,height:1024,use_cpu:true,seed:job.seed},[])
         node('denoise_latents',{is_intermediate:true,steps:job.steps,cfg_scale:job.scale,denoising_start:0.0,denoising_end:0.8,scheduler:job.scheduler},[pipe(lastid.unet,'unet','SELF','unet'),pipe('sdxl_compel_prompt','conditioning','SELF','positive_conditioning'),pipe('sdxl_compel_prompt-2','conditioning','SELF','negative_conditioning'),pipe('noise','noise','SELF','noise')])
         node('l2i',{is_intermediate:false,tiled:false,fp32:true},[pipe('denoise_latents','latents','SELF','latents'),pipe('sdxl_model_loader','vae','SELF','vae')])
@@ -265,8 +269,8 @@ const postSession = async (host, graph) => {
         const response = await axios.post(host.url + '/api/v1/sessions/', graph)
         return response.data.id
     } catch (err) {
-        console.error('Error posting session', err)
-        throw err
+        console.error('Error posting session', err.data)
+        throw(err.code+'\n'+err.res?.statusCode+'\n'+err.res?.statusMessage)
     }
 }
 
@@ -288,6 +292,7 @@ const startSession = async(host,id)=>{
         return response
     } catch (e) {
         log(e.response.statusText)
+        // host.online = false
         throw(e.response.statusText)
     }
 }
@@ -318,9 +323,56 @@ const findHost = async(job=null)=>{
     }
 }
 
+async function checkOfflineHosts() {
+    for(let host of cluster) {
+      if(!host.online) {
+        try {
+            await getVersion(host)
+            log('Host '+host.name+' just came online - reenabled')
+            host.online = true
+        } catch {
+          // continue being offline
+        }
+    }
+    }
+}
+
+function handleError(err) {
+    host.online = false
+    console.error(err)
+    throw err
+}
+/*
+const pollSession = async (host, id) => {
+    const socket = io(host.url,{path: '/ws/socket.io',timeout:6000,transports: ['websocket'],log: true})
+    socket.on('connect_error', err => {console.error('Connection error', err)})
+    socket.on('connect', () => {log('Socket connected!')})
+    socket.emit('ping')
+    socket.on('pong', () => {log('pong event received')})
+    try {
+        log('Socket state:')
+        log(socket)
+        let session = await subscribe(socket, host, id)
+        return session
+    } catch(err) {
+        handleError(err)
+    } finally {
+        socket.close()
+    }
+}
+*/
+
 const pollSession = async(host,id)=>{
     // I hate this solution, but it works for now.
     // Ideally we should subscribe to session via websocket
+    /*
+    let socket = io(host.url+'/ws/',{timeout: 60000,path: '/ws/socket.io'})
+    let session
+    try{
+        session = await subscribe(socket,host,id)
+    }catch(err){log('error within pollsession')}
+    */
+    
     let ms=1000
     let err=false
     while(!err) {
@@ -330,15 +382,17 @@ const pollSession = async(host,id)=>{
             if(isSessionComplete(sesh,host.name)){ return sesh
             } else {
                 await sleep(ms)
-                ms=ms*1.20 // increase poll interval by 20% each time
-                if(ms>=15000){ms=1000} // reset once we hit 30 second polling
+                ms=ms*1.10 // increase poll interval by 10% each time
+                if(ms>=15000){ms=1000} // reset once we hit 15 second polling
             }
         }catch(e){
             log(e)
+            host.online = false
             err=true
         }
     }
 }
+
 
 const getSessionStats = (session)=>{
     let stats = {
@@ -355,14 +409,18 @@ let isctmp = []
 
 const isSessionComplete = (session,hostname)=>{
     // return true/false eventually, use debug logging for progress updates
-    isctmpnew = hostname+' '+session.id+' : '+Object.keys(session.results).length+' / '+Object.keys(session.execution_graph.nodes).length
-    if(!isctmp.includes(isctmpnew)){ // check if we've already posted this message recently
-        debugLog(isctmpnew)
-        isctmp.push(isctmpnew) // add message to cache
-        if(isctmp.length>10){isctmp.slice(-10)} // maximum of 10 in cache, slice to size
+    try{
+        isctmpnew = hostname+' '+session.id+' : '+Object.keys(session.results).length+' / '+Object.keys(session.execution_graph.nodes).length
+        if(!isctmp.includes(isctmpnew)){ // check if we've already posted this message recently
+            debugLog(isctmpnew)
+            isctmp.push(isctmpnew) // add message to cache
+            if(isctmp.length>10){isctmp.slice(-10)} // maximum of 10 in cache, slice to size
+        }
+        if(Object.keys(session.results).length===Object.keys(session.execution_graph.nodes).length){return true
+        }else{return false}
+    } catch(err) {
+        throw(err)
     }
-    if(Object.keys(session.results).length===Object.keys(session.execution_graph.nodes).length){return true
-    }else{return false}
 }
 
 getSessionImages = async(host,session)=>{
@@ -386,7 +444,10 @@ getSessionImages = async(host,session)=>{
             log('No images found in session')
         }
         return results
-    } catch(err){log(err)}
+    } catch(err){
+        // host.online = false
+        log(err)
+    }
 }
 
 const deleteImage = async(host,name)=>{
@@ -394,22 +455,31 @@ const deleteImage = async(host,name)=>{
         u = host.url+'/api/v1/images/i/'+name
         debugLog('Deleting image '+name+' from '+host.name)
         await axios.delete(u)
-    } catch (err) {throw(err)}
+    } catch (err) {
+        host.online = false
+        throw(err)
+    }
 }
 
-subscribe = async(host,id)=>{
-    let socket = new io(host.url+'/ws/',{timeout: 60000,path: '/ws/socket.io'})
-    debugLog('subscribing to '+id)
-    socket.emit('subscribe',{'session':id},(answer)=>{
-        log(answer)
+const subscribe = async (socket, host, id) => {
+    return new Promise((resolve, reject) => {
+        socket.on('connect', () => {
+            console.log('Connected to socket')
+        })
+        socket.on('message', msg => {console.log('Socket message:', msg)})
+        socket.on('sid', sid => {console.log('sid:', sid)})
+        socket.on('error', err => {
+            console.error('Socket error:', err)
+            reject(err)
+        })
+        socket.emit('subscribe', {session: id}, (result) => {
+            socket.on('message', (msg) => {
+                if(msg.session === id) {
+                    resolve(msg)
+                }
+            })
+        })
     })
-    socket.onAny((eventName, ...args) => {
-        log(eventName)
-        log(args)
-    })
-    socket.on('message',(m=>{
-        log(m)
-    }))
 }
 
 const getVersion = async(host)=>{
@@ -418,6 +488,7 @@ const getVersion = async(host)=>{
         let response = await axios.get(u)
         return response.data.version
     } catch (err){
+        host.online = false
         throw(err)
     }
 }
@@ -428,6 +499,7 @@ const getConfig = async(host)=>{
         let response = await axios.get(u)
         return response.data
     } catch (err){
+        host.online = false
         throw(err)
     }
 }
@@ -439,6 +511,7 @@ const getModels = async(host,type='main')=>{
         let response = await axios.get(u)
         return response.data?.models
     } catch (err) {
+        host.online = false
         throw(err)
     }
 }
@@ -449,6 +522,7 @@ const getSessions = async(host)=>{
         let response = await axios.get(u)
         return r.data?.items
     } catch (err) {
+        host.online = false
         throw(err)
     }
 }
@@ -460,6 +534,7 @@ const getSession = async(host,id)=>{
         return response.data
     } catch (err) {
         console.error('Error getting session', err)
+        host.online = false
         throw err
     } 
 }
@@ -470,6 +545,7 @@ const getImages = async(host)=>{
         let response = axios.get(u)
         return r.data?.items
     } catch (err) {
+        host.online = false
         throw(err)
     }
 }
@@ -480,6 +556,7 @@ const getImage = async(host,name)=>{
         let r = axios.get(u)
         return r.data
     } catch (err) {
+        host.online = false
         throw(err)
     }
 }
@@ -490,6 +567,7 @@ const getImageBuffer = async(host,name)=>{
         let buf = urlToBuffer(u)
         return buf
     } catch (err) {
+        host.online = false
         throw(err)
     }
 }
@@ -504,14 +582,18 @@ getHeaders=(form)=>{
 
 uploadInitImage=async(host,buf,id)=>{
     try{
+        debugLog('Uploading init img to '+host.name+' with id '+id)
+        log(buf)
         let form = new FormData()
         form.append('data',JSON.stringify({kind:'init'}))
         form.append('file',buf,{contentType:'image/png',filename:id+'.png'})
         let headers = await getHeaders(form)
         let url=host.url+'/api/v1/images/upload?image_category=user&is_intermediate=false'
         let response = await axios.post(url,form,{headers:headers})
+        debugLog(response.data)
         return response.data    
     } catch (err) {
+        host.online = false
         throw(err.code)
     }
 }
@@ -579,27 +661,80 @@ const getDiffusionResolution = (number)=>{
     return closestNumber
 }
 
+const extractLoras = async (inputString) => {
+    const loraRegex = /withLora\s*\(([^,]+?)(?:,(\d+(?:\.\d+)?))?\)/gi
+    const matches = [...inputString.matchAll(loraRegex)]
+    //if(!matches.length) {return {error: "No loras found"}}
+    const loras = matches.map(match => {
+        const name = match[1]
+        let weight
+        let m=match[0]
+        if(match[2]) {weight = match[2]} else {weight = 0.85}
+        return {
+            name, 
+            weight,
+            m
+        }
+    })
+    let stripped = inputString
+    let newloras = []
+    for (const lora of loras){
+        lora.model = await loranameToObject(lora.name)
+        if(!lora.model) break
+        stripped = inputString.replace(lora.m, '')
+        newloras.push({name:lora.name,model:lora.model,weight:lora.weight})
+    }
+    return {
+        loras: newloras,
+        stripped: stripped,
+        inputString: inputString
+    }
+}
+
+/*
 const extractLoras = async(inputstring)=>{
     // extract Loras in withLora(name,weight) format into job.loras
-    const regex = /withLora\((\w+)(?:,(\w+))?\)/g
-    const matches = [...inputstring.matchAll(regex)]
-    const loras = matches.map(match =>({
-        lora: match[1],
-        weight: parseFloat(match[2]) || 0.85
-    }))
+    //const regex = /withLora\((\w+)(?:,(\w+))?\)/g
+    const loraRegex = /withLora\([^)]*(?:,(\d+(?:\.\d+)?))?/gi
+    const matches = [...inputstring.matchAll(loraRegex)]
+    debugLog('debug extractLoras')
+    debugLog('matches:')
+    debugLog(matches)
+    const loras = [...matches].map(match => {
+        debugLog('match:')
+        debugLog(match)
+        const [_, name, weightStr] = match
+        debugLog('name:')
+        debugLog(name)
+        debugLog('weightStr')
+        debugLog(weightStr)
+        return {name, weight: parseFloat(weightStr) }
+    })
+    debugLog('loras:')
+    debugLog(loras)
+    /*
+    loras.forEach(lora => {
+        if(!validLoraName(lora.name)) {throw new Error('Invalid lora name')}
+        lora.weight = lora.weight || 0.85
+    })
+    
     for (const l in loras){
         let lo = await loranameToObject(loras[l].lora)
+        debugLog(lo)
         if(!lo) return {error:'Lora not found'}
         loras[l].lora = lo
     }
-    const strippedString = inputstring.replace(regex,'')
+    let strippedString = inputstring
+    loras.forEach(lora => {strippedString = strippedString.replace(loraRegex, '')})
     const response = {
         loras: loras,
         strippedString: strippedString,
         error: null
     }
+    debugLog(response)
     return response
 }
+*/
 
 const validateJob = async(job)=>{
     // examine job object, reject on invalid parameters, add defaults as required
@@ -613,17 +748,17 @@ const validateJob = async(job)=>{
     try{
         let el = await extractLoras(job.prompt)
         if(el.error){return {error:el.error}}
-        job.prompt = el.strippedString
+        //job.prompt = el.stripped // Decided against stripping from prompt
         job.loras = el.loras
     } catch(err){
-        return {error: ':warning: '+err}
+        return {error: err}
     }
     // split into positive/negative prompts
     const npromptregex = /\[(.*?)\]/g // match content of [square brackets]
-    const npromptmatches = job.prompt.match(npromptregex)
+    const npromptmatches = job.prompt?.match(npromptregex)
     if(npromptmatches?.length>0){job.negative_prompt=npromptmatches.join(' ').replace('[','').replace(']','')
     }else{job.negative_prompt='<neg-sketch-3>,blur'}
-    job.positive_prompt=job.prompt.replace(npromptregex,'')
+    job.positive_prompt=job.prompt?.replace(npromptregex,'')
     // set defaults if not already set
     if(!job.number){job.number=1}else if(job.number>1&&job.seed){delete job.seed} // cannot feed a seed into the iterator afaik
     if(!job.seed&&job.number!==1||!Number.isInteger(job.seed)||job.seed<1||job.seed>4294967295){job.seed=random.seed()}
@@ -659,9 +794,10 @@ const validateJob = async(job)=>{
 
 const rawGraphResponse = async(host,graph)=>{
     let id = await postSession(host,graph)
-    //debugLog(id)
+    debugLog(id)
     await startSession(host,id)
     let session = await pollSession(host,id)
+    debugLog(session)
     return session
 }
 
@@ -675,6 +811,52 @@ const extractMetaFromSession = async(session)=>{
 const hostHasModel = async(host,model)=>{
     if(host?.models?.includes(model)){ return true
     } else { return false}
+}
+
+const depthMap = async(img,host)=>{
+    try{
+        if(!host)host=await findHost()
+        let imgid = getUUID()
+        let initimg = await uploadInitImage(host,img,imgid)
+        let graph={'nodes':{'midas_depth_image_processor':{'id':'midas_depth_image_processor','type':'midas_depth_image_processor','a_mult':2,'bg_th':0.1,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
+        let session = await rawGraphResponse(host,graph)
+        let images = await getSessionImages(host,session)
+        log(images)
+        return {images: images}
+    } catch (err) {
+        log(err)
+        return {error: err}
+    }
+}
+
+const canny = async(img,host)=>{
+    try{
+        if(!host)host=await findHost()
+        let imgid = getUUID()
+        let initimg = await uploadInitImage(host,img,imgid)
+        let graph={'nodes':{'canny_image_processor':{'id':'canny_image_processor','type':'canny_image_processor','low_threshold':100,'high_threshold':200,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
+        let session = await rawGraphResponse(host,graph)
+        let images = await getSessionImages(host,session)
+        return {images: images}
+    } catch (err) {
+        log(err)
+        return {error: err}
+    }
+}
+
+const openpose = async(img,host)=>{
+    try{
+        if(!host)host=await findHost()
+        let imgid = getUUID()
+        let initimg = await uploadInitImage(host,img,imgid)
+        let graph={'nodes':{'openpose_image_processor':{'id':'openpose_image_processor','type':'openpose_image_processor','detect_resolution':512,'hand_and_face':true,'image_resolution':512,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
+        let session = await rawGraphResponse(host,graph)
+        let images = await getSessionImages(host,session)
+        return {images: images}
+    } catch (err) {
+        log(err)
+        return {error: err}
+    }
 }
 
 const modelnameToObject = async(modelname)=>{
@@ -697,19 +879,32 @@ const modelnameToObject = async(modelname)=>{
 
 const loranameToObject = async(loraname)=>{
     // look up loras available on hosts
+    //if(!loraname){throw('loranameToObject ')}
     let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
     for (const h in availableHosts){
         let host=cluster[h]
         let lora=host.lora.find(m=>{return m.model_name===loraname})
-        if(isObject(lora)){ 
-            return {
-                model_name: lora.model_name,
-                base_model: lora.base_model
-            }
+        debugLog(lora)
+        if(isObject(lora)){
+            return {model_name: lora.model_name,base_model: lora.base_model}
         }else{log('Error: No lora with name '+loraname+' on host '+host.name)}
     }
-    throw('Unable to find online host with lora: `'+loraname+'`')
+    return {error:'Unable to find online host with lora: `'+loraname+'`'}
 }
+
+const controlnetnameToObject = async(controlnetname) => {
+    // Look up controlnets available on hosts
+    let availableHosts = cluster.filter(host => {
+        return host.online && !host.disabled  
+    })
+    for(let host of availableHosts) {
+        let controlnet = host.controlnets.find(c => {return c.model_name === controlnetname})
+        if(controlnet) {return {model_name: controlnet.model_name, base_model: controlnet.base_model,model_type: controlnet.model_type}
+        } else {log(`Controlnet ${controlnetname} not found on host ${host.name}`)}
+    }
+    throw `Unable to find online host with controlnet: ${controlnetname}`
+}
+
 
 getHostById = (id)=>{return cluster.find(h=>{h.id===id})}
 getHostByName = (name)=>{return cluster.find(h=>{h.name===name})}
@@ -738,7 +933,7 @@ cast = async(job)=>{
         let session = await pollSession(context.host,context.sessionId) // returned finished session
         debugLog(context.host.name+' '+context.sessionId+' collecting images ')
         context.images = await getSessionImages(context.host,session)
-        if(context.images?.error){resolve({error:context.images?.error})}
+        if(context.images?.error){return {error:context.images?.error}}
         if(context.job.initimgObject)deleteImage(context.host,context.job.initimgObject.image_name) // remove uploaded image after use
         let result = {
             job:context.job,
@@ -763,6 +958,9 @@ module.exports = {
         jobFromMeta,
         validateJob,
         rawGraphResponse,
-        findHost
+        findHost,
+        depthMap,
+        canny,
+        openpose
     }
 }
