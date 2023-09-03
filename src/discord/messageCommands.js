@@ -74,6 +74,57 @@ let commands = [
         }
     },
     {
+        name: 'depth',
+        description: 'Return a depth map of an input image',
+        permissionLevel: 'all',
+        aliases: ['depth'],
+        prefix:'!',
+        command: async(args,msg)=>{
+            debugLog('depth map creation triggered: '+args.join(' '))
+            if(messageHasImageAttachments(msg)){
+                let buf = await extractImageBufferFromMessage(msg)
+                let result = await invoke.depthMap(buf)
+                return {messages:[{content:'Converted to depth map'}],files:[{file:result.images[0].buffer,name:result.images[0].name}]}
+            } else {
+                return { error:'No image attached to create depthmap'}
+            }
+        }
+    },
+    {
+        name: 'edges',
+        description: 'Return a canny edge detection of an input image',
+        permissionLevel: 'all',
+        aliases: ['edges'],
+        prefix:'!',
+        command: async(args,msg)=>{
+            debugLog('canny edge detection creation triggered: '+args.join(' '))
+            if(messageHasImageAttachments(msg)){
+                let buf = await extractImageBufferFromMessage(msg)
+                let result = await invoke.canny(buf)
+                return {messages:[{content:'Converted to canny edge detection'}],files:[{file:result.images[0].buffer,name:result.images[0].name}]}
+            } else {
+                return { error:'No image attached to create canny edge detection'}
+            }
+        }
+    },
+    {
+        name: 'pose',
+        description: 'Return a openpose pose detection of an input image',
+        permissionLevel: 'all',
+        aliases: ['pose','openpose'],
+        prefix:'!',
+        command: async(args,msg)=>{
+            debugLog('pose detection creation triggered: '+args.join(' '))
+            if(messageHasImageAttachments(msg)){
+                let buf = await extractImageBufferFromMessage(msg)
+                let result = await invoke.openpose(buf)
+                return {messages:[{content:'Converted to openpose detection'}],files:[{file:result.images[0].buffer,name:result.images[0].name}]}
+            } else {
+                return { error:'No image attached to create pose detection'}
+            }
+        }
+    },
+    {
         name: 'metadata',
         description: 'Extract metadata from images',
         permissionLevel: 'all',
@@ -306,6 +357,10 @@ imageResultMessage = (userid,img,result,meta)=>{
     if(meta.invoke?.seed){t+=' :seedling: '+meta.invoke.seed}
     if(meta.invoke?.scale){t+=' :scales: '+meta.invoke.scale}
     if(meta.invoke?.model){t+=' :floppy_disk: '+meta.invoke.model?.model_name}
+    if(meta.invoke?.loras?.length>0){
+        t+=' :pill: '
+        for (const l in meta.invoke?.loras){t+=meta.invoke.loras[l].lora.model_name+'('+meta.invoke.loras[l].weight+') '}
+    }
     //debugLog(meta)
     if(meta.invoke?.inputImageUrl){t+=' :paperclip:attachment'}
     let colordec=getRandomColorDec()
