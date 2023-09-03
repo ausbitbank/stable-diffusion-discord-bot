@@ -19,6 +19,15 @@ try{
 }catch(err){log('Unable to read txt file directory'.bgRed);log(err)}
 if(randoms.includes('prompt')){randoms.splice(randoms.indexOf('prompt'),1);randoms.splice(0,0,'prompt')} // Prompt should be interpreted first
 
+function getRandom(name) {
+  if (!randoms.includes(name)) {throw new Error(`Invalid randomiser: ${name}`)}
+  const index = randoms.indexOf(name)
+  const lines = randomsCache[index]
+  if (!lines) {throw new Error(`No lines for randomiser: ${name}`)}
+  return lines[Math.floor(Math.random() * lines.length)]
+}
+
+/*
 getRandom=(what)=>{
   if(randoms.includes(what)){
     try{
@@ -27,7 +36,17 @@ getRandom=(what)=>{
     }catch(err){log(err)}
   }else{return what}
 }
+*/
 
+const replaceRandoms = (input) => {
+  const regex = new RegExp(`\{(${randoms.join("|")})\}`, "g")
+  return input.replace(regex, matched => {
+    const randomiser = matched.slice(1, -1)
+    return getRandom(randomiser)
+  })
+}
+
+/*
 replaceRandoms=(input)=>{
   // todo recreate this, not working for multiple randomisers
   var output=input
@@ -54,6 +73,7 @@ replaceRandoms=(input)=>{
   })
   return output
 }
+*/
 
 function getRandomSeed(){return Math.floor(Math.random()*4294967295)}
 
