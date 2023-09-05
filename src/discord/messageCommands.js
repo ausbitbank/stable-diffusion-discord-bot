@@ -7,6 +7,7 @@ const {imageEdit}=require('../imageEdit')
 const parseArgs = require('minimist')
 //const {discord}=require('./discord.js')
 // Process discord text message commands
+
 let commands = [
     {
         name: 'dream',
@@ -15,21 +16,9 @@ let commands = [
         aliases: ['dream','drm','imagine','magin'],
         prefix:'!',
         command: async (args,msg)=>{
-            msg.addReaction('🫡') // salute emoji
             let img,imgurl
-            if(messageHasImageAttachments(msg)){
-                img = await extractImageBufferFromMessage(msg)
-                imgurl = await extractImageUrlFromMessage(msg)
-            }else if(msg.messageReference?.messageID){
-                await bot.getMessage(msg.channel.id, msg.messageReference.messageID)
-                    .then(async m=>{
-                        if(messageHasImageAttachments(m)){
-                            img = await extractImageBufferFromMessage(m)
-                            imgurl = await extractImageUrlFromMessage(m)
-                        }
-                    })
-                    .catch(e=>{log(e)})
-            }else{img=null}
+            let imgres = await extractImageAndUrlFromMessageOrReply(msg)
+            if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
             result = await invoke.jobFromDream(args,img)
             // inject the original template image url
             if(imgurl && !result.error && result.images?.length > 0){
@@ -81,10 +70,15 @@ let commands = [
         prefix:'!',
         command: async(args,msg)=>{
             debugLog('depth map creation triggered: '+args.join(' '))
-            if(messageHasImageAttachments(msg)){
-                let buf = await extractImageBufferFromMessage(msg)
-                let result = await invoke.depthMap(buf)
-                return {messages:[{content:'Converted to depth map'}],files:[{file:result.images[0].buffer,name:result.images[0].name}]}
+            let img,imgurl
+            let imgres = await extractImageAndUrlFromMessageOrReply(msg)
+            if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
+            if(img){
+                //let buf = await extractImageBufferFromMessage(msg)
+                let result = await invoke.depthMap(img)
+                let buf = result.images[0]?.buffer
+                buf = await exif.modify(buf,'arty','imageType','depth')
+                return {messages:[{embeds:[{description:'Converted image to depth map',color:getRandomColorDec()}]}],files:[{file:buf,name:result.images[0].name}]}
             } else {
                 return { error:'No image attached to create depthmap'}
             }
@@ -98,10 +92,14 @@ let commands = [
         prefix:'!',
         command: async(args,msg)=>{
             debugLog('canny edge detection creation triggered: '+args.join(' '))
-            if(messageHasImageAttachments(msg)){
-                let buf = await extractImageBufferFromMessage(msg)
-                let result = await invoke.canny(buf)
-                return {messages:[{content:'Converted to canny edge detection'}],files:[{file:result.images[0].buffer,name:result.images[0].name}]}
+            let img,imgurl
+            let imgres = await extractImageAndUrlFromMessageOrReply(msg)
+            if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
+            if(img){
+                let result = await invoke.canny(img)
+                let buf = result.images[0]?.buffer
+                buf = await exif.modify(buf,'arty','imageType','canny')
+                return {messages:[{embeds:[{description:'Converted to canny edge detection',color:getRandomColorDec()}]}],files:[{file:buf,name:result.images[0].name}]}
             } else {
                 return { error:'No image attached to create canny edge detection'}
             }
@@ -115,10 +113,15 @@ let commands = [
         prefix:'!',
         command: async(args,msg)=>{
             debugLog('pose detection creation triggered: '+args.join(' '))
-            if(messageHasImageAttachments(msg)){
-                let buf = await extractImageBufferFromMessage(msg)
-                let result = await invoke.openpose(buf)
-                return {messages:[{content:'Converted to openpose detection'}],files:[{file:result.images[0].buffer,name:result.images[0].name}]}
+            let img,imgurl
+            let imgres = await extractImageAndUrlFromMessageOrReply(msg)
+            if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
+            if(img){
+                let result = await invoke.openpose(img)
+                let buf = result.images[0]?.buffer
+                buf = await exif.modify(buf,'arty','imageType','openpose')
+                let components = [{type:1,components:[{type: 2, style: 1, label: 'Use this pose', custom_id: 'pose', emoji: { name: '🤸', id: null}, disabled: false }]}]
+                return {messages:[{embeds:[{description:'Converted to openpose detection',color:getRandomColorDec()}],components:components}],files:[{file:buf,name:result.images[0].name}]}
             } else {
                 return { error:'No image attached to create pose detection'}
             }
@@ -147,7 +150,6 @@ let commands = [
             } else {
                 return {error:'Unable to find metadata'}
             }
-            return {message:[{content:meta}]}
         }
     },
     {
@@ -171,6 +173,13 @@ let commands = [
             let text = args.join(' ')
             let img=null
             if(messageHasImageAttachments(msg)){ img = await extractImageBufferFromMessage(msg)}
+            if(img){
+                debugLog('text overlay')
+                result = await imageEdit.textOverlay(text,img)
+            } else {
+                debugLog('text image')
+                result = await imageEdit.textImage(text)
+            }
             result = await imageEdit.textOverlay(text,img)
             return result
         }
@@ -221,6 +230,35 @@ let commands = [
         command: async(args,msg)=>{
             process.exit(0)
         }
+    },
+    {
+        name: 'avatar',
+        description: 'Replies with the large version of any mentioned users avatar, or their own if nobody is mentioned',
+        permissionLevel: 'all',
+        aliases: ['avatar','avtr'],
+        prefix:'!',
+        command: async(args,msg)=>{
+            let avatars=[]
+            let messages=[]
+            let userId=msg.user?.id||msg.member?.id||msg.author?.id
+            log(userId)
+            let components = [{type:1,components:[{type: 2, style: 1, label: 'Pimp', custom_id: 'pimp', emoji: { name: '🪄', id: null}, disabled: true }]}]
+            if(msg.mentions?.length>0){
+                for (const m in msg.mentions){
+                    let uid=msg.mentions[m].id
+                    let url=await getAvatarUrl(uid)
+                    let buf = await urlToBuffer(url)
+                    avatars.push({file:buf,name:getUUID()+'.png'})
+                    messages.push({embeds:[{description:'Here is <@'+uid+'>\'s full size avatar:',color:getRandomColorDec()}],components:components})
+                }
+            } else {
+                let url=await getAvatarUrl(userId)
+                let buf = await urlToBuffer(url)
+                avatars.push({file:buf,name:getUUID()+'.png'})
+                messages.push({embeds:[{description:'Here is <@'+userId+'>\'s full size avatar:',color:getRandomColorDec()}],components:components})
+            }
+            if(avatars.length>0){return {messages:messages,files:avatars}}
+        }
     }
 ]
 
@@ -256,6 +294,7 @@ parseMsg=async(msg)=>{
                         }
                     }
                     log(c.name+' triggered by '+username+' in '+msg.channel.name||msg.channel.id+' ('+guild+')')
+                    msg.addReaction('🫡') // salute emoji
                     let result = await c.command(args,msg)
                     let messages = result?.messages
                     let files = result?.files
@@ -310,9 +349,11 @@ returnMessageResult = async(msg,result)=>{
 extractImageBufferFromMessage = async (msg)=>{
     let buf=null
     for (const a of msg.attachments){
-        let validMimetypes=['image/png','image/jpeg']
+        let validMimetypes=['image/png','image/jpeg','image/webp']
         if(validMimetypes.includes(a.content_type)){
             buf = await urlToBuffer(a.proxy_url)
+            if(['image/webp','image/svg'].includes(a.content_type)){buf = await imageEdit.convertToPng(buf)}
+            break
         }
     }
     return buf
@@ -320,7 +361,7 @@ extractImageBufferFromMessage = async (msg)=>{
 
 extractImageUrlFromMessage = async (msg)=>{
     for (const a of msg.attachments){
-        let validMimetypes=['image/png','image/jpeg']
+        let validMimetypes=['image/png','image/jpeg','image/webp']
         if(validMimetypes.includes(a.content_type)){
             return a.proxy_url
         }
@@ -338,13 +379,38 @@ extractMetadataFromMessage = async (msg)=>{
 }
 
 messageHasImageAttachments = (msg)=>{
-    if(msg.attachments.length>0){
+    if(msg.attachments?.length>0){
         for (const a of msg.attachments){
-            let validMimetypes=['image/png','image/jpeg']
+            let validMimetypes=['image/png','image/jpeg','image/webp']
             if(validMimetypes.includes(a.content_type)){return true}
         }
         return false
     }else{return false}
+}
+
+extractImageAndUrlFromMessageOrReply = async(msg)=>{
+    let img,url
+    if(messageHasImageAttachments(msg)){
+        img = await extractImageBufferFromMessage(msg)
+        url = await extractImageUrlFromMessage(msg)
+    } else if(msg.messageReference?.messageID) {
+        let sourcemsg = await bot.getMessage(msg.channel.id, msg.messageReference.messageID)
+        if(messageHasImageAttachments(sourcemsg)){
+            img = await extractImageBufferFromMessage(sourcemsg)
+            url = await extractImageUrlFromMessage(sourcemsg)
+        }
+    } else {
+        img=null
+        url=null
+    }
+    return {img,url}
+}
+
+getAvatarUrl = async(userId)=>{
+    let user = await bot.users.get(userId)
+    let avatarHash = user.avatar
+    let avatarUrl = `https://cdn.discordapp.com/avatars/${userId}/${avatarHash}.png?size=512`
+    return avatarUrl
 }
 
 imageResultMessage = (userid,img,result,meta)=>{
