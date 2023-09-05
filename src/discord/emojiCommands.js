@@ -1,6 +1,7 @@
-const {config,log,debugLog,tidyNumber}=require('../utils.js')
+const {config,log,debugLog,tidyNumber, urlToBuffer, getUUID}=require('../utils.js')
 const {bot} = require('./bot.js')
 const {auth}=require('./auth')
+const {messageCommands}=require('./messageCommands')
 
 var commands = [
     {
@@ -10,7 +11,7 @@ var commands = [
         aliases: ['⭐','❤️'],
         command: async (msg,emoji,reactor)=>{
             try{
-                sendToStarGallery(servid,channelid,msgid,msg)
+                sendToStarGallery(msg,emoji,reactor)
             } catch (err) {
                 log(err)
             }
@@ -120,35 +121,46 @@ parse = async(msg,emoji,reactor)=>{
     */
 }
 
-const sendToStarGallery = async(guildId, originalChannelId, messageId, msg)=>{ // Make a copy without buttons for the gallery
+const sendToStarGallery = async(msg,emoi,reactor)=>{ // Make a copy without buttons for the gallery
     // todo need to take server id, lookup guild object, find star-gallery if it exists
     // need to explore guild, check for star-gallery channel and send simplified result there with no buttons
     // also needs to make sure this hasn't already happened
-    log(guildId,originalChannelId,messageId,msg)
+    let guildId = msg.guildID
+    let originalChannelId = msg.channel?.id
+    let messageId = msg.id
+    let alreadyInGallery = false
     let guild = bot.guilds.get(guildId)
     if(!guild) return
     let galleryChannel = guild.channels.find(channel => {return channel.name === 'star-gallery'})
     if(!galleryChannel) return
-    log(galleryChannel)
     if (originalChannelId===galleryChannel.id) return
-    //const galleryChannel = allGalleryChannels[serverId]
-    //if (!galleryChannel) {log(`No gallery channel found for server ID: ${serverId}`);return}
-    //var alreadyInGallery=false
-    //if(channel.messages.length<50){debugLog('fetching gallery message history');await channel.getMessages({limit: 100})} // if theres less then 50 in the channel message cache, fetch 100
-    // await channel.getMessages({limit: 100})
+    // Make sure we have the full message object now instead of the shortform thing we get when eris doesn't have the message cached yet
+    msg = await bot.getMessage(msg.channel.id,msg.id)
+    if(msg.author?.id!==bot.application.id){return} // only care about our own results
+    if(galleryChannel.messages.length<50){ // if theres less then 50 in the channel message cache, fetch 100
+        debugLog('fetching gallery message history')
+        await galleryChannel.getMessages({limit: 100})
+    } 
     const messageLink = `https://discord.com/channels/${guildId}/${originalChannelId}/${messageId}`
     const components = [{ type: 1, components: [{ type: 2, style: 5, label: "Original message", url: messageLink, disabled: false }]}]
-    channel.messages.forEach(message=>{
+    galleryChannel.messages.forEach(message=>{
         if(message.content===msg.content){
             alreadyInGallery=true
             debugLog('found in gallery')
         }
     }) // look through eris message cache for channel for matching msg
     if (!alreadyInGallery){
-      if (msg && msg.embeds && msg.embeds.length > 0) {
-        msg.embeds[0].description = ``
-        await channel.createMessage({ content: msg.content, embeds: msg.embeds, components: components }).catch(() => {log(`Failed to send message to the specified channel for server ID: ${serverId}`)})
-      } else {await channel.createMessage({ content: msg.content, components: components }).catch(() => {log(`Failed to send message to the specified channel for server ID: ${serverId}`)})}
+        let buf,file
+        log(msg)
+        if(messageCommands.messageHasImageAttachments(msg)){buf = await messageCommands.extractImageBufferFromMessage(msg)}
+        if(buf){file={file:buf,name:getUUID()+'.png'}}
+        let content = msg.content
+        // todo need to extract original creator from content or allowed_mentions array, new message reference original creator + reactor
+        if(file){
+            await galleryChannel.createMessage({content:msg.content,embeds:msg.embeds,allowed_mentions:{}},file)
+        } else {
+            await galleryChannel.createMessage({content:msg.content,embeds:msg.embeds,allowed_mentions:{}})
+        }
     } else {debugLog('Found identical existing star gallery message')}
   }
   
