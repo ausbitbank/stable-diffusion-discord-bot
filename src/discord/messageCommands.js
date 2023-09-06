@@ -120,7 +120,7 @@ let commands = [
                 let result = await invoke.openpose(img)
                 let buf = result.images[0]?.buffer
                 buf = await exif.modify(buf,'arty','imageType','openpose')
-                let components = [{type:1,components:[{type: 2, style: 1, label: 'Use this pose', custom_id: 'pose', emoji: { name: '🤸', id: null}, disabled: false }]}]
+                let components = [{type:1,components:[{type: 2, style: 1, label: 'Use this pose', custom_id: 'usepose', emoji: { name: '🤸', id: null}, disabled: true }]}]
                 return {messages:[{embeds:[{description:'Converted to openpose detection',color:getRandomColorDec()}],components:components}],files:[{file:buf,name:result.images[0].name}]}
             } else {
                 return { error:'No image attached to create pose detection'}
@@ -171,15 +171,10 @@ let commands = [
         prefix:'!',
         command: async (args,msg)=>{
             let text = args.join(' ')
-            let img=null
+            let img,imgurl
+            let imgres = await extractImageAndUrlFromMessageOrReply(msg)
+            if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
             if(messageHasImageAttachments(msg)){ img = await extractImageBufferFromMessage(msg)}
-            if(img){
-                debugLog('text overlay')
-                result = await imageEdit.textOverlay(text,img)
-            } else {
-                debugLog('text image')
-                result = await imageEdit.textImage(text)
-            }
             result = await imageEdit.textOverlay(text,img)
             return result
         }
