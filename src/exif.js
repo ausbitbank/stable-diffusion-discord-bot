@@ -10,17 +10,18 @@ const pngtext = require('png-chunk-text')
 load=async(buf)=>{
     //buf = await modify(buf,'arty_meta','keyname','value')
     exif = ExifReader.load(buf)
+    //debugLog(exif)
     let width = exif['Image Width'].value
     let height = exif['Image Height'].value
     let results = {}
     // todo move this to invoke module after polish
-    if(exif.invokeai_metadata&&exif.invokeai_graph){
+    if(exif.invokeai_metadata){ //&&exif.invokeai_graph
         meta=JSON.parse(exif.invokeai_metadata.value)
         let seed = meta.seed
         let model = meta.model
         let clipskip = meta.clip_skip
         let loras=meta.loras
-        let graph = JSON.parse(exif.invokeai_graph.value)
+        //let graph = JSON.parse(exif.invokeai_graph?.value)
         let positive_prompt=meta.positive_prompt
         let negative_prompt=meta.negative_prompt
         let scale=meta.cfg_scale
@@ -32,8 +33,10 @@ load=async(buf)=>{
         let controlnets=meta.controlnets
         let inputImageUrl=null
         let scheduler=meta.scheduler
-        for (const i in graph.nodes){
-            let n = graph.nodes[i]
+        // todo the entire graph was removed from metadata in invoke 3.1* update.. Need to find another way to calculate cost, pixelsteps, generation resolution (not final resolution)
+        /*
+        for (const i in graph?.nodes){
+            let n = graph?.nodes[i]
             if(n.type==='noise'){
                 genWidth=n.width
                 genHeight=n.height
@@ -51,6 +54,7 @@ load=async(buf)=>{
                 controlnets.push({controlnet:n.control_model,weight:n.control_weight,begin:n.begin_step_percent,end:n.end_step_percent,mode:n.control_mode,resize:n.resize_mode})
             }
         }
+        */
         let cost=(pixelSteps/7864320) // 1 normal 30 step 512x512 render to 1 coin
         if(exif.arty){
             let arty = JSON.parse(exif.arty.value)
@@ -72,9 +76,10 @@ load=async(buf)=>{
             scheduler,
             model,
             scale,
+            lscale,
             controlnets,
             inputImageUrl,
-            clipskip
+            clipskip,
         }
     }
     //debugLog(results)
@@ -99,12 +104,12 @@ modify=async(buf,parent,key,value)=>{
     if(dataAlreadyExists()){
         debugLog('already existed in original png metadata')
     } else {
-        debugLog('Splicing in new metadata')
+        //debugLog('Splicing in new metadata')
         // splice in the new encoded tEXt chunk
         chunks.splice(-1,0,pngtext.encode(parent,JSON.stringify(newdata)))
     }
     // turn it all back into the original buffer format and return
-    let output = pngencode(chunks)
+    //let output = pngencode(chunks)
     buf = Buffer.from(pngencode(chunks))
     return buf
 
