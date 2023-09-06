@@ -33,7 +33,7 @@ Setup:
 - `git clone -b arty2-invoke3-WIP https://github.com/ausbitbank/stable-diffusion-discord-bot/`
 - `cd stable-diffusion-discord-bot`
 - `mv .\config\config.json.example .\config\config.json`
-- Edit config.json, you need at least a `discordBotKey`, `adminID`, and to check the cluster url matches your invokeai 3.02post1 webui url
+- Edit config.json, you need at least a `discordBotKey`, `adminID`, and to check the cluster url matches your invokeai webui url
 
 Launch with:
 - `docker-compose up --build`
