@@ -66,8 +66,8 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         // by tracking and updating most recent used ids we can break the job into components easier
         if(['main_model_loader','sdxl_model_loader','sdxl_model_refiner_loader','lora_loader'].includes(type)){lastid.unet=newid}
         if(['main_model_loader','sdxl_model_loader','clip_skip','lora_loader'].includes(type)){lastid.clip=newid}
-        if(['sdx_model_loader','sdxl_refiner_model_loader'].includes(type)){lastid.clip2=newid}
-        if(['main_model_loader','vae_loader','denoise_latents'].includes(type)){lastid.vae=newid}
+        if(['sdxl_model_loader','sdxl_refiner_model_loader'].includes(type)){lastid.clip2=newid}
+        if(['main_model_loader','vae_loader','denoise_latents','sdxl_model_loader'].includes(type)){lastid.vae=newid}
         if(['t2l','ttl','lscale','l2l','i2l','denoise_latents'].includes(type)){lastid.latents=newid}
         if(['noise'].includes(type)){lastid.noise=newid}
         if(['controlnet'].includes(type)){lastid.control=newid}
@@ -113,10 +113,9 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     var p=[] // 
     // Metadata accumulator
     // todo add vae object and controlnets array
-    // todo reinsert loras array, format has changed and it breaks atm
     let metaObject = {
         is_intermediate:false,
-        generation_mode:'txt2img',
+        generation_mode:job.initimg?'img2img':'txt2img',
         cfg_scale:job.scale,
         clip_skip:job.clipskip,
         height:job.height,
@@ -143,32 +142,32 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     }
     // Reformat lora array for metadata object
     if(job.loras?.length>0){for (const l in job.loras){metaObject.loras.push({lora:{model_name:job.loras[l].model.model_name,base_model:job.loras[l].model.base_model},weight:job.loras[l].weight})}}
-    debugLog('metadata accumulator input')
-    debugLog(metaObject)
-    node('metadata_accumulator',metaObject,[])
     if(['sd-1','sd-2'].includes(job.model.base_model)){
         // SD1/2 pipeline
         node('main_model_loader',{model:job.model,is_intermediate:true},[])
         node('vae_loader',{vae_model:{model_name:'sd-vae-ft-mse',base_model:'sd-1'},is_intermediate:true},[])
         if(job.initimgObject){
             debugLog('Adding init img to graph')
-            node('controlnet',{
-                image:{image_name:job.initimgObject.image_name},
-                control_model:{model_name:job.control?job.control:'depth',base_model:'sd-1'},
-                control_weight:job.controlweight?job.controlweight:1,
-                begin_step_percent:job.controlstart?job.controlstart:0,
-                end_step_percent:job.controlend?job.controlend:1,
-                control_mode:job.controlmode?job.controlmode:'balanced',
-                resize_mode:job.controlresize?job.controlresize:'just_resize',
-                is_intermediate:true
-            },p)
+            if(job.control==='i2l'){
+                // default to image to latents
+                debugLog('Using image to latents')
+                node('i2l',{is_intermediate:false,fp32:true,image:{image_name:job.initimgObject.image_name}},[pipe(lastid.vae,'vae','SELF','vae')])
+            } else {
+                debugLog('Using controlnet '+job.control||'depth')
+                node('controlnet',{image:{image_name:job.initimgObject.image_name},
+                        control_model:{model_name:job.control?job.control:'depth',base_model:'sd-1'},
+                        control_weight:job.controlweight?job.controlweight:1,
+                        begin_step_percent:job.controlstart?job.controlstart:0,
+                        end_step_percent:job.controlend?job.controlend:1,
+                        control_mode:job.controlmode?job.controlmode:'balanced',
+                        resize_mode:job.controlresize?job.controlresize:'just_resize',
+                        is_intermediate:true
+                        },[])
+            }
             p=[] // reset after use
-            //node('collect',{is_intermediate:true},[pipe('controlnet','control','SELF','item')])
         }
-        node('clip_skip',{skipped_layers:job.clipskip?job.clipskip:0,is_intermediate:true},[pipe(lastid.clip,'clip','SELF','clip')])
+        node('clip_skip',{skipped_layers:job.clipskip??0,is_intermediate:true},[pipe(lastid.clip,'clip','SELF','clip')])
         // lora loader, chain multiple loras with clip and unet into each other
-        // KISS, hardcode withLora(add_detail,0.75) for now
-        //node('lora_loader',{lora:{model_name:'add_detail',base_model:'sd-1'},weight:0.75},[pipe(lastid.clip,'clip','SELF','clip'),pipe(lastid.unet,'unet','SELF','unet')])
         if(job.loras?.length>0){
             for (const l in job.loras) {
                 debugLog('raw lora from array')
@@ -181,15 +180,18 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         node('compel',{prompt:job.negative_prompt},[pipe(lastid.clip,'clip','SELF','clip')])
         if(job.seed&&job.number===1){ // if seed supplied, force to single render mode
             node('noise',{width:job.width,height:job.height,use_cpu:true,seed:job.seed},[])
+            node('metadata_accumulator',metaObject,[])
         }else{
             // generate random integer to use for seed
             node('rand_int',{low:0,high:2147483647},[])
             // sized range, size field acts as iteration counter that repeats job with random seeds
-            node('range_of_size',{size:job.number,step:1},[pipe('rand_int','a','SELF','start')])
+            node('range_of_size',{size:job.number,step:1},[pipe('rand_int','value','SELF','start')])
             // iterator plumbing, no options
-            node('iterate',{is_intermediate:true},[pipe('range_of_size','collection','SELF','collection'),pipe('metadata_accumulator','seed','SELF','item')])
+            node('iterate',{is_intermediate:true},[pipe('range_of_size','collection','SELF','collection')])
             // bring the latent noise, using cpu for reproducibility, set initial dimensions
             node('noise',{width:job.width,height:job.height,use_cpu:true},[pipe('iterate','item','SELF','seed')])
+            // inject new seed into metadata accumulator
+            node('metadata_accumulator',metaObject,[pipe('iterate','item','SELF','seed')])
         }
         p = [
             pipe('compel','conditioning','SELF','positive_conditioning'),
@@ -205,23 +207,29 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
 
         // this denoise_latents node only applies to invoke >= 3.1
         // todo expose denoising_start , denoising_end params if useful
-        node('denoise_latents',{is_intermediate:true,noise:null,steps:job.steps,cfg_scale:job.scale,denoising_start:0.0,denoising_end:1.0,scheduler:job.scheduler},p)
+        let denoising_start = 0.0
+        if(job.strength&&job.initimgObject&&job.control==='i2l'){denoising_start=1.0-job.strength}
+        node('denoise_latents',{is_intermediate:true,noise:null,steps:job.steps,cfg_scale:job.scale,denoising_start:denoising_start,denoising_end:1.0,scheduler:job.scheduler},p)
         // commented out below t2l below applies to invoke < 3.1
         //node('t2l',{steps:job.steps,cfg_scale:job.scale,scheduler:job.scheduler},p)
 
         if(job.lscale&&job.lscale!==1){ // upscale latents, low fidelity
-            node('lscale',{scale_factor:job.lscale,mode:'nearest',antialias:false},[pipe(lastid.latents,'latents','SELF','latents')])
+            node('lscale',{scale_factor:job.lscale,mode:'bilinear',antialias:false},[pipe(lastid.latents,'latents','SELF','latents')])
             // add more latent noise at the new resolution, using cpu again
-            p=[pipe('lscale','width','SELF','width'),pipe('lscale','height','SELF','height')]
-            if(job.seed&&job.number===1){ a.seed=job.seed} else { p.push(pipe('iterate','item','SELF','seed'))}
-            node('noise',{use_cpu:true},p)
+            node('noise',{use_cpu:true},[pipe('lscale','width','SELF','width'),pipe('lscale','height','SELF','height')])
             // latents to latents, combining noise,latents,prompt conditioning
             let p=[pipe('compel','conditioning','SELF','positive_conditioning'),pipe('compel-2','conditioning','SELF','negative_conditioning'),pipe(lastid.noise,'noise','SELF','noise'),pipe(lastid.unet,'unet','SELF','unet'),pipe(lastid.latents,'latents','SELF','latents')]
             if(lastid.control){p.push(pipe(lastid.control,'control','SELF','control'))}
-            node('l2l',{steps:job.steps,cfg_scale:job.scale,scheduler:job.scheduler,strength:job.strength},p)
+            // todo l2l no longer exists its denoise latents now
+            //node('l2l',{steps:job.steps,cfg_scale:job.scale,scheduler:job.scheduler,strength:job.strength},p)
+            node('denoise_latents',{is_intermediate:true,noise:null,steps:job.steps,cfg_scale:job.scale,denoising_start:denoising_start,denoising_end:1.0,scheduler:job.scheduler},p)
+            // push metadata into final image
+            //node('metadata_accumulator',metaObject,[])
             // latent to image
-            node('l2i',{tiled:false,fp32:true},[pipe(lastid.vae,'vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
+            node('l2i',{tiled:false,fp32:true},[pipe('vae_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
         } else { // bypass extra steps if not using latent scaling
+            // push metadata into final image
+            //node('metadata_accumulator',metaObject,[])
             // latent to image
             node('l2i',{tiled:false,fp32:true,is_intermediate:(job.upscale&&job.upscale===2)?true:false},[pipe('vae_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
         }
@@ -229,38 +237,41 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         if(job.upscale&&job.upscale===2){node('esrgan',{model_name:'RealESRGAN_x2plus.pth'},[pipe(lastid.image,'image','SELF','image')])}
         // Tada! Graph built, submit to backend
         if(graph){
-            //debugLog(graph)
+            debugLog(graph)
             return graph
         }
     }else{
         // SDXL pipeline
         // todo polish, wire up more controls, consider integrating into sd1/2 pipeline if it can be done cleanly
+        let fp32=false
+        let sdxlvae={model_name:'sdxl-1-0-vae-fix',base_model:'sdxl'}
+        metaObject.vae=sdxlvae
+        let enabledRefiner=false
+        let refinersteps=10
         node('sdxl_model_loader',{is_intermediate:true,model:job.model},[])
+        node('vae_loader',{vae_model:sdxlvae,is_intermediate:true},[])
         node('sdxl_compel_prompt',{is_intermediate:true,prompt:job.positive_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024,style:'photo'},[pipe('sdxl_model_loader','clip','SELF','clip'),pipe('sdxl_model_loader','clip2','SELF','clip2')])
         node('sdxl_compel_prompt',{is_intermediate:true,prompt:job.negative_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024,style:'sketch artifacts blur'},[pipe('sdxl_model_loader','clip','SELF','clip'),pipe('sdxl_model_loader','clip2','SELF','clip2')])
         node('noise',{is_intermediate:true,width:1024,height:1024,use_cpu:true,seed:job.seed},[])
-        node('denoise_latents',{is_intermediate:true,steps:job.steps,cfg_scale:job.scale,denoising_start:0.0,denoising_end:0.8,scheduler:job.scheduler},[pipe(lastid.unet,'unet','SELF','unet'),pipe('sdxl_compel_prompt','conditioning','SELF','positive_conditioning'),pipe('sdxl_compel_prompt-2','conditioning','SELF','negative_conditioning'),pipe('noise','noise','SELF','noise')])
-        node('l2i',{is_intermediate:false,tiled:false,fp32:true},[pipe('denoise_latents','latents','SELF','latents'),pipe('sdxl_model_loader','vae','SELF','vae')])
-        /*
-        /// Refiner
-        node('sdxl_refiner_model_loader',{is_intermediate:true,model:{model_name:config.default.refinerModel||'sdxl_refiner_1.0',base_model:'sdxl-refiner',model_type:'main'}},[])
-        node('sdxl_refiner_compel_prompt',{is_intermediate:true,prompt:job.positive_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024,aesthetic_score:6.0},[pipe('sdxl_refiner_model_loader','clip2','SELF','clip2')])
-        node('sdxl_refiner_compel_prompt',{is_intermediate:true,prompt:job.negative_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024,aesthetic_score:2.5},[pipe('sdxl_refiner_model_loader','clip2','SELF','clip2')])
-        node('denoise_latents',{is_intermediate:true,steps:job.steps,cfg_scale:job.scale,denoising_start:0.8,denoising_end:1.0,scheduler:job.scheduler},[
-            pipe('sdxl_refiner_model_loader','unet','SELF','unet'),
-            pipe('sdxl_refiner_compel_prompt','conditioning','SELF','positive_conditioning'),
-            pipe('sdxl_refiner_compel_prompt-2','conditioning','SELF','negative_conditioning'),
-            pipe('denoise_latents','latents','SELF','latents')
-        ])
-        node('l2i',{is_intermediate:false,tiled:false,fp32:true},[
-            pipe('denoise_latents-2','latents','SELF','latents'),
-            pipe('sdxl_refiner_model_loader','vae','SELF','vae')
-        ])
-        */
-        if(graph){
-            //debugLog(graph)
-            return graph
+        node('denoise_latents',{is_intermediate:true,steps:job.steps,cfg_scale:job.scale,denoising_start:0.0,denoising_end:1.0,scheduler:job.scheduler},[pipe(lastid.unet,'unet','SELF','unet'),pipe('sdxl_compel_prompt','conditioning','SELF','positive_conditioning'),pipe('sdxl_compel_prompt-2','conditioning','SELF','negative_conditioning'),pipe('noise','noise','SELF','noise')])
+        node('metadata_accumulator',metaObject,[])
+        node('l2i',{is_intermediate:false,tiled:false,fp32:fp32},[pipe('denoise_latents','latents','SELF','latents'),pipe('vae_loader','vae','SELF','vae'),pipe('metadata_accumulator','metadata','SELF','metadata')])
+        if(enabledRefiner){
+            node('sdxl_refiner_model_loader',{is_intermediate:true,model:{model_name:config.default.refinerModel||'sdxl_refiner_1.0',base_model:'sdxl-refiner',model_type:'main'}},[])
+            node('sdxl_refiner_compel_prompt',{is_intermediate:true,prompt:job.positive_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024,aesthetic_score:6.0},[pipe('sdxl_refiner_model_loader','clip2','SELF','clip2')])
+            node('sdxl_refiner_compel_prompt',{is_intermediate:true,prompt:job.negative_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024,aesthetic_score:2.5},[pipe('sdxl_refiner_model_loader','clip2','SELF','clip2')])
+            node('denoise_latents',{is_intermediate:true,steps:refinersteps,cfg_scale:job.scale,denoising_start:0.8,denoising_end:1.0,scheduler:job.scheduler},[
+                pipe('sdxl_refiner_model_loader','unet','SELF','unet'),
+                pipe('sdxl_refiner_compel_prompt','conditioning','SELF','positive_conditioning'),
+                pipe('sdxl_refiner_compel_prompt-2','conditioning','SELF','negative_conditioning'),
+                pipe('denoise_latents','latents','SELF','latents')
+            ])
+            node('l2i',{is_intermediate:false,tiled:false,fp32:fp32},[
+                pipe('denoise_latents-2','latents','SELF','latents'),
+                pipe('sdxl_refiner_model_loader','vae','SELF','vae')
+            ])
         }
+        if(graph){return graph}
     }
 }
 
@@ -270,7 +281,7 @@ const postSession = async (host, graph) => {
         return response.data.id
     } catch (err) {
         console.error('Error posting session', err.data)
-        throw(err.code+'\n'+err.res?.statusCode+'\n'+err.res?.statusMessage)
+        throw(err.code)
     }
 }
 
@@ -583,15 +594,13 @@ getHeaders=(form)=>{
 uploadInitImage=async(host,buf,id)=>{
     try{
         debugLog('Uploading init img to '+host.name+' with id '+id)
-        log(buf)
         let form = new FormData()
         form.append('data',JSON.stringify({kind:'init'}))
         form.append('file',buf,{contentType:'image/png',filename:id+'.png'})
         let headers = await getHeaders(form)
         let url=host.url+'/api/v1/images/upload?image_category=user&is_intermediate=false'
         let response = await axios.post(url,form,{headers:headers})
-        debugLog(response.data)
-        return response.data    
+        return response.data
     } catch (err) {
         host.online = false
         throw(err.code)
@@ -609,6 +618,7 @@ const auto2invoke = (text)=>{
 
 const jobFromDream = async(cmd,img=null)=>{
     // input oldschool !dream format, output job object
+    debugLog('jobfromdream - cmd:'+cmd)
     var job = parseArgs(cmd,{})//string: ['sampler','text_mask'],boolean: ['seamless','hires_fix']}) // parse arguments //
     // set argument aliases
     if(job.s){job.steps=job.s;delete job.s}
@@ -622,6 +632,7 @@ const jobFromDream = async(cmd,img=null)=>{
     if(job.n){job.number=job.n;delete job.n}
     if(job.sampler){job.scheduler=job.sampler;delete job.sampler}
     // take prompt from what's left
+    debugLog(job._)
     job.prompt=job._.join(' ')
     if(img){job.initimg=img}
     return validateJob(job)
@@ -691,49 +702,32 @@ const extractLoras = async (inputString) => {
     }
 }
 
-/*
-const extractLoras = async(inputstring)=>{
-    // extract Loras in withLora(name,weight) format into job.loras
-    //const regex = /withLora\((\w+)(?:,(\w+))?\)/g
-    const loraRegex = /withLora\([^)]*(?:,(\d+(?:\.\d+)?))?/gi
-    const matches = [...inputstring.matchAll(loraRegex)]
-    debugLog('debug extractLoras')
-    debugLog('matches:')
-    debugLog(matches)
-    const loras = [...matches].map(match => {
-        debugLog('match:')
-        debugLog(match)
-        const [_, name, weightStr] = match
-        debugLog('name:')
-        debugLog(name)
-        debugLog('weightStr')
-        debugLog(weightStr)
-        return {name, weight: parseFloat(weightStr) }
-    })
-    debugLog('loras:')
-    debugLog(loras)
-    /*
-    loras.forEach(lora => {
-        if(!validLoraName(lora.name)) {throw new Error('Invalid lora name')}
-        lora.weight = lora.weight || 0.85
-    })
-    
-    for (const l in loras){
-        let lo = await loranameToObject(loras[l].lora)
-        debugLog(lo)
-        if(!lo) return {error:'Lora not found'}
-        loras[l].lora = lo
+const allUniqueModelsAvailable = async()=>{
+    // Return an object with all available models, across all connected & online hosts //todo : no repeats
+    let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
+    let allModels=[]
+    for (const h in availableHosts){
+        let host=cluster[h]
+        for (const m in host.models){
+            let model = host.models[m]
+            allModels.push({model_name:model.model_name,base_model:model.base_model,model_type:model.model_type,description:model.description})
+        }
     }
-    let strippedString = inputstring
-    loras.forEach(lora => {strippedString = strippedString.replace(loraRegex, '')})
-    const response = {
-        loras: loras,
-        strippedString: strippedString,
-        error: null
-    }
-    debugLog(response)
-    return response
+    return allModels
 }
+/*
+    // look up models available on hosts
+    let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
+    for (const h in availableHosts){
+        let host=cluster[h]
+        let model=host.models.find(m=>{return m.model_name===modelname})
+        if(isObject(model)){
+            return {
+                model_name: model.model_name,
+                base_model: model.base_model,
+                model_type: model.model_type,
+                description: model.description
+            }
 */
 
 const validateJob = async(job)=>{
@@ -784,20 +778,19 @@ const validateJob = async(job)=>{
     if(!job.lscale||job.lscale<1||job.lscale>3){job.lscale=1}
     if(!job.clipskip){job.clipskip=0}
     if(!job.upscale){job.upscale=0}
+    // set default init img mode
+    if(!job.control&&job.initimg){job.control='i2l'}
     if(job.controlresize&&['just_resize','crop_resize','fill_resize'].includes(job.controlresize)===false){job.controlresize='just_resize'}
     if(job.controlmode&&['balanced','more_prompt','more_control','unbalanced'].includes(job.controlresize)===false){job.controlresize='just_resize'}
     //debugLog(job)
-    if(true){ // final check, good to go
-        return cast(job)
-    }
+    return cast(job)
 }
 
 const rawGraphResponse = async(host,graph)=>{
     let id = await postSession(host,graph)
-    debugLog(id)
     await startSession(host,id)
     let session = await pollSession(host,id)
-    debugLog(session)
+    //debugLog(session)
     return session
 }
 
@@ -813,15 +806,15 @@ const hostHasModel = async(host,model)=>{
     } else { return false}
 }
 
-const depthMap = async(img,host)=>{
+const depthMap = async(img,host,a_mult=2,bg_th=0.1)=>{
     try{
         if(!host)host=await findHost()
         let imgid = getUUID()
         let initimg = await uploadInitImage(host,img,imgid)
-        let graph={'nodes':{'midas_depth_image_processor':{'id':'midas_depth_image_processor','type':'midas_depth_image_processor','a_mult':2,'bg_th':0.1,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
+        let graph={'nodes':{'midas_depth_image_processor':{'id':'midas_depth_image_processor','type':'midas_depth_image_processor','a_mult':a_mult,'bg_th':bg_th,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
         let session = await rawGraphResponse(host,graph)
         let images = await getSessionImages(host,session)
-        log(images)
+        //log(images)
         return {images: images}
     } catch (err) {
         log(err)
@@ -829,12 +822,12 @@ const depthMap = async(img,host)=>{
     }
 }
 
-const canny = async(img,host)=>{
+const canny = async(img,host,low_threshold=100,high_threshold=200)=>{
     try{
         if(!host)host=await findHost()
         let imgid = getUUID()
         let initimg = await uploadInitImage(host,img,imgid)
-        let graph={'nodes':{'canny_image_processor':{'id':'canny_image_processor','type':'canny_image_processor','low_threshold':100,'high_threshold':200,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
+        let graph={'nodes':{'canny_image_processor':{'id':'canny_image_processor','type':'canny_image_processor','low_threshold':low_threshold,'high_threshold':high_threshold,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
         let session = await rawGraphResponse(host,graph)
         let images = await getSessionImages(host,session)
         return {images: images}
@@ -844,12 +837,12 @@ const canny = async(img,host)=>{
     }
 }
 
-const openpose = async(img,host)=>{
+const openpose = async(img,host,detect_resolution=512,hand_and_face=true,image_resolution=512)=>{
     try{
         if(!host)host=await findHost()
         let imgid = getUUID()
         let initimg = await uploadInitImage(host,img,imgid)
-        let graph={'nodes':{'openpose_image_processor':{'id':'openpose_image_processor','type':'openpose_image_processor','detect_resolution':512,'hand_and_face':true,'image_resolution':512,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
+        let graph={'nodes':{'openpose_image_processor':{'id':'openpose_image_processor','type':'openpose_image_processor','detect_resolution':detect_resolution,'hand_and_face':hand_and_face,'image_resolution':image_resolution,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
         let session = await rawGraphResponse(host,graph)
         let images = await getSessionImages(host,session)
         return {images: images}
@@ -924,7 +917,7 @@ cast = async(job)=>{
             debugLog('Uploading initimg')
             initimgid = getUUID()
             context.job.initimgObject = await uploadInitImage(context.host,context.job.initimg,initimgid)
-            if(!context.job.control){context.job.control='depth'}
+            if(!context.job.control){context.job.control='i2l'}
         }
         let graph = await buildGraphFromJob(context.job)
         context.sessionId = await postSession(context.host,graph)
@@ -961,6 +954,7 @@ module.exports = {
         findHost,
         depthMap,
         canny,
-        openpose
+        openpose,
+        allUniqueModelsAvailable
     }
 }
