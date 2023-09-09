@@ -14,7 +14,7 @@ const {emojiCommands} = require("./emojiCommands")
 const { isFunction } = require("lodash")
 
 chat=async(channel,msg,file=null)=>{
-  if(msg!==null&&msg!==''&&msg!=={}){
+  if(msg!==null&&msg!==''){
     try{
       if(file){bot.createMessage(channel,msg,file).then().catch(e=>{chatFail(e,channel,msg,file)})
       }else{bot.createMessage(channel,msg).then().catch(e=>{chatFail(e,channel,msg)})}
