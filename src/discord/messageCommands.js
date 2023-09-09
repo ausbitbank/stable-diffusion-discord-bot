@@ -5,9 +5,7 @@ const {bot}=require('./bot')
 const {auth}=require('./auth')
 const {imageEdit}=require('../imageEdit')
 const parseArgs = require('minimist')
-//const {discord}=require('./discord.js')
 // Process discord text message commands
-
 let commands = [
     {
         name: 'dream',
@@ -192,13 +190,16 @@ let commands = [
                 replymsg = await bot.getMessage(msg.channel.id, msg.messageReference.messageID)
                 if(replymsg.member.id===bot.application.id&&messageHasImageAttachments(replymsg)){
                     meta = await extractMetadataFromMessage(replymsg)
-                    meta.invoke.prompt = meta.invoke.positive_prompt+'['+meta.invoke.negative_prompt+'] '+parsedCmd._.join(' ')
+                    meta.invoke.prompt = meta.invoke?.positive_prompt+'['+meta.invoke?.negative_prompt+'] '+parsedCmd._.join(' ')
                 }
+            } else {
+                return
             }
             Object.keys(parsedCmd).forEach(k=>{
+                debugLog('Appending '+parsedCmd[k])
                 if(k!=='_'){meta.invoke[k] = parsedCmd[k]}
             })
-            if(meta.invoke.inputImageUrl){img=urlToBuffer(meta.invoke.inputImageUrl)}
+            if(meta.invoke?.inputImageUrl){img=urlToBuffer(meta.invoke.inputImageUrl)}
             result = await invoke.jobFromMeta(meta,img)
             return returnMessageResult(msg,result)
         }
@@ -210,8 +211,7 @@ let commands = [
         aliases: ['unregisterslashcommands'],
         prefix:'!!!',
         command: async(args,msg)=>{
-            let r = await bot.bulkEditCommands([])
-            log(r)
+            await bot.bulkEditCommands([])
             let response = {content:':information_source: Unregistered Slash Commands'}
             return {messages:[response]}
         }
@@ -254,6 +254,42 @@ let commands = [
             }
             if(avatars.length>0){return {messages:messages,files:avatars}}
         }
+    },
+    {
+        name: 'models',
+        description: 'List currently available models',
+        permissionLevel: 'all',
+        aliases:['models','mdl'],
+        prefix:'!',
+        command: async(args,msg)=>{
+            let models = await invoke.allUniqueModelsAvailable()
+            let sd1 = models.filter(obj => obj.base_model === 'sd-1')
+            let sd2 = models.filter(obj => obj.base_model === 'sd-2')
+            let sdxl = models.filter(obj => obj.base_model === 'sdxl')
+            let dialog = {
+                content:'',
+                flags:64,
+                embeds:[
+                    {description:'Models currently available\nsd1: '+sd1.length+' , sd2: '+sd2.length+' sdxl: '+sdxl.length,color:getRandomColorDec()}
+                ],
+                components:[]
+            }
+            for (const modeltype in ['sd-1','sd-2','sdxl']){
+                let filteredModels = models.filter(obj=>obj.base_model===modeltype)
+                let marr=[]
+                for (const m in filteredModels){
+                    let model = filteredModels[m]
+                    log(model)
+                    marr.push(model.model_name)
+                }
+                if(marr.length>0){
+                    let newdlg = {color:getRandomColorDec(),description:marr[0].base_model+' models: '+marr.join(',')}
+                    dialog.embeds.push(newdlg)
+                }
+            }
+            return {messages:[dialog],files:[]}
+        }
+        
     }
 ]
 
@@ -267,7 +303,6 @@ parseMsg=async(msg)=>{
     let username = msg.user?.username||msg.member?.username||msg.author?.username
     let channelid = msg.channel?.id
     let guildid = msg.guildID||'DM'
-
     if(!auth.check(userid,guildid,channelid)){return} // if not authorised, ignore
     if(msg.length===0||msg.content.length===0){return} // if empty message (or just an image) ignore
     let firstword = msg.content.split(' ')[0].toLowerCase()
@@ -290,30 +325,35 @@ parseMsg=async(msg)=>{
                     }
                     log(c.name+' triggered by '+username+' in '+msg.channel.name||msg.channel.id+' ('+guild+')')
                     msg.addReaction('🫡') // salute emoji
-                    let result = await c.command(args,msg)
-                    let messages = result?.messages
-                    let files = result?.files
-                    let error = result?.error
-                    if(error){
-                        log('Error: '.bgRed+' '+error)
-                        chat(channelid,{content:':warning: '+error})
-                        return
+                    try{
+                        let result = await c.command(args,msg)
+                        let messages = result?.messages
+                        let files = result?.files
+                        let error = result?.error
+                        if(error){
+                            log('Error: '.bgRed+' '+error)
+                            chat(channelid,{content:':warning: '+error})
+                            return
+                        }
+                        if(!Array.isArray(messages)){messages=[messages]}
+                        if(!Array.isArray(files)){files=[files]}
+                        // unpack messages array and send each msg seperately
+                        // if we have a file for each message, pair them up
+                        // if we have multi messages and 1 file, attach to first message only
+                        // todo If there are more files then there are messages attempt to bundle all files on first message
+                        messages.forEach(message=>{
+                            let file
+                            if(files.length>0)file=files.shift() // grab the top file
+                            if(message&&file){
+                                chat(channelid,message,file) // Send message with attachment
+                            }else if(message){
+                                chat(channelid,message) // Send message, no attachment
+                            }
+                        })
+                    } catch (err) {
+                        log(err)
                     }
-                    if(!Array.isArray(messages)){messages=[messages]}
-                    if(!Array.isArray(files)){files=[files]}
-                    // unpack messages array and send each msg seperately
-                    // if we have a file for each message, pair them up
-                    // if we have multi messages and 1 file, attach to first message only
-                    // todo If there are more files then there are messages attempt to bundle all files on first message
-                    messages.forEach(message=>{
-                      if(files.length>0)file=files.shift() // grab the top file
-                      if(message&&file){
-                        chat(channelid,message,file) // Send message with attachment
-                      }else if(message){
-                        chat(channelid,message) // Send message, no attachment
-                      }
-                    })
-                  }
+                }
             })
         })
     }
@@ -321,19 +361,24 @@ parseMsg=async(msg)=>{
 
 returnMessageResult = async(msg,result)=>{
     // generic response function for invoke results or errors
-    if(result.error)return {error:result.error}
+    if(result.error){return {error:result.error}}
     messages=[];files=[];error=null
-    if(result.error){error=result.error}
     if(result?.images){
         for (const i in result.images){
             let image=result.images[i]
             let meta=await exif.load(image.buffer)
             message = imageResultMessage(msg.member?.id||msg.author?.id,image,result,meta)
-            message.messageReference={message_id:msg.id}
+            if(msg.id){
+                message.messageReference={message_id:msg.id}
+            }
             messages.push(message)
             files.push({file:image.buffer,name:image.name})
         }
-    }else if(result?.messages?.length>0){for (const m in result.messages){messages.push(m)}}
+    }else if(result?.messages?.length>0){
+        for (const m in result.messages){
+            messages.push(m)
+        }
+    }
     return {
         messages:messages,
         files:files,
@@ -418,11 +463,11 @@ imageResultMessage = (userid,img,result,meta)=>{
     if(meta.invoke?.seed){t+=' :seedling: '+meta.invoke.seed}
     if(meta.invoke?.scale){t+=' :scales: '+meta.invoke.scale}
     if(meta.invoke?.model){t+=' :floppy_disk: '+meta.invoke.model?.model_name}
+    if(meta.invoke?.clipskip){t+=' :clipboard: '+meta.invoke.clipskip}
     if(meta.invoke?.loras?.length>0){
         t+=' :pill: '
         for (const l in meta.invoke?.loras){t+=meta.invoke.loras[l].lora.model_name+'('+meta.invoke.loras[l].weight+') '}
     }
-    //debugLog(meta)
     if(meta.invoke?.inputImageUrl){t+=' :paperclip:attachment'}
     let colordec=getRandomColorDec()
     return {
