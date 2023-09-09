@@ -1,4 +1,12 @@
-const {config,log,debugLog}=require('./js/utils.js')
+const {config,log,debugLog,urlToBuffer}=require('../utils')
+const {bot}=require('./bot')
+const {invoke}=require('../invoke')
+const {messageCommands}=require('./messageCommands')
+const {exif}=require('../exif')
+const {auth}=require('./auth')
+const Eris = require("eris")
+//const Constants = Eris.Constants
+const Collection = Eris.Collection
 
 // Get samplers from config ready for /dream slash command
 var samplers=config.schedulers||['euler','deis','ddim','ddpm','dpmpp_2s','dpmpp_2m','dpmpp_2m_sde','dpmpp_sde','heun','kdpm_2','lms','pndm','unipc','euler_k','dpmpp_2s_k','dpmpp_2m_k','dpmpp_2m_sde_k','dpmpp_sde_k','heun_k','lms_k','euler_a','kdpm_2_a']
@@ -19,57 +27,69 @@ var slashCommands = [
     name: 'dream',
     description: 'Create a new image from your prompt',
     options: [
-      {type: 3, name: 'prompt', description: 'what would you like to see ?', required: true, min_length: 1, max_length:1500 },
-      {type: 4, name: 'width', description: 'width of the image in pixels (250-~1024)', required: false, min_value: 256, max_value: 2048 },
-      {type: 4, name: 'height', description: 'height of the image in pixels (250-~1024)', required: false, min_value: 256, max_value: 2048 },
-      {type: 4, name: 'steps', description: 'how many steps to render for (10-250)', required: false, min_value: 5, max_value: 250 },
+      {type: 3, name: 'prompt', description: 'what you want to see ?', required: true, min_length: 1, max_length:1500 },
+      {type: 3, name: 'negative', description: 'what dont you want to see ?', required: false, min_length: 1, max_length:1500 },
+      {type: 4, name: 'width', description: 'width of the image in pixels', required: false, min_value: 256, max_value: 2048 },
+      {type: 4, name: 'height', description: 'height of the image in pixels', required: false, min_value: 256, max_value: 2048 },
+      {type: 4, name: 'steps', description: 'how many steps to render for', required: false, min_value: 5, max_value: config.maximum.steps??100 },
       {type: 4, name: 'seed', description: 'seed (initial noise pattern)', required: false},
-      {type: 10, name: 'strength', description: 'how much noise to add to your template image (0.1-0.9)', required: false, min_value:0.01, max_value:0.99},
-      {type: 10, name: 'scale', description: 'how important is the prompt (1-30)', required: false, min_value:1, max_value:30},
-      {type: 4, name: 'number', description: 'how many would you like (1-10)', required: false, min_value: 1, max_value: 10},
-      {type: 5, name: 'seamless', description: 'Seamlessly tiling textures', required: false},
+      {type: 10, name: 'strength', description: 'how much noise to add to your input image (0.1-0.9)', required: false, min_value:0.01, max_value:0.99},
+      {type: 10, name: 'scale', description: 'how important is the prompt (cfg_scale)', required: false, min_value:1, max_value:30},
+      {type: 4, name: 'number', description: 'how many would you like', required: false, min_value: 1, max_value: config.maximum.iterations??10},
+      {type: 3, name: 'model', description: 'Change the model/checkpoint - see /models for more info', required: false,   min_length: 3, max_length:40},
       {type: 3, name: 'sampler', description: 'which sampler to use (default is '+defaultSampler+')', required: false, choices: samplersSlash},
+      {type: 4, name: 'clipskip', description: 'clip skip (0-10)', required: false},
       {type: 11, name: 'attachment', description: 'use template image', required: false},
-      {type: 3, name: 'upscale_level', description: 'upscale amount', required: false, choices: [{name: 'none', value: '0'},{name: '2x', value: '2'},{name: '4x', value: '4'}]},
-      {type: 10, name: 'upscale_strength', description: 'upscale strength (0-1)(smoothing/detail loss)', required: false, min_value: 0, max_value: 1},
-      {type: 3, name: 'model', description: 'Change the model/checkpoint - see /models for more info', required: false,   min_length: 3, max_length:40}
+      {type: 3, name: 'control', description: 'controlnet mode to use with attachment', required: false, min_length: 3, max_length:40},
     ],
     cooldown: 500,
-    execute: (i) => {
-      // get attachments
+    execute: async(i) => {
+      let img,imgurl
+      let userid=i.member?.id??i.user?.id
+      let username=i.member?.username??i.user?.username
       if (i.data.resolved && i.data.resolved.attachments && i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))){
-        var attachmentOrig=i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))
-        var attachment=[{width:attachmentOrig.width,height:attachmentOrig.height,size:attachmentOrig.size,proxy_url:attachmentOrig.proxyUrl,content_type:attachmentOrig.contentType,filename:attachmentOrig.filename,id:attachmentOrig.id}]
-      }else{var attachment=[]}
-      // below allows for the different data structure in public interactions vs direct messages
-      request({cmd:getCmd(prepSlashCmd(i.data.options)),userid:i.member?i.member.id:i.user.id,username:i.member?i.member.user.username:i.user.username,bot:i.member?i.member.user.bot:i.user.bot,channelid:i.channel.id,guildid:i.guildID?i.guildID:undefined,attachments:attachment})
-    }
-  },
-  {
-    name: 'random',
-    description: 'Show me a random prompt from the library',
-    options: [ {type: 3, name: 'prompt', description: 'Add these keywords to a random prompt', required: false} ],
-    cooldown: 500,
-    execute: (i) => {
-      var prompt=i.data.options?i.data.options[0].value+' '+getRandom('prompt'):getRandom('prompt')
-      request({cmd:prompt,userid:i.member?i.member.id:i.user.id,username:i.member?i.member.user.username:i.user.username,bot:i.member?i.member.user.bot:i.user.bot,channelid:i.channel.id,guildid:i.guildID?i.guildID:undefined,attachments:[]})
-    }
-  },
-  {
-    name: 'lexica',
-    description: 'Search lexica.art with keywords or an image url',
-    options: [ {type: 3, name: 'query', description: 'What are you looking for', required: true} ],
-    cooldown: 500,
-    execute: (i) => {
-      var query = ''
-      if (i.data.options) {
-        query+= i.data.options[0].value
-        if (i.member){var who=i.member}else if(i.user){var who=i.user}
-        log('lexica search from '+who.username)
-        lexicaSearch(query,i.channel.id)
+        let attachmentOrig=i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))
+        imgurl = attachmentOrig.url
+        img = await urlToBuffer(imgurl)
       }
+      debugLog(username+' triggered dream command')
+      let job={}
+      for (const arg in i.data.options){
+        let a = i.data.options[arg]
+        switch (a.name){
+          case('prompt'):job.prompt=a.value;break
+          case('negative'):job.prompt=job.prompt+'['+a.value+']';break
+          case('attachment'):break
+          default:job[a.name]=a.value;break
+        }
+      }
+      if(img){job.initimg=img}
+      let dreamresult = await invoke.validateJob(job)
+      if(imgurl && !dreamresult.error && dreamresult.images?.length > 0){dreamresult.images[0].buffer = await exif.modify(dreamresult.images[0].buffer,'arty','inputImageUrl',imgurl)}
+      let fakemsg = {member:{id:userid}}
+      let result = await returnMessageResult(fakemsg,dreamresult)
+      let messages = result?.messages
+      let files = result?.files
+      let error = result?.error
+      if(error){
+          log('Error: '.bgRed+' '+error)
+          i.createMessage({content:':warning: '+error})
+          return
+      }
+      messages.forEach(message=>{
+        debugLog(message)
+        if(files.length>0)file=files.shift() // grab the top file
+        if(message&&file){
+          log(message)
+          i.createMessage(message,file) // Send message with attachment
+        }else if(message){
+          i.createMessage(message) // Send message, no attachment
+        }
+      })
     }
-  },
+  }
+]
+/*,
   {
     name: 'help',
     description: 'Learn how to use this bot',
@@ -145,11 +165,12 @@ var slashCommands = [
         removeBackground(attachmentOrig.proxyUrl,i.channel.id,userid,model,a,ab,af,ae,om,ppm,bgc)
       }
     }
-  }
-]
+  }*/
+
 // If credits are active, add /recharge and /balance otherwise don't include them
 if(config.credits.enabled)
 {
+  /*
   slashCommands.push({
     name: 'recharge',
     description: 'Recharge your render credits with Hive, HBD or Bitcoin over lightning network',
@@ -162,11 +183,53 @@ if(config.credits.enabled)
     cooldown: 500,
     execute: (i) => {var userid=i.member?i.member.id:i.user.id;balancePrompt(userid,i.channel.id)}
   })
+  */
+}
+init = async()=>{
+  // todo looks like a good spot to:
+  // check status of command registration
+  // register any commands that aren't already registered
+  // update any commands that are registered, but modified
+  // remove any registered commands from old version that aren't recreated yet
+  let currentCommands = await bot.getCommands()
+  bot.commands = new Collection()
+  for (const c of slashCommands) {
+    if(currentCommands.filter(cmd=>cmd.name===c.name).length>0) {
+      // Already registered
+      bot.commands.set(c.name,c)
+      // todo check if command is modified and re-register if so
+    } else {
+      // Not registered
+      log('Slash command '+c.name+' is unregistered, registering now')
+      bot.commands.set(c.name,c)
+      bot.createCommand({name: c.name,description: c.description,options: c.options ?? [],type: 1})
+    }
+  }
+}
+
+unregister = async()=>{await bot.bulkEditCommands([])}
+
+parseCommand = async(interaction)=>{
+      // check if its already been registered, send message only visible to user if it's not valid
+      if (!bot.commands?.has(interaction.data.name)){return interaction.createMessage({content:'Command does not exist', flags:64})}
+      try{
+        // acknowledge the interacton
+        await interaction.acknowledge()
+        if(!auth.check(interaction.user?.id,interaction.guild?.id??'DM',interaction.channel?.id)){return} // if not authorised, ignore
+        // run the stored slash command
+        bot.commands.get(interaction.data.name).execute(interaction)
+        interaction.deleteMessage('@original')
+      }catch(err){
+        log(err)
+        await interaction.createMessage({content:'There was an error while executing this command!', flags: 64}).catch((e) => {log(e)})
+      }
 }
 
 module.exports = {
     slashCommands:{
-      init:init,
-      slashCommands:slashCommands
+      init,
+      slashCommands,
+      unregister,
+      parseCommand
     }
 }
