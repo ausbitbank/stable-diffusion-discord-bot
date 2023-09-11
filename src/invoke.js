@@ -67,7 +67,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         if(['main_model_loader','sdxl_model_loader','sdxl_model_refiner_loader','lora_loader'].includes(type)){lastid.unet=newid}
         if(['main_model_loader','sdxl_model_loader','clip_skip','lora_loader'].includes(type)){lastid.clip=newid}
         if(['sdxl_model_loader','sdxl_refiner_model_loader'].includes(type)){lastid.clip2=newid}
-        if(['main_model_loader','vae_loader','denoise_latents','sdxl_model_loader'].includes(type)){lastid.vae=newid}
+        if(['sdxl_model_loader','main_model_loader','vae_loader','denoise_latents'].includes(type)){lastid.vae=newid}
         if(['t2l','ttl','lscale','l2l','i2l','denoise_latents'].includes(type)){lastid.latents=newid}
         if(['noise'].includes(type)){lastid.noise=newid}
         if(['controlnet'].includes(type)){lastid.control=newid}
@@ -243,19 +243,19 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     }else{
         // SDXL pipeline
         // todo polish, wire up more controls, consider integrating into sd1/2 pipeline if it can be done cleanly
-        let fp32=false
-        let sdxlvae={model_name:'sdxl-1-0-vae-fix',base_model:'sdxl'}
-        metaObject.vae=sdxlvae
+        let fp32=true
+        //let sdxlvae={model_name:'sdxl-1-0-vae-fix',base_model:'sdxl'}
+        //metaObject.vae=sdxlvae
         let enabledRefiner=false
         let refinersteps=10
         node('sdxl_model_loader',{is_intermediate:true,model:job.model},[])
-        node('vae_loader',{vae_model:sdxlvae,is_intermediate:true},[])
+        //node('vae_loader',{vae_model:sdxlvae,is_intermediate:true},[])
         node('sdxl_compel_prompt',{is_intermediate:true,prompt:job.positive_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024,style:'photo'},[pipe('sdxl_model_loader','clip','SELF','clip'),pipe('sdxl_model_loader','clip2','SELF','clip2')])
-        node('sdxl_compel_prompt',{is_intermediate:true,prompt:job.negative_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024,style:'sketch artifacts blur'},[pipe('sdxl_model_loader','clip','SELF','clip'),pipe('sdxl_model_loader','clip2','SELF','clip2')])
+        node('sdxl_compel_prompt',{is_intermediate:true,prompt:job.negative_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024,style:'deformed blurry'},[pipe('sdxl_model_loader','clip','SELF','clip'),pipe('sdxl_model_loader','clip2','SELF','clip2')])
         node('noise',{is_intermediate:true,width:1024,height:1024,use_cpu:true,seed:job.seed},[])
-        node('denoise_latents',{is_intermediate:true,steps:job.steps,cfg_scale:job.scale,denoising_start:0.0,denoising_end:1.0,scheduler:job.scheduler},[pipe(lastid.unet,'unet','SELF','unet'),pipe('sdxl_compel_prompt','conditioning','SELF','positive_conditioning'),pipe('sdxl_compel_prompt-2','conditioning','SELF','negative_conditioning'),pipe('noise','noise','SELF','noise')])
+        node('denoise_latents',{is_intermediate:true,steps:job.steps,cfg_scale:job.scale,denoising_start:0,denoising_end:1,scheduler:job.scheduler},[pipe(lastid.unet,'unet','SELF','unet'),pipe('sdxl_compel_prompt','conditioning','SELF','positive_conditioning'),pipe('sdxl_compel_prompt-2','conditioning','SELF','negative_conditioning'),pipe('noise','noise','SELF','noise')])
         node('metadata_accumulator',metaObject,[])
-        node('l2i',{is_intermediate:false,tiled:false,fp32:fp32},[pipe('denoise_latents','latents','SELF','latents'),pipe('vae_loader','vae','SELF','vae'),pipe('metadata_accumulator','metadata','SELF','metadata')])
+        node('l2i',{is_intermediate:false,tiled:true,fp32:fp32},[pipe('denoise_latents','latents','SELF','latents'),pipe('sdxl_model_loader','vae','SELF','vae'),pipe('metadata_accumulator','metadata','SELF','metadata')])
         if(enabledRefiner){
             node('sdxl_refiner_model_loader',{is_intermediate:true,model:{model_name:config.default.refinerModel||'sdxl_refiner_1.0',base_model:'sdxl-refiner',model_type:'main'}},[])
             node('sdxl_refiner_compel_prompt',{is_intermediate:true,prompt:job.positive_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024,aesthetic_score:6.0},[pipe('sdxl_refiner_model_loader','clip2','SELF','clip2')])
@@ -303,6 +303,7 @@ const startSession = async(host,id)=>{
         return response
     } catch (e) {
         log(e.response.statusText)
+        // cannot disable host here because session can be rejected for syntax reasons when host is perfectly online (unless connection is rejected entirely)
         // host.online = false
         throw(e.response.statusText)
     }
