@@ -24,6 +24,8 @@ load=async(buf)=>{
         //let graph = JSON.parse(exif.invokeai_graph?.value)
         let positive_prompt=meta.positive_prompt
         let negative_prompt=meta.negative_prompt
+        let style=meta.positive_style_prompt
+        let negstyle=meta.negative_style_prompt
         let scale=meta.cfg_scale
         let steps=0
         let pixelSteps=0
@@ -80,9 +82,10 @@ load=async(buf)=>{
             controlnets,
             inputImageUrl,
             clipskip,
+            style,
+            negstyle
         }
     }
-    //debugLog(results)
     return results
 }
 
