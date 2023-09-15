@@ -29,6 +29,8 @@ var slashCommands = [
     options: [
       {type: 3, name: 'prompt', description: 'what you want to see ?', required: true, min_length: 1, max_length:1500 },
       {type: 3, name: 'negative', description: 'what dont you want to see ?', required: false, min_length: 1, max_length:1500 },
+      {type: 3, name: 'style', description: 'Positive style prompt (sdxl only)', required: false, min_length: 1, max_length:1500 },
+      {type: 3, name: 'negstyle', description: 'Negative style prompt (sdxl only)', required: false, min_length: 1, max_length:1500 },
       {type: 4, name: 'width', description: 'width of the image in pixels', required: false, min_value: 256, max_value: 2048 },
       {type: 4, name: 'height', description: 'height of the image in pixels', required: false, min_value: 256, max_value: 2048 },
       {type: 4, name: 'steps', description: 'how many steps to render for', required: false, min_value: 5, max_value: config.maximum.steps??100 },
