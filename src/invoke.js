@@ -10,6 +10,7 @@ const FormData = require('form-data')
 var colors = require('colors')
 const { isString, isObject } = require('lodash')
 const parseArgs = require('minimist')
+const {imageEdit} = require('./imageEdit.js')
 var cluster=config.cluster
 
 const init=async()=>{
@@ -65,8 +66,8 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         Object.keys(params).forEach((k)=>{graph.nodes[newid][k]=params[k]})
         // by tracking and updating most recent used ids we can break the job into components easier
         if(['main_model_loader','sdxl_model_loader','sdxl_model_refiner_loader','lora_loader'].includes(type)){lastid.unet=newid}
-        if(['main_model_loader','sdxl_model_loader','clip_skip','lora_loader'].includes(type)){lastid.clip=newid}
-        if(['sdxl_model_loader','sdxl_refiner_model_loader'].includes(type)){lastid.clip2=newid}
+        if(['main_model_loader','sdxl_model_loader','clip_skip','lora_loader','sdxl_lora_loader'].includes(type)){lastid.clip=newid}
+        if(['sdxl_model_loader','sdxl_refiner_model_loader','sdxl_lora_loader'].includes(type)){lastid.clip2=newid}
         if(['sdxl_model_loader','main_model_loader','vae_loader','denoise_latents'].includes(type)){lastid.vae=newid}
         if(['t2l','ttl','lscale','l2l','i2l','denoise_latents'].includes(type)){lastid.latents=newid}
         if(['noise'].includes(type)){lastid.noise=newid}
@@ -90,6 +91,9 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
             if(!validUUID(e.source.node_id)){ // not already plumbed with a valid UUID
                 if(e.source.node_id==='SELF'){ e.source.node_id=newid
                 }else{
+                    log('test')
+                    log(e)
+                    log(e.source)
                     let nodenumber=e.source.node_id.split('-')[1]?parseInt(e.source.node_id.split('-')[1]):0
                     let nodetype=e.source.node_id.split('-')[0]
                     let i=0
@@ -130,12 +134,12 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         loras:[],
         controlnets:[],
         vae:{model_name:'sd-vae-ft-mse',base_model:'sd-1'},
-        positive_style_prompt:job.positive_style_prompt,
-        negative_style_prompt:job.negative_style_prompt,
-        refiner_mode:job.refiner_model,
+        positive_style_prompt:job.style??'',
+        negative_style_prompt:job.negstyle??'',
+        refiner_model:job.refiner_model,
         refiner_cfg_scale:job.refiner_scale,
         refiner_steps:job.refiner_steps,
-        refinder_scheduler:null,
+        refiner_scheduler:null,
         refiner_positive_aesthetic_score:null,
         refiner_negative_aesthetic_score:null,
         refiner_start:null
@@ -143,136 +147,86 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     // Reformat lora array for metadata object
     if(job.loras?.length>0){for (const l in job.loras){metaObject.loras.push({lora:{model_name:job.loras[l].model.model_name,base_model:job.loras[l].model.base_model},weight:job.loras[l].weight})}}
     if(['sd-1','sd-2'].includes(job.model.base_model)){
-        // SD1/2 pipeline
         node('main_model_loader',{model:job.model,is_intermediate:true},[])
         node('vae_loader',{vae_model:{model_name:'sd-vae-ft-mse',base_model:'sd-1'},is_intermediate:true},[])
-        if(job.initimgObject){
-            debugLog('Adding init img to graph')
-            if(job.control==='i2l'){
-                // default to image to latents
-                debugLog('Using image to latents')
-                node('i2l',{is_intermediate:false,fp32:true,image:{image_name:job.initimgObject.image_name}},[pipe(lastid.vae,'vae','SELF','vae')])
-            } else {
-                debugLog('Using controlnet '+job.control||'depth')
-                node('controlnet',{image:{image_name:job.initimgObject.image_name},
-                        control_model:{model_name:job.control?job.control:'depth',base_model:'sd-1'},
-                        control_weight:job.controlweight?job.controlweight:1,
-                        begin_step_percent:job.controlstart?job.controlstart:0,
-                        end_step_percent:job.controlend?job.controlend:1,
-                        control_mode:job.controlmode?job.controlmode:'balanced',
-                        resize_mode:job.controlresize?job.controlresize:'just_resize',
-                        is_intermediate:true
-                        },[])
-            }
-            p=[] // reset after use
+        if(job.loras?.length>0){for (const l in job.loras) {node('lora_loader',{is_intermediate:true,lora:{base_model:job.loras[l].model.base_model,model_name:job.loras[l].model.model_name},weight:job.loras[l].weight},[pipe(lastid.clip,'clip','SELF','clip'),pipe(lastid.unet,'unet','SELF','unet')])}} // lora loader, chain multiple loras with clip and unet into each other
+    } else {
+        node('sdxl_model_loader',{model:job.model,is_intermediate:true},[])
+        if(job.loras?.length>0){for (const l in job.loras) {node('sdxl_lora_loader',{is_intermediate:true,lora:{base_model:job.loras[l].model.base_model,model_name:job.loras[l].model.model_name},weight:job.loras[l].weight},[pipe(lastid.clip,'clip','SELF','clip'),pipe(lastid.clip2,'clip2','SELF','clip2'),pipe(lastid.unet,'unet','SELF','unet')])}} // lora loader, chain multiple loras with clip and unet into each other
+    }
+
+    if(job.initimgObject){
+        debugLog('Adding init img to graph')
+        if(job.control==='i2l'){
+            // default to image to latents
+            debugLog('Using image to latents')
+            node('i2l',{is_intermediate:false,fp32:true,image:{image_name:job.initimgObject.image_name}},[pipe(lastid.vae,'vae','SELF','vae')])
+        } else {
+            debugLog('Using controlnet '+job.control||'depth')
+            node('controlnet',{image:{image_name:job.initimgObject.image_name},
+                    control_model:{model_name:job.control?job.control:'depth',base_model:'sd-1'},
+                    control_weight:job.controlweight?job.controlweight:1,
+                    begin_step_percent:job.controlstart?job.controlstart:0,
+                    end_step_percent:job.controlend?job.controlend:1,
+                    control_mode:job.controlmode?job.controlmode:'balanced',
+                    resize_mode:job.controlresize?job.controlresize:'just_resize',
+                    is_intermediate:true
+                    },[])
         }
-        node('clip_skip',{skipped_layers:job.clipskip??0,is_intermediate:true},[pipe(lastid.clip,'clip','SELF','clip')])
-        // lora loader, chain multiple loras with clip and unet into each other
-        if(job.loras?.length>0){
-            for (const l in job.loras) {
-                debugLog('raw lora from array')
-                debugLog(job.loras[l])
-                node('lora_loader',{is_intermediate:true,lora:{base_model:job.loras[l].model.base_model,model_name:job.loras[l].model.model_name},weight:job.loras[l].weight},[pipe(lastid.clip,'clip','SELF','clip'),pipe(lastid.unet,'unet','SELF','unet')])
-            }
-        }
-        // add positive and negative prompts
+        p=[] // reset after use
+    }
+    node('clip_skip',{skipped_layers:job.clipskip??0,is_intermediate:true},[pipe(lastid.clip,'clip','SELF','clip')])
+    // todo moved above, remove after confirming that worked // if(job.loras?.length>0){for (const l in job.loras) {node('lora_loader',{is_intermediate:true,lora:{base_model:job.loras[l].model.base_model,model_name:job.loras[l].model.model_name},weight:job.loras[l].weight},[pipe(lastid.clip,'clip','SELF','clip'),pipe(lastid.unet,'unet','SELF','unet')])}} // lora loader, chain multiple loras with clip and unet into each other
+    if(job.seed&&job.number===1){ // if seed supplied, force to single render mode
+        node('noise',{width:job.width,height:job.height,use_cpu:true,seed:job.seed},[])
+        node('metadata_accumulator',metaObject,[])
+    }else{
+        node('rand_int',{low:0,high:2147483647},[]) // generate random integer to use for seed
+        node('range_of_size',{size:job.number,step:1},[pipe('rand_int','value','SELF','start')]) // sized range, size field acts as iteration counter that repeats job with random seeds
+        node('iterate',{is_intermediate:true},[pipe('range_of_size','collection','SELF','collection')]) // iterator plumbing, no options
+        node('noise',{width:job.width,height:job.height,use_cpu:true},[pipe('iterate','item','SELF','seed')]) // bring the latent noise, using cpu for reproducibility, set initial dimensions
+        node('metadata_accumulator',metaObject,[pipe('iterate','item','SELF','seed')]) // inject new seed into metadata accumulator
+    }
+    if(['sd-1','sd-2'].includes(job.model.base_model)){
         node('compel',{prompt:job.positive_prompt},[pipe(lastid.clip,'clip','SELF','clip')])
         node('compel',{prompt:job.negative_prompt},[pipe(lastid.clip,'clip','SELF','clip')])
-        if(job.seed&&job.number===1){ // if seed supplied, force to single render mode
-            node('noise',{width:job.width,height:job.height,use_cpu:true,seed:job.seed},[])
-            node('metadata_accumulator',metaObject,[])
-        }else{
-            // generate random integer to use for seed
-            node('rand_int',{low:0,high:2147483647},[])
-            // sized range, size field acts as iteration counter that repeats job with random seeds
-            node('range_of_size',{size:job.number,step:1},[pipe('rand_int','value','SELF','start')])
-            // iterator plumbing, no options
-            node('iterate',{is_intermediate:true},[pipe('range_of_size','collection','SELF','collection')])
-            // bring the latent noise, using cpu for reproducibility, set initial dimensions
-            node('noise',{width:job.width,height:job.height,use_cpu:true},[pipe('iterate','item','SELF','seed')])
-            // inject new seed into metadata accumulator
-            node('metadata_accumulator',metaObject,[pipe('iterate','item','SELF','seed')])
-        }
         p = [
             pipe('compel','conditioning','SELF','positive_conditioning'),
             pipe('compel-2','conditioning','SELF','negative_conditioning'),
             pipe(lastid.noise,'noise','SELF','noise'),
             pipe(lastid.unet,'unet','SELF','unet')
         ]
-        // text to latents, use prompt conditioning with latent noise to create latent representation of image at starter resolution
-        // input image: If we used i2l earlier, we skip t2l below
-
-        // if using controlnet, add that pipe too
-        if(lastid.control){p.push(pipe(lastid.control,'control','SELF','control'))}
-
-        // this denoise_latents node only applies to invoke >= 3.1
-        // todo expose denoising_start , denoising_end params if useful
-        let denoising_start = 0.0
-        if(job.strength&&job.initimgObject&&job.control==='i2l'){denoising_start=1.0-job.strength}
-        node('denoise_latents',{is_intermediate:true,noise:null,steps:job.steps,cfg_scale:job.scale,denoising_start:denoising_start,denoising_end:1.0,scheduler:job.scheduler},p)
-        // commented out below t2l below applies to invoke < 3.1
-        //node('t2l',{steps:job.steps,cfg_scale:job.scale,scheduler:job.scheduler},p)
-
-        if(job.lscale&&job.lscale!==1){ // upscale latents, low fidelity
-            node('lscale',{scale_factor:job.lscale,mode:'bilinear',antialias:false},[pipe(lastid.latents,'latents','SELF','latents')])
-            // add more latent noise at the new resolution, using cpu again
-            node('noise',{use_cpu:true},[pipe('lscale','width','SELF','width'),pipe('lscale','height','SELF','height')])
-            // latents to latents, combining noise,latents,prompt conditioning
-            let p=[pipe('compel','conditioning','SELF','positive_conditioning'),pipe('compel-2','conditioning','SELF','negative_conditioning'),pipe(lastid.noise,'noise','SELF','noise'),pipe(lastid.unet,'unet','SELF','unet'),pipe(lastid.latents,'latents','SELF','latents')]
-            if(lastid.control){p.push(pipe(lastid.control,'control','SELF','control'))}
-            // todo l2l no longer exists its denoise latents now
-            //node('l2l',{steps:job.steps,cfg_scale:job.scale,scheduler:job.scheduler,strength:job.strength},p)
-            node('denoise_latents',{is_intermediate:true,noise:null,steps:job.steps,cfg_scale:job.scale,denoising_start:denoising_start,denoising_end:1.0,scheduler:job.scheduler},p)
-            // push metadata into final image
-            //node('metadata_accumulator',metaObject,[])
-            // latent to image
-            node('l2i',{tiled:false,fp32:true},[pipe('vae_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
-        } else { // bypass extra steps if not using latent scaling
-            // push metadata into final image
-            //node('metadata_accumulator',metaObject,[])
-            // latent to image
-            node('l2i',{tiled:false,fp32:true,is_intermediate:(job.upscale&&job.upscale===2)?true:false},[pipe('vae_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
-        }
-        // optional upscale
-        if(job.upscale&&job.upscale===2){node('esrgan',{model_name:'RealESRGAN_x2plus.pth'},[pipe(lastid.image,'image','SELF','image')])}
-        // Tada! Graph built, submit to backend
-        if(graph){
-            debugLog(graph)
-            return graph
-        }
-    }else{
-        // SDXL pipeline
-        // todo polish, wire up more controls, consider integrating into sd1/2 pipeline if it can be done cleanly
-        let fp32=true
-        //let sdxlvae={model_name:'sdxl-1-0-vae-fix',base_model:'sdxl'}
-        //metaObject.vae=sdxlvae
-        let enabledRefiner=false
-        let refinersteps=10
-        node('sdxl_model_loader',{is_intermediate:true,model:job.model},[])
-        //node('vae_loader',{vae_model:sdxlvae,is_intermediate:true},[])
-        node('sdxl_compel_prompt',{is_intermediate:true,prompt:job.positive_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024,style:'photo'},[pipe('sdxl_model_loader','clip','SELF','clip'),pipe('sdxl_model_loader','clip2','SELF','clip2')])
-        node('sdxl_compel_prompt',{is_intermediate:true,prompt:job.negative_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024,style:'deformed blurry'},[pipe('sdxl_model_loader','clip','SELF','clip'),pipe('sdxl_model_loader','clip2','SELF','clip2')])
-        node('noise',{is_intermediate:true,width:1024,height:1024,use_cpu:true,seed:job.seed},[])
-        node('denoise_latents',{is_intermediate:true,steps:job.steps,cfg_scale:job.scale,denoising_start:0,denoising_end:1,scheduler:job.scheduler},[pipe(lastid.unet,'unet','SELF','unet'),pipe('sdxl_compel_prompt','conditioning','SELF','positive_conditioning'),pipe('sdxl_compel_prompt-2','conditioning','SELF','negative_conditioning'),pipe('noise','noise','SELF','noise')])
-        node('metadata_accumulator',metaObject,[])
-        node('l2i',{is_intermediate:false,tiled:true,fp32:fp32},[pipe('denoise_latents','latents','SELF','latents'),pipe('sdxl_model_loader','vae','SELF','vae'),pipe('metadata_accumulator','metadata','SELF','metadata')])
-        if(enabledRefiner){
-            node('sdxl_refiner_model_loader',{is_intermediate:true,model:{model_name:config.default.refinerModel||'sdxl_refiner_1.0',base_model:'sdxl-refiner',model_type:'main'}},[])
-            node('sdxl_refiner_compel_prompt',{is_intermediate:true,prompt:job.positive_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024,aesthetic_score:6.0},[pipe('sdxl_refiner_model_loader','clip2','SELF','clip2')])
-            node('sdxl_refiner_compel_prompt',{is_intermediate:true,prompt:job.negative_prompt,original_width:1024,original_height:1024,crop_top:0,crop_left:0,target_width:1024,target_height:1024,aesthetic_score:2.5},[pipe('sdxl_refiner_model_loader','clip2','SELF','clip2')])
-            node('denoise_latents',{is_intermediate:true,steps:refinersteps,cfg_scale:job.scale,denoising_start:0.8,denoising_end:1.0,scheduler:job.scheduler},[
-                pipe('sdxl_refiner_model_loader','unet','SELF','unet'),
-                pipe('sdxl_refiner_compel_prompt','conditioning','SELF','positive_conditioning'),
-                pipe('sdxl_refiner_compel_prompt-2','conditioning','SELF','negative_conditioning'),
-                pipe('denoise_latents','latents','SELF','latents')
-            ])
-            node('l2i',{is_intermediate:false,tiled:false,fp32:fp32},[
-                pipe('denoise_latents-2','latents','SELF','latents'),
-                pipe('sdxl_refiner_model_loader','vae','SELF','vae')
-            ])
-        }
-        if(graph){return graph}
+    } else {
+        node('sdxl_compel_prompt',{prompt:job.positive_prompt,original_width:job.width??1024,original_height:job.height??1024,crop_top:0,crop_left:0,target_width:job.width??1024,target_height:job.height??1024,style:job.style??'',is_intermediate:true},[pipe(lastid.clip,'clip','SELF','clip'),pipe(lastid.clip2,'clip2','SELF','clip2')])
+        node('sdxl_compel_prompt',{prompt:job.negative_prompt,original_width:job.width??1024,original_height:job.height??1024,crop_top:0,crop_left:0,target_width:job.width??1024,target_height:job.height??1024,style:job.negstyle??'',is_intermediate:true},[pipe(lastid.clip,'clip','SELF','clip'),pipe(lastid.clip2,'clip2','SELF','clip2')])
+        p = [
+            pipe('sdxl_compel_prompt','conditioning','SELF','positive_conditioning'),
+            pipe('sdxl_compel_prompt-2','conditioning','SELF','negative_conditioning'),
+            pipe(lastid.noise,'noise','SELF','noise'),
+            pipe(lastid.unet,'unet','SELF','unet')
+        ]
     }
+    if(lastid.control){p.push(pipe(lastid.control,'control','SELF','control'))}
+    let denoising_start = 0.0
+    if(job.strength&&job.initimgObject&&job.control==='i2l'){denoising_start=1.0-job.strength}
+    node('denoise_latents',{is_intermediate:true,noise:null,steps:job.steps,cfg_scale:job.scale,denoising_start:denoising_start,denoising_end:1.0,scheduler:job.scheduler},p)
+
+    if(job.lscale&&job.lscale!==1){ // upscale latents, low fidelity
+        node('lscale',{scale_factor:job.lscale,mode:'bilinear',antialias:false},[pipe(lastid.latents,'latents','SELF','latents')])
+        node('noise',{use_cpu:true},[pipe('lscale','width','SELF','width'),pipe('lscale','height','SELF','height')])
+        let p=[pipe('compel','conditioning','SELF','positive_conditioning'),pipe('compel-2','conditioning','SELF','negative_conditioning'),pipe(lastid.noise,'noise','SELF','noise'),pipe(lastid.unet,'unet','SELF','unet'),pipe(lastid.latents,'latents','SELF','latents')]
+        if(lastid.control){p.push(pipe(lastid.control,'control','SELF','control'))}
+        node('denoise_latents',{is_intermediate:true,noise:null,steps:job.steps,cfg_scale:job.scale,denoising_start:denoising_start,denoising_end:1.0,scheduler:job.scheduler},p)
+    }
+    if(['sd-1','sd-2'].includes(job.model.base_model)){
+        node('l2i',{tiled:true,fp32:true,is_intermediate:(job.upscale&&job.upscale===2)?true:false},[pipe('vae_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
+    } else {
+        node('l2i',{tiled:true,fp32:true,is_intermediate:(job.upscale&&job.upscale===2)?true:false},[pipe('sdxl_model_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
+    }
+    if(job.upscale&&job.upscale===2){node('esrgan',{model_name:'RealESRGAN_x2plus.pth'},[pipe(lastid.image,'image','SELF','image')])}
+    // Tada! Graph built, submit to backend
+    debugLog(graph)
+    return graph
 }
 
 const postSession = async (host, graph) => {
@@ -395,11 +349,11 @@ const pollSession = async(host,id)=>{
             } else {
                 await sleep(ms)
                 ms=ms*1.10 // increase poll interval by 10% each time
-                if(ms>=15000){ms=1000} // reset once we hit 15 second polling
+                if(ms>=5000){ms=1000} // reset once we hit 5 second polling
             }
         }catch(e){
             log(e)
-            host.online = false
+            //host.online = false
             err=true
         }
     }
@@ -646,13 +600,14 @@ const jobFromMeta = async(meta,img=null)=>{
     }else if(meta.invoke?.positive_prompt && meta.invoke?.negative_prompt){
         job.prompt = meta.invoke.positive_prompt+'['+meta.invoke.negative_prompt+']'
     }
+    if(meta.invoke?.style){job.style=meta.invoke.style}
+    if(meta.invoke?.negstyle){job.style=meta.invoke.negstyle}
     if(img){job.initimg=img}
-    if(meta.invoke?.inputImageUrl){
-        job.initimg=await urlToBuffer(meta.invoke?.inputImageUrl)
-    }else{job.initimg=null}
+    if(meta.invoke?.inputImageUrl){job.initimg=await urlToBuffer(meta.invoke?.inputImageUrl)}else{job.initimg=null}
     job.steps = meta.invoke?.steps ? meta.invoke.steps : config.default.steps
-    job.width = meta.invoke?.width ? meta.invoke.width : config.default.size
-    job.height = meta.invoke?.height ? meta.invoke.height : config.default.size
+    // todo need to look at job.model.base_model and use sdxl width/height defaults if not already in meta.invoke
+    job.width = meta.invoke?.width ? meta.invoke.width : config.default.width ?? config.default.size
+    job.height = meta.invoke?.height ? meta.invoke.height : config.default.height ?? config.default.size
     job.scheduler = meta.invoke?.scheduler ? meta.invoke.scheduler : config.default.scheduler
     job.loras = meta.invoke?.loras ? meta.invoke.loras : []
     job.scale = meta.invoke?.scale ? meta.invoke.scale : config.default.scale
@@ -755,13 +710,21 @@ const validateJob = async(job)=>{
     }else{job.negative_prompt='<neg-sketch-3>,blur'}
     job.positive_prompt=job.prompt?.replace(npromptregex,'')
     // set defaults if not already set
+    if(!job.style){job.style=''}
+    if(!job.negstyle){job.negstyle=''}
     if(!job.number){job.number=1}else if(job.number>1&&job.seed){delete job.seed} // cannot feed a seed into the iterator afaik
     if(!job.seed&&job.number!==1||!Number.isInteger(job.seed)||job.seed<1||job.seed>4294967295){job.seed=random.seed()}
     if(!job.model){job.model=await modelnameToObject(config.default.model)}//{model_name:'degenerate526urpm',base_model:'sd-1',model_type:'main'}}
+    if(!isObject(job.model)){job.model=await modelnameToObject(job.model)}
     if(!job.steps){job.steps=config.defaultSteps? config.defaultSteps : 30}
     if(job.steps>config.maximum.steps){return{error:'Steps `'+job.steps+'` is above the current maximum step count `'+config.maximum.steps+'`'}}
-    if(!job.width){job.width=config.defaultSize? config.defaultSize : 512}
-    if(!job.height){job.height=config.defaultSize? config.defaultSize : 512}
+    if(job.model?.base_model==='sdxl'){
+        if(!job.width){job.width=config.default.sdxlwidth??1024}
+        if(!job.height){job.height=config.default.sdxlheight??1024}
+    } else {
+        if(!job.width){job.width=config.default.width??512}
+        if(!job.height){job.height=config.default.height??512}
+    }
     job.height=getDiffusionResolution(job.height)
     job.width=getDiffusionResolution(job.width)
     if(config.maximum.pixels&&(job.width*job.height)>config.maximum.pixels){
@@ -815,7 +778,7 @@ const depthMap = async(img,host,a_mult=2,bg_th=0.1)=>{
         let graph={'nodes':{'midas_depth_image_processor':{'id':'midas_depth_image_processor','type':'midas_depth_image_processor','a_mult':a_mult,'bg_th':bg_th,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
         let session = await rawGraphResponse(host,graph)
         let images = await getSessionImages(host,session)
-        //log(images)
+        deleteImage(host,initimg.image_name)
         return {images: images}
     } catch (err) {
         log(err)
@@ -831,6 +794,7 @@ const canny = async(img,host,low_threshold=100,high_threshold=200)=>{
         let graph={'nodes':{'canny_image_processor':{'id':'canny_image_processor','type':'canny_image_processor','low_threshold':low_threshold,'high_threshold':high_threshold,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
         let session = await rawGraphResponse(host,graph)
         let images = await getSessionImages(host,session)
+        deleteImage(host,initimg.image_name)
         return {images: images}
     } catch (err) {
         log(err)
@@ -846,6 +810,31 @@ const openpose = async(img,host,detect_resolution=512,hand_and_face=true,image_r
         let graph={'nodes':{'openpose_image_processor':{'id':'openpose_image_processor','type':'openpose_image_processor','detect_resolution':detect_resolution,'hand_and_face':hand_and_face,'image_resolution':image_resolution,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
         let session = await rawGraphResponse(host,graph)
         let images = await getSessionImages(host,session)
+        deleteImage(host,initimg.image_name)
+        return {images: images}
+    } catch (err) {
+        log(err)
+        return {error: err}
+    }
+}
+
+const esrgan = async(img,host,model_name='RealESRGAN_x2plus.pth')=>{
+    try{
+        if(!host)host=await findHost()
+        let imgid = getUUID()
+        // read image dimensions before upscale
+        let resolution = await imageEdit.getResolution(img)
+        let width = resolution?.width
+        let height = resolution?.width
+        let totalPixels = width * height
+        // use config.maximum.pixels to find limits
+        let maxPixels = config.maximum.upscaledPixels ?? 4194304
+        if(totalPixels>=maxPixels){return {error: 'Image dimensions are too large! Max upscaled pixels = '+maxPixels}}
+        let initimg = await uploadInitImage(host,img,imgid)
+        let graph={'nodes':{'esrgan':{'id':'esrgan','type':'esrgan','model_name':model_name,'image':{'image_name':initimg.image_name}}}}
+        let session = await rawGraphResponse(host,graph)
+        let images = await getSessionImages(host,session)
+        deleteImage(host,initimg.image_name)
         return {images: images}
     } catch (err) {
         log(err)
@@ -956,6 +945,7 @@ module.exports = {
         depthMap,
         canny,
         openpose,
+        esrgan,
         allUniqueModelsAvailable
     }
 }
