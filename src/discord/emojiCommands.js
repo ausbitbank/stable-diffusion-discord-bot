@@ -42,6 +42,7 @@ var commands = [
         aliases: ['👎','⚠️','❌','💩','🗑️'],
         command: async (msg,emoji,reactor)=>{
             try{
+                // todo admin votes should still be double confirmed
                 let reactedmsg = await bot.getMessage(msg.channel.id,msg.id)
                 // only care about messages created by the bot or people reacting to their own messages
                 if(
@@ -144,14 +145,13 @@ const sendToStarGallery = async(msg,emoi,reactor)=>{ // Make a copy without butt
     const messageLink = `https://discord.com/channels/${guildId}/${originalChannelId}/${messageId}`
     const components = [{ type: 1, components: [{ type: 2, style: 5, label: "Original message", url: messageLink, disabled: false }]}]
     galleryChannel.messages.forEach(message=>{
-        if(message.content===msg.content){
+        if(message.content===msg.content && message.embeds === msg.embeds){
             alreadyInGallery=true
             debugLog('found in gallery')
         }
     }) // look through eris message cache for channel for matching msg
     if (!alreadyInGallery){
         let buf,file
-        log(msg)
         if(messageCommands.messageHasImageAttachments(msg)){buf = await messageCommands.extractImageBufferFromMessage(msg)}
         if(buf){file={file:buf,name:getUUID()+'.png'}}
         let content = msg.content
