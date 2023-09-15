@@ -18,6 +18,7 @@ let commands = [
         command: async (interaction)=>{
             interaction.createMessage({content:':saluting_face: refreshing',flags:64})
             let img=null
+            interaction.message.addReaction('🎲')
             let meta = await messageCommands.extractMetadataFromMessage(interaction.message)
             if(meta.invoke?.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
             let result = await invoke.jobFromMeta(meta,img)
@@ -176,9 +177,6 @@ let commands = [
             let sourcemsg = await bot.getMessage(channelid,msgid)
             let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
             let strength = meta.invoke.strength
-            //log('strength')
-            //log(meta)
-            //log(strength)
             return interaction.createModal({
                 custom_id:'edit-'+sourcemsg.id,
                 title:'Edit the strength',
@@ -232,6 +230,35 @@ let commands = [
         }
     },
     {
+        name: 'chooseModel',
+        description: 'Select a model from a dialog and apply it to an image',
+        permissionLevel: 'all',
+        aliases: ['chooseModel'],
+        command: async (interaction)=>{
+            //interaction.acknowledge()
+            let msgid = interaction.data.custom_id.split('-')[1]
+            let pageid = interaction.data.custom_id.split('-')[2]??0
+            //let channelid = interaction.channel.id
+            //let sourcemsg = await bot.getMessage(channelid,msgid)
+            let models = await invoke.allUniqueModelsAvailable()
+            log(models)
+            let dialog = {
+                content:':floppy_disk: **Model Menu**\nUse this menu to change the model/checkpoint being used, to give your image a specific style',
+                flags:64,
+                components:[
+                    {type:1,components:[
+                        {type: 3,custom_id:'chooseModel-'+msgid,placeholder:'Choose a model/checkpoint',min_values:1,max_values:1,options:[]}
+                    ]}
+                ]
+            }
+            for (const m in models){
+                let model = models[m]
+                log(model)
+            }
+            interaction.editParent(dialog)
+        }
+    },
+    {
         name: 'remove',
         description: 'Allow either the creator or bot admin to remove a result',
         permissionLevel: ['all'],
@@ -249,11 +276,11 @@ let commands = [
                 ){
                 // admin or owner can delete
                 // tag the original request so its obvious what happened
-                if(interaction.message.messageReference?.messageID){
-                    let sourcemsg = await bot.getMessage(interaction.channel.id,interaction.message.messageReference.messageID)
-                    if(sourcemsg.member.id!==bot.application.id){
-                        sourcemsg.addReaction('🗑️')
-                    }
+                if(interaction.message.messageReference&&interaction.message.messageReference.messageID!==null){
+                    try{
+                        let sourcemsg = await bot.getMessage(interaction.channel.id,interaction.message.messageReference.messageID)
+                        if(sourcemsg.member.id!==bot.application.id){sourcemsg.addReaction('🗑️')}
+                    } catch(err){log(err)}
                 }
                 msg.delete()
             } else {
@@ -269,7 +296,8 @@ let commands = [
         permissionLevel: ['all'],
         aliases: ['removeBackground'],
         command: async (interaction)=>{
-            interaction.acknowledge()
+            interaction.editParent({content:':saluting_face: Removing background',embeds:[],components:[]})
+            //interaction.acknowledge()
             let userid = interaction.member?.id||interaction.author?.id||interaction.user?.id
             let channelid = interaction.channel.id
             let msgid=interaction.data.custom_id.split('-')[1]
