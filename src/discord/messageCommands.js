@@ -126,6 +126,30 @@ let commands = [
         }
     },
     {
+        name: 'esrgan',
+        description: 'Return a 2x upscaled version of an input image',
+        permissionLevel: 'all',
+        aliases: ['esrgan','upscale'],
+        prefix:'!',
+        command: async(args,msg)=>{
+            debugLog('esrgan triggered: '+args.join(' '))
+            let img,imgurl
+            let imgres = await extractImageAndUrlFromMessageOrReply(msg)
+            if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
+            if(img){
+                let result = await invoke.esrgan(img)
+                if(result.error){return {error:result.error}}
+                let buf = result.images[0]?.buffer
+                let resolution = await imageEdit.getResolution(buf)
+                let newWidth = resolution?.width
+                let newHeight = resolution?.height
+                return {messages:[{embeds:[{description:'Upscaled 2x with esrgan to '+newWidth+' x '+newHeight,color:getRandomColorDec()}],components:[]}],files:[{file:buf,name:result.images[0].name}]}
+            } else {
+                return { error:'No image attached to upscale'}
+            }
+        }
+    },
+    {
         name: 'metadata',
         description: 'Extract metadata from images',
         permissionLevel: 'all',
@@ -220,7 +244,7 @@ let commands = [
         name: 'restart',
         description: 'forcibly restart the bot process',
         permissionLevel: 'admin',
-        aliases: ['restart'],
+        aliases: ['restart','rstrt'],
         prefix:'!!!',
         command: async(args,msg)=>{
             process.exit(0)
