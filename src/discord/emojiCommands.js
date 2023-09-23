@@ -141,15 +141,25 @@ const sendToStarGallery = async(msg,emoi,reactor)=>{ // Make a copy without butt
     if(galleryChannel.messages.length<50){ // if theres less then 50 in the channel message cache, fetch 100
         debugLog('fetching gallery message history')
         await galleryChannel.getMessages({limit: 100})
-    } 
+    }
     const messageLink = `https://discord.com/channels/${guildId}/${originalChannelId}/${messageId}`
     const components = [{ type: 1, components: [{ type: 2, style: 5, label: "Original message", url: messageLink, disabled: false }]}]
+    // this isnt working 
+    log(galleryChannel)
+    for (let i in galleryChannel.messages){
+        log(i)
+        let m = galleryChannel.messages[i]
+        //log(m)
+        if(m.content===msg.content&&m.embeds===msg.embeds){alreadyInGallery=true;log('Already in star gallery')}
+    }
+    // // todo refactor away from forEach
+    /*
     galleryChannel.messages.forEach(message=>{
         if(message.content===msg.content && message.embeds === msg.embeds){
             alreadyInGallery=true
             debugLog('found in gallery')
         }
-    }) // look through eris message cache for channel for matching msg
+    })*/ // look through eris message cache for channel for matching msg
     if (!alreadyInGallery){
         let buf,file
         if(messageCommands.messageHasImageAttachments(msg)){buf = await messageCommands.extractImageBufferFromMessage(msg)}
@@ -157,9 +167,9 @@ const sendToStarGallery = async(msg,emoi,reactor)=>{ // Make a copy without butt
         let content = msg.content
         // todo need to extract original creator from content or allowed_mentions array, new message reference original creator + reactor
         if(file){
-            await galleryChannel.createMessage({content:msg.content,embeds:msg.embeds,allowed_mentions:{}},file)
+            await galleryChannel.createMessage({content:msg.content,embeds:msg.embeds,components:components,allowed_mentions:{}},file)
         } else {
-            await galleryChannel.createMessage({content:msg.content,embeds:msg.embeds,allowed_mentions:{}})
+            await galleryChannel.createMessage({content:msg.content,embeds:msg.embeds,components:components,allowed_mentions:{}})
         }
     } else {debugLog('Found identical existing star gallery message')}
   }
