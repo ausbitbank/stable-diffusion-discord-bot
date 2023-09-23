@@ -20,7 +20,9 @@ Working:
 - Supports multiple Invoke3 backends on local network (no direct file access required)
 - Building node graphs from job requests,submitting,tracking,posting to discord
 - Refresh button starting renders using png metadata alone (no job db required!)
-- Init images can be used as controlnet sources
+- Input images can be used as sources for image to latent, controlnet, ip_adapter
+- Tweak menu with aspect ratio, scale, steps, sampler
+- Remove background
 
 Not Working:
 - Pretty much everything else
