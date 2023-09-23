@@ -5,9 +5,9 @@ const {invoke}=require('../invoke')
 const {auth}=require('./auth')
 const {bot}=require('./bot')
 const {random}=require('../random')
-const { intersection } = require('lodash')
 const imageEdit = require('../imageEdit')
 const {removeBackground}=require('../removeBackground')
+const {aspectRatio}=require('./aspectRatio')
 
 let commands = [
     {
@@ -40,6 +40,7 @@ let commands = [
             let key = interaction.data.components[0].components[0].custom_id
             let value = interaction.data.components[0].components[0].value
             await interaction.createMessage({content:':saluting_face: refreshing with **'+key+'** of `'+value+'`',flags:64})
+            //interaction.message.addReaction('✏️')
             switch(key){
                 case 'scale':{value=parseFloat(value)}
                 case 'steps':{value=parseInt(value)}
@@ -209,7 +210,7 @@ let commands = [
                     {
                         type:1,
                         components:[
-                            {type: 2, style: 1, label: 'Aspect Ratio', custom_id: 'chooseAspect-'+msgid, emoji: { name: '📐', id: null}, disabled: true },
+                            {type: 2, style: 1, label: 'Aspect Ratio', custom_id: 'chooseAspectRatio-'+msgid, emoji: { name: '📐', id: null}, disabled: false },
                             {type: 2, style: 1, label: 'Models', custom_id: 'chooseModel-'+msgid, emoji: { name: '💾', id: null}, disabled: true },
                             {type: 2, style: 1, label: 'Textual Inversions', custom_id: 'chooseTi-'+msgid, emoji: { name: '💊', id: null}, disabled: true },
                             {type: 2, style: 1, label: 'Loras', custom_id: 'chooseLora-'+msgid, emoji: { name: '💊', id: null}, disabled: true }        ,
@@ -333,6 +334,39 @@ let commands = [
                 let response = await removeBackground(url)
                 reply = {content:'<@'+userid+'> cropped image',}
                 interaction.createMessage(reply,{file:response.image,name:getUUID()+'.png'})
+            }
+        }
+    },
+    {
+        name:'chooseAspectRatio',
+        description: 'Dialog to select an aspect ratio',
+        permissionLevel:['all'],
+        aliases:['chooseAspectRatio'],
+        command: async (interaction)=>{
+            interaction.acknowledge()
+            let msgid = interaction.data.custom_id.split('-')[1]
+            let msg=await bot.getMessage(interaction.channel.id,msgid)
+            if(messageCommands.messageHasImageAttachments(msg)){
+                let meta = await messageCommands.extractMetadataFromMessage(msg)
+                if(meta && meta.invoke && meta.invoke.width && meta.invoke.height){
+                    let pixels = parseInt(meta.invoke?.height) * parseInt(meta.invoke?.width)
+                    if(interaction.data.values){
+                        let res = await aspectRatio.ratioToRes(interaction.data.values[0],pixels)
+                        interaction.editParent({content:':saluting_face: '+res.description+' '+res.width+' x '+res.height+' selected',components:[],embeds:[]})
+                        meta.invoke.width = res.width
+                        meta.invoke.height = res.height
+                        let img = null
+                        if(meta.invoke?.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
+                        let result = await invoke.jobFromMeta(meta,img)
+                        if(meta.invoke?.inputImageUrl && !result.error && result.images?.length > 0){result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke.inputImageUrl)}
+                        let newmsg = msg
+                        newmsg.member = interaction.member
+                        return messageCommands.returnMessageResult(newmsg,result)
+                    } else {
+                        let dialog = await aspectRatio.dialog(msgid,pixels)
+                        interaction.editParent(dialog)
+                    }
+                }
             }
         }
     },
