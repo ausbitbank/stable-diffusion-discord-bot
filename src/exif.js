@@ -16,25 +16,40 @@ load=async(buf)=>{
     let results = {}
     // todo move this to invoke module after polish
     if(exif.invokeai_metadata){ //&&exif.invokeai_graph
-        meta=JSON.parse(exif.invokeai_metadata.value)
-        let seed = meta.seed
-        let model = meta.model
-        let clipskip = meta.clip_skip
-        let loras=meta.loras
-        //let graph = JSON.parse(exif.invokeai_graph?.value)
-        let positive_prompt=meta.positive_prompt
-        let negative_prompt=meta.negative_prompt
-        let style=meta.positive_style_prompt
-        let negstyle=meta.negative_style_prompt
-        let scale=meta.cfg_scale
-        let steps=0
+        let meta=null
+        try {
+            meta=JSON.parse(exif.invokeai_metadata.value)
+        } catch(err){
+            debugLog('Error parsing invokeai_metadata metadata')
+            debugLog(err)
+        }
+        let seed = meta?.seed
+        let model = meta?.model
+        let clipskip = meta?.clip_skip
+        let loras=meta?.loras
+        let control=null
+        try{
+            let workflow = JSON.parse(exif.invokeai_workflow?.value)
+            //debugLog('extracted workflow:')
+            debugLog(workflow.notes.control)
+            control = workflow?.notes?.control        
+        } catch(err){
+            debugLog('Error parsing invokeai_workflow metadata')
+            debugLog(err)
+        }
+        let positive_prompt=meta?.positive_prompt
+        let negative_prompt=meta?.negative_prompt
+        let style=meta?.positive_style_prompt
+        let negstyle=meta?.negative_style_prompt
+        let scale=meta?.cfg_scale
+        let steps=meta?.steps
         let pixelSteps=0
         let genWidth=0
         let genHeight=0
         let lscale=1
-        let controlnets=meta.controlnets
+        let controlnets=meta?.controlnets
         let inputImageUrl=null
-        let scheduler=meta.scheduler
+        let scheduler=meta?.scheduler
         // todo the entire graph was removed from metadata in invoke 3.1* update.. Need to find another way to calculate cost, pixelsteps, generation resolution (not final resolution)
         /*
         for (const i in graph?.nodes){
@@ -83,7 +98,8 @@ load=async(buf)=>{
             inputImageUrl,
             clipskip,
             style,
-            negstyle
+            negstyle,
+            control
         }
     }
     return results
