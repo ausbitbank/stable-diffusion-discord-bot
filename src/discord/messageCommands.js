@@ -47,11 +47,11 @@ let commands = [
         prefix:'!',
         command: async(args,msg)=>{
             debugLog('test triggered: '+args.join(' '))
-            let buf = await urlToBuffer('https://media.discordapp.net/attachments/968822563662860338/1143934598401757265/app_outputs_111410.691e4e6c.2999260581.png')
-            let newbuf = await exif.edit(buf,'initimg','url','arty')
+            //let buf = await urlToBuffer('https://media.discordapp.net/attachments/968822563662860338/1143934598401757265/app_outputs_111410.691e4e6c.2999260581.png')
+            //let newbuf = await exif.edit(buf,'initimg','url','arty')
             let result = {
-                images: [{file:newbuf,name:getUUID()+'.png'}],
-                messages:[{content:'exif test'}]
+                //images: [{file:newbuf,name:getUUID()+'.png'}],
+                messages:[{content:'poll test'}]
             }
             return result
             //graph={'nodes':{'midas_depth_image_processor':{'id':'midas_depth_image_processor','type':'midas_depth_image_processor','a_mult':2,'bg_th':0.1,'is_intermediate':true,'image':{'image_name':'13e06670-0572-4187-92ed-cb5aea231060.png'}}}}
@@ -133,17 +133,22 @@ let commands = [
         prefix:'!',
         command: async(args,msg)=>{
             debugLog('esrgan triggered: '+args.join(' '))
+            // debugLog(host.config?.upscaling_methods?.upscaling_models)
+            // RealESRGAN_x2plus.pth
+            // RealESRGAN_x4plus.pth
+            // RealESRGAN_x4plus_anime_6B
+            // ESRGAN_SRx4_DF2KOST_official-ff704c30.pth
             let img,imgurl
             let imgres = await extractImageAndUrlFromMessageOrReply(msg)
             if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
             if(img){
-                let result = await invoke.esrgan(img)
+                let result = await invoke.esrgan(img,null,'RealESRGAN_x2plus.pth')
                 if(result.error){return {error:result.error}}
                 let buf = result.images[0]?.buffer
                 let resolution = await imageEdit.getResolution(buf)
                 let newWidth = resolution?.width
                 let newHeight = resolution?.height
-                return {messages:[{embeds:[{description:'Upscaled 2x with esrgan to '+newWidth+' x '+newHeight,color:getRandomColorDec()}],components:[]}],files:[{file:buf,name:result.images[0].name}]}
+                return {messages:[{embeds:[{description:'Upscaled 2x with RealESRGAN_x2plus.pth to '+newWidth+' x '+newHeight,color:getRandomColorDec()}],components:[]}],files:[{file:buf,name:result.images[0].name}]}
             } else {
                 return { error:'No image attached to upscale'}
             }
@@ -294,26 +299,25 @@ let commands = [
                 content:'',
                 flags:64,
                 embeds:[
-                    {description:'Models currently available\nsd1: '+sd1.length+' , sd2: '+sd2.length+' sdxl: '+sdxl.length,color:getRandomColorDec()}
+                    {description:'Models currently available\n**sd-1**: '+sd1.length+' , **sd-2**: '+sd2.length+' **sdxl**: '+sdxl.length,color:getRandomColorDec()}
                 ],
                 components:[]
             }
-            for (const modeltype in ['sd-1','sd-2','sdxl']){
-                let filteredModels = models.filter(obj=>obj.base_model===modeltype)
+            let basemodels = ['sd-1','sd-2','sdxl']
+            for (const modeltype in basemodels){
+                let filteredModels = models.filter(obj=>obj.base_model===basemodels[modeltype])
                 let marr=[]
                 for (const m in filteredModels){
                     let model = filteredModels[m]
-                    log(model)
                     marr.push(model.model_name)
                 }
                 if(marr.length>0){
-                    let newdlg = {color:getRandomColorDec(),description:marr[0].base_model+' models: '+marr.join(',')}
+                    let newdlg = {color:getRandomColorDec(),description:'**'+basemodels[modeltype]+' models**:\n'+marr.join('\n')}
                     dialog.embeds.push(newdlg)
                 }
             }
             return {messages:[dialog],files:[]}
         }
-        
     }
 ]
 
@@ -492,7 +496,8 @@ imageResultMessage = (userid,img,result,meta)=>{
         t+=' :pill: '
         for (const l in meta.invoke?.loras){t+=meta.invoke.loras[l].lora.model_name+'('+meta.invoke.loras[l].weight+') '}
     }
-    if(meta.invoke?.inputImageUrl){t+=' :paperclip:attachment'}
+    if(meta.invoke?.inputImageUrl){t+=' :paperclip: attachment'}
+    if(meta.invoke?.control){t+=' :video_game: '+meta.invoke.control}
     let colordec=getRandomColorDec()
     return {
         content:':brain: <@'+userid+'>',
