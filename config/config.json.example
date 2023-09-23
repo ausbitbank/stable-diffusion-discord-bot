@@ -25,12 +25,16 @@
     },
     "ignoreAllBots":true,
     "default":{
-        "size":512,
+        "width":512,
+        "height":512,
+        "sdxlwidth":1024,
+        "sdxlheight":1024,
         "steps":30,
         "scale":4,
         "strength":0.7,
         "scheduler":"dpmpp_2m_sde_k",
         "model":"swizz8-v3",
+        "refinerModel":"sdxl_refiner_1.0",
         "inpaintModel":"deliberate-inpainting",
         "inpaintPrompt":"amazing",
         "inpaintStrength":0.8
@@ -38,7 +42,8 @@
     "maximum":{
         "steps":100,
         "iterations":5,
-        "pixels":2073601
+        "pixels":2073601,
+        "upscaledPixels":4194304
     },
     "credits":{
         "enabled":false,
