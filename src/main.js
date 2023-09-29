@@ -1,8 +1,7 @@
 /* Arty v2 */
-// requires invokeai 3.02post1
-// LORA : add_detail
+// requires invokeai 3.10
+// LORA : add_detail // https://civitai.com/api/download/models/87153?type=Model&format=SafeTensor
 // Embedding : neg-sketch-3
-// controlnet : ioclab/control_v1p_sd15_brightness (for qrcode)
 
 // First, load utilities and config
 const {config,log,debugLog}=require('./utils')
@@ -11,9 +10,8 @@ const {config,log,debugLog}=require('./utils')
 let signals = {'SIGHUP': 1,'SIGINT': 2,'SIGTERM': 15}
 for (const signal in Object.keys(signals)){process.on(signal, () =>{log('Bye! ('+signal+' '+signals[signal]+')');process.exit(128+signals[signal])})}
 
-
 // Setup database connection
-//const {db:db}=require('./src/db.js')
+//const {db}=require('./src/db')
 
 // Setup discord, connect and handle commands
 const {discord}=require('./discord/discord')
@@ -23,6 +21,10 @@ const {discord}=require('./discord/discord')
 
 // Setup backend cluster, read available models and embeddings
 const {invoke}=require('./invoke')
+
+// Check payments
+//const {hivePayments}=require('./hive/hivePayments')
+//hivePayments.poll()
 
 init=async()=>{
   discord.botInit() // Start discord listeners
