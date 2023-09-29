@@ -12,16 +12,17 @@ const { isString, isObject } = require('lodash')
 const parseArgs = require('minimist')
 const {imageEdit} = require('./imageEdit.js')
 var cluster=config.cluster
+let resultCache=[]
+
+const getResultCache = ()=>{return resultCache}
 
 const init=async()=>{
     // Setup cluster of invoke ai backends starting with primary
     let initmsg=''
-    let err=null
     for (const d in cluster){
-    //cluster.forEach(async (c)=>{
         let c=cluster[d]
         try{
-            if(c.disabled){break}//debugLog(c.name+' is disabled, skipping');
+            if(c.disabled){break}
             initHost(c)
         } catch(err) {
             c.online=false
@@ -45,6 +46,7 @@ const initHost=async(host)=>{
         host.online = true
         host.activeJob = null
         host.socket = io(host.url,{path: '/ws/socket.io'})
+        host.jobs = []
         log('Connected to '.bgGreen.black+host.name.bgGreen+' with InvokeAI Version: '+host.version+'\nModels: '+host.models.length+',Loras: '+host.lora.length+', Embeddings: '+host.ti.length+', Vaes: '+host.vae.length+', Controlnets '+host.controlnet.length)
         queueStatus(host)
         subscribeQueue(host,'arty')
@@ -60,7 +62,7 @@ buildWorkflowFromJob = (job)=>{
     let keys = Object.keys(job)
     for (const i in keys){
         let key = keys[i]
-        if(['prompt','strength','control','controlstart','controlstop','controlweight','ipamodel'].includes(key)){essentials[key] = job[key]}
+        if(['prompt','strength','control','controlstart','controlend','controlweight','ipamodel','facemask','lscale','invert'].includes(key)){essentials[key] = job[key]}
     }
     let workflow = {
         name:"arty",
@@ -195,7 +197,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
             let ipamodel=(job.model.base_model==='sdxl')?'ip_adapter_sdxl':'ip_adapter_sd15'
             if(job.ipamodel){ipamodel=job.ipamodel}
             debugLog('Using ip_adapter with input image, model '+ipamodel)
-            node('ip_adapter',{ip_adapter_model:{base_model:job.model.base_model,model_name:ipamodel},begin_step_percent:0,end_step_percent:1,is_intermediate:true,image:{image_name:job.initimgObject.image_name},weight:1},[])
+            node('ip_adapter',{ip_adapter_model:{base_model:job.model.base_model,model_name:ipamodel},begin_step_percent:job.controlstart?job.controlstart:0,end_step_percent:job.controlend?job.controlend:1,is_intermediate:true,image:{image_name:job.initimgObject.image_name},weight:job.controlweight?job.controlweight:1},[])
         } else if(job.facemask){
             debugLog('Using face mask detection')
             node('face_mask_detection',{is_intermediate:true,face_ids:'0',minimum_confidence:0.5,x_offset:0,y_offset:0,chunk:false,invert_mask:job.invert??false,image:{image_name:job.initimgObject.image_name}})
@@ -205,6 +207,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         } else if(job.control==='i2l'){
             // default to image to latents
             node('i2l',{is_intermediate:false,fp32:true,image:{image_name:job.initimgObject.image_name}},[pipe(lastid.vae,'vae','SELF','vae')])
+            // todo do we resize the image first instead of resizing latents ?
             node('lresize',{model:'bilinear',antialias:false,width:job.width,height:job.height},[pipe(lastid.latents,'latents','SELF','latents')])
         } else {
             debugLog('Using controlnet '+job.control||'depth')
@@ -258,14 +261,15 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         node('noise',{use_cpu:true},[pipe('lscale','width','SELF','width'),pipe('lscale','height','SELF','height')])
         let p=[pipe('compel','conditioning','SELF','positive_conditioning'),pipe('compel-2','conditioning','SELF','negative_conditioning'),pipe(lastid.noise,'noise','SELF','noise'),pipe(lastid.unet,'unet','SELF','unet'),pipe(lastid.latents,'latents','SELF','latents')]
         if(lastid.control){p.push(pipe(lastid.control,'control','SELF','control'))}
-        node('denoise_latents',{is_intermediate:true,noise:null,steps:job.steps,cfg_scale:job.scale,denoising_start:denoising_start,denoising_end:1.0,scheduler:job.scheduler},p)
+        if(job.strength){denoising_start=1.0-job.strength}
+        node('denoise_latents',{is_intermediate:true,steps:job.steps,cfg_scale:job.scale,denoising_start:denoising_start,denoising_end:1.0,scheduler:job.scheduler},p)
     }
     if(['sd-1','sd-2'].includes(job.model.base_model)){
-        node('l2i',{tiled:true,fp32:true,is_intermediate:true},[pipe('vae_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
+        node('l2i',{tiled:true,fp32:true,is_intermediate:false},[pipe('vae_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
     } else {
-        node('l2i',{tiled:true,fp32:true,is_intermediate:true},[pipe('sdxl_model_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
+        node('l2i',{tiled:true,fp32:true,is_intermediate:false},[pipe('sdxl_model_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
     }
-    if(job.upscale&&job.upscale===2){node('esrgan',{model_name:'RealESRGAN_x2plus.pth'},[pipe(lastid.image,'image','SELF','image')])}
+    //if(job.upscale&&job.upscale===2){node('esrgan',{model_name:'RealESRGAN_x2plus.pth'},[pipe(lastid.image,'image','SELF','image')])}
     //debugLog('Add data section to graph. Initial seed is '+job.seed+' , number is '+job.number)
     let dataitems = [job.seed]
     while(dataitems.length<job.number){dataitems.push(random.seed())}
@@ -340,77 +344,6 @@ const queuePrune = async (host,name='arty')=>{
     }
 }
 
-
-const pollQueue = async (host,id) => {
-    let ms = 1000
-    let err = false
-    let qsq = null
-    let sessionids = []
-    while(!err){
-        try{
-            log('queuestatus '+host.name)
-            let qs = await queueStatus(host)
-            if(qsq!==qs.queue){
-                log(qs.queue)
-                qsq=qs.queue
-            }
-            let q = await queueList(host)
-            if(q.items?.length>0){
-                for (const qi in q.items){
-                    let i = q.items[qi]
-                    if(i.batch_id===id){
-                        log(i.batch_id+' is '+i.status)
-                        if(['failed','canceled'].includes(i.status)){err=true}
-                        if(['completed'].includes(i.status)){
-                            debugLog('completed batch '+i.batch_id+' claiming session id(s) '+sessionids)
-                            return i.session_id
-                        }
-                        if(i.status==='in_progress'&&i.session_id){
-                            debugLog('in progress batch '+i.batch_id+' claiming session id(s) '+sessionids)
-                            return i.session_id
-                        }
-                    }
-                }
-            }
-            await sleep(ms)
-        } catch(err) {log(err)}
-    }
-}
-
-/*
-Disabled from invoke 3.2rc
-const postSession = async (host, graph) => {
-    try {
-        const response = await axios.post(host.url + '/api/v1/sessions/', graph)
-        return response.data.id
-    } catch (err) {
-        console.error('Error posting session', err.data)
-        throw('Error posting session: '+err.code)
-    }
-}
-
-const cancelSession = async(host,id) => {
-    try {
-        let u=host.url+'/api/v1/sessions/'+id+'/invoke'
-        debugLog('cancel session '+id+' on '+host.name)
-        let response = axios.delete(u)
-    } catch (e) {
-        log(e.response.statusText)
-        throw(e.response.statusText)
-    }
-}
-
-const startSession = async(host,id)=>{
-    try {
-        let u=host.url+'/api/v1/sessions/'+id+'/invoke?all=true'
-        let response = axios.put(u)
-        return response
-    } catch (e) {
-        log(e.response.statusText)
-        throw('Error starting session: '+e.response.statusText)
-    }
-}
-*/
 const findHost = async(job=null)=>{
     // find host with the required models, embeds, etc that isn't currently busy
     let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
@@ -451,106 +384,102 @@ async function checkOfflineHosts() {
     }
 }
 
-function handleError(err) {
-    host.online = false
-    console.error(err)
-    throw err
-}
-
 const subscribeQueue = async(host,name='arty')=>{
     let socket = host.socket
     try{
         socket.on('connect',()=>{
-            log('websocket connected on '+host.url)
-            log('subscribequeue on host '+host.name+' : '+name)
-            socket.emit('subscribe_queue',{queue_id:name},()=>{log('emitted subscribe_queue')})
+            debugLog('websocket connected on '+host.url)
+            debugLog('subscribe to queue '+name+' on host '+host.name)
+            socket.emit('subscribe_queue',{"queue_id":name})
         })
-        socket.on('message', msg => {log('websocket message:');log(msg)})
-        socket.on('event', msg => {log('websocket event:');log(msg)})
-    } catch(err) {
-        log('Error wth websocket for host '+host.name)
-    }
-}
-
-
-
-const pollSession = async(host,id)=>{
-    // I hate this solution, but it works for now.
-    // Ideally we should subscribe to session via websocket
-    let ms=1000
-    let err=false
-    while(!err) {
-        try{
-            let sesh = await getSession(host,id)
-            if(Object.keys(sesh.errors).length>0){err=true;throw(sesh.errors)}
-            if(isSessionComplete(sesh,host.name)){ return sesh
-            } else {
-                await sleep(ms)
-                ms=ms*1.10 // increase poll interval by 10% each time
-                if(ms>=5000){ms=1000} // reset once we hit 5 second polling
+        socket.on('batch_enqueued', msg => {
+            // queue_id str, batch_id str, enqueued int, timestamp
+            debugLog(host.name+' batch enqueued: '+msg.batch_id.dim)
+            resultCache[msg.batch_id] = {
+                batch_id:msg.batch_id,
+                status:'pending',
+                results:[],
+                progress:{}
             }
-        }catch(e){
-            log(e)
-            //host.online = false
-            err=true
-        }
-    }
-}
-
-
-const getSessionStats = (session)=>{
-    let stats = {
-        id:session.id,
-        results:session.results
-    }
-    for (const r in stats.results){
-        log(stats.results[r])
-    }
-}
-
-// a tmp cache to reduce redundant progress logs, remove when we update to websocket progress subscriptions
-let isctmp = [] 
-
-const isSessionComplete = (session,hostname)=>{
-    // return true/false eventually, use debug logging for progress updates
-    try{
-        isctmpnew = hostname+' '+session.id+' : '+Object.keys(session.results).length+' / '+Object.keys(session.execution_graph.nodes).length
-        if(!isctmp.includes(isctmpnew)){ // check if we've already posted this message recently
-            debugLog(isctmpnew)
-            isctmp.push(isctmpnew) // add message to cache
-            if(isctmp.length>10){isctmp.slice(-10)} // maximum of 10 in cache, slice to size
-        }
-        if(Object.keys(session.results).length===Object.keys(session.execution_graph.nodes).length){return true
-        }else{return false}
+            //debugLog(resultCache)
+        })
+        socket.on('queue_item_status_changed', msg => {
+            // queue_id str, queue_item_id int, status str, batch_id uuid, session_id uuid, error, created_at str, updated_at str, started_at str, completed at null, timestamp
+            debugLog(host.name+' '+msg.batch_id.dim+' '+msg.status)
+            resultCache[msg.batch_id].status=msg.status
+        })
+        socket.on('invocation_started', msg => {
+            debugLog(host.name+' '+msg.queue_batch_id.dim+' started '+msg.node.type)
+        })
+        socket.on('invocation_complete', msg => {
+            debugLog(host.name+' '+msg.queue_batch_id.dim+' finished '+msg.node.type)
+            if(msg.result?.type==='image_output'){
+                // A finalized image being completed)
+                debugLog('image output: '+msg.result?.image?.image_name)
+                resultCache[msg.queue_batch_id]?.results.push(msg.result)
+                //debugLog(resultCache)
+            }
+        })
+        socket.on('generator_progress', msg => {
+            log(host.name+' '+msg.queue_batch_id.dim+' '+msg.order+' : '+msg.step+' / '.dim+msg.total_steps)
+            let buf=null
+            if(msg.progress_image?.dataURL){buf = Buffer.from(msg.progress_image.dataURL.split(','[1], 'base64'))}
+            resultCache[msg.queue_batch_id].progress = {
+                steps:msg.steps,
+                total_steps:msg.total_steps,
+                order:msg.order,
+                progress_image:buf,
+                timestamp:msg.timestamp
+            }
+        })
+        socket.on('model_load_started', msg => {debugLog(host.name+' loading '+msg.model_type+' model: '+msg.base_model+'/'+msg.model_name+'/'+msg.submodel)})
+        //socket.on('model_load_completed', msg => {debugLog(host.name+' loaded: '+msg.model_name)})
+        socket.on('graph_execution_state_complete', msg => {
+            // queue_id str, queue_item_id int, queue_batch_id uuid, graph_execution_state_id uuid, timestamp
+            debugLog(host.name+' graph done '.bgGreen+msg.queue_batch_id.dim)
+            //log(msg)
+        })
     } catch(err) {
-        throw(err)
+        log('Error with websocket for host '+host.name)
     }
 }
 
-getSessionImages = async(host,session)=>{
-    // return an array of image objects from session results
+batchToImages = async(host,batchid)=>{
+    // Take a batch id, return images from completed session
+    let err=null
+    let images=null
+    while(!err){
+        let job = resultCache[batchid]
+        if(job?.status==='completed'){
+            images = await getBatchImages(host,batchid)
+            return images
+        }
+        if(job?.status==='failed'){err=true;return {error:'Job failed'}}
+        await sleep(4000)
+    }
+}
+
+getBatchImages = async(host,batchid)=>{
+    // Get image results from our host result cache for a given batch id we know has completed execution
+    // Turn image names into image buffers
+    // Return array of image buffers
+    let result = []
     try{
-        debugLog(host.name+' '+session.id+' getSessionImages')
-        let ia=[]
-        let results=[]
-        for (const r of Object.keys(session.results)){
-            let result=session.results[r]
-            if(result.type==='image_output'){ia.push(result)} // &&result.is_intermediate!==true
+        for (const r in resultCache[batchid]?.results){
+            let res = resultCache[batchid]?.results[r]
+            if(res.type==='image_output'){
+                res.buffer=await getImageBuffer(host,res?.image?.image_name)
+                res.name=res?.image?.image_name
+                if(res.buffer?.error){return{error:res.buffer.error}}
+                if(host.deleteAfterRender){deleteImage(host,res?.image?.image_name)}
+                result.push(res)
+            }
         }
-        for (const i of ia){
-            i.name=i.image.image_name
-            i.buffer = await getImageBuffer(host,i.name)
-            if(i.buffer?.error){return {error:i.buffer.error}}
-            if(host.deleteAfterRender)deleteImage(host,i.name)
-            results.push(i)
-        }
-        if(results.length===0){
-            log('No images found in session')
-        }
-        return results
-    } catch(err){
-        // host.online = false
+        return result
+    } catch(err) {
+        log('Error in getBatchImages')
         log(err)
+        return {error:'Error in getBatchImages'}
     }
 }
 
@@ -563,27 +492,6 @@ const deleteImage = async(host,name)=>{
         host.online = false
         throw(err)
     }
-}
-
-const subscribe = async (socket, host, id) => {
-    return new Promise((resolve, reject) => {
-        socket.on('connect', () => {
-            console.log('Connected to socket')
-        })
-        socket.on('message', msg => {console.log('Socket message:', msg)})
-        socket.on('sid', sid => {console.log('sid:', sid)})
-        socket.on('error', err => {
-            console.error('Socket error:', err)
-            reject(err)
-        })
-        socket.emit('subscribe', {session: id}, (result) => {
-            socket.on('message', (msg) => {
-                if(msg.session === id) {
-                    resolve(msg)
-                }
-            })
-        })
-    })
 }
 
 const getVersion = async(host)=>{
@@ -620,46 +528,11 @@ const getModels = async(host,type='main')=>{
     }
 }
 
-const getSessions = async(host)=>{
-    try {
-        let u = host.url+'/api/v1/sessions/'
-        let response = await axios.get(u)
-        return r.data?.items
-    } catch (err) {
-        host.online = false
-        throw(err)
-    }
-}
-
-// in invoke 3.2rc all /sessions api endpoints are deprecated
-const getSession = async(host,id)=>{
-    try {
-        let u = host.url + '/api/v1/sessions/' + id
-        const response = await axios.get(u)
-        return response.data
-    } catch (err) {
-        console.error('Error getting session', err)
-        host.online = false
-        throw err
-    } 
-}
-
 const getImages = async(host)=>{
     try {
         let u = host.url+'/api/v1/images/?board_id=none&categories=control&categories=mask&categories=user&categories=other&is_intermediate=false&limit=0&offset=0'
-        let response = axios.get(u)
-        return r.data?.items
-    } catch (err) {
-        host.online = false
-        throw(err)
-    }
-}
-
-const getImage = async(host,name)=>{
-    try {
-        let u = host.url+'/api/v1/images/'+name
         let r = axios.get(u)
-        return r.data
+        return r.data?.items
     } catch (err) {
         host.online = false
         throw(err)
@@ -726,7 +599,7 @@ const jobFromDream = async(cmd,img=null)=>{
     if(job.n){job.number=job.n;delete job.n}
     if(job.sampler){job.scheduler=job.sampler;delete job.sampler}
     // take prompt from what's left
-    debugLog(job._)
+    //debugLog(job._)
     job.prompt=job._.join(' ')
     if(img){job.initimg=img}
     return validateJob(job)
@@ -747,6 +620,10 @@ const jobFromMeta = async(meta,img=null)=>{
     if(meta.invoke?.controlstart){job.controlstart=meta.invoke.controlstart}
     if(meta.invoke?.controlend){job.controlend=meta.invoke.controlend}
     if(meta.invoke?.controlweight){job.controlweight=meta.invoke.controlweight}
+    if(meta.invoke?.ipamodel){job.ipamodel=meta.invoke.ipamodel}
+    if(meta.invoke?.facemask){job.facemask=meta.invoke.facemask;job.control='i2l'}
+    if(meta.invoke?.invert){job.facemask=meta.invoke.invert}
+    if(meta.invoke?.strength){job.strength=meta.invoke.strength}
     job.steps = meta.invoke?.steps ? meta.invoke.steps : config.default.steps
     // todo need to look at job.model.base_model and use sdxl width/height defaults if not already in meta.invoke
     job.width = meta.invoke?.width ? meta.invoke.width : config.default.width ?? config.default.size
@@ -756,10 +633,6 @@ const jobFromMeta = async(meta,img=null)=>{
     job.scale = meta.invoke?.scale ? meta.invoke.scale : config.default.scale
     job.model = meta.invoke?.model ? meta.invoke.model : config.default.model
     return validateJob(job)
-}
-
-const jobFromGraph = async(graph)=>{
-    // input invokeai graph taken from image metadata, output job object
 }
 
 const getDiffusionResolution = (number)=>{
@@ -814,20 +687,6 @@ const allUniqueModelsAvailable = async()=>{
     }
     return allModels
 }
-/*
-    // look up models available on hosts
-    let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
-    for (const h in availableHosts){
-        let host=cluster[h]
-        let model=host.models.find(m=>{return m.model_name===modelname})
-        if(isObject(model)){
-            return {
-                model_name: model.model_name,
-                base_model: model.base_model,
-                model_type: model.model_type,
-                description: model.description
-            }
-*/
 
 const validateJob = async(job)=>{
     // examine job object, reject on invalid parameters, add defaults as required
@@ -849,8 +708,16 @@ const validateJob = async(job)=>{
     // split into positive/negative prompts
     const npromptregex = /\[(.*?)\]/g // match content of [square brackets]
     const npromptmatches = job.prompt?.match(npromptregex)
-    if(npromptmatches?.length>0){job.negative_prompt=npromptmatches.join(' ').replace('[','').replace(']','')
-    }else{job.negative_prompt='<neg-sketch-3>,blur'}
+    if(npromptmatches?.length>0){
+        job.negative_prompt=npromptmatches.join(' ').replace('[','').replace(']','')
+    }else{
+        // default negative prompt
+        if(job.model?.base_model==='sdxl'){
+            job.negative_prompt=config.default.sdxlnegprompt||''
+        } else {
+            job.negative_prompt=config.default.negprompt||''
+        }
+    }
     job.positive_prompt=job.prompt?.replace(npromptregex,'')
     // set defaults if not already set
     if(!job.style){job.style=''}
@@ -860,6 +727,7 @@ const validateJob = async(job)=>{
     if(!job.model){job.model=await modelnameToObject(config.default.model)}//{model_name:'degenerate526urpm',base_model:'sd-1',model_type:'main'}}
     if(!isObject(job.model)){job.model=await modelnameToObject(job.model)}
     if(!job.steps){job.steps=config.defaultSteps? config.defaultSteps : 30}
+    if(!job.strength){job.strength=config.default.strength||0.75}
     if(job.steps>config.maximum.steps){return{error:'Steps `'+job.steps+'` is above the current maximum step count `'+config.maximum.steps+'`'}}
     if(job.model?.base_model==='sdxl'){
         if(!job.width){job.width=config.default.sdxlwidth??1024}
@@ -886,26 +754,10 @@ const validateJob = async(job)=>{
     if(!job.clipskip){job.clipskip=0}
     if(!job.upscale){job.upscale=0}
     // set default init img mode
-    if(!job.control&&job.initimg){job.control='i2l'}
+    if(!job.control&&job.initimg){job.control=config.default.controlmode||'i2l'}
     if(job.controlresize&&['just_resize','crop_resize','fill_resize'].includes(job.controlresize)===false){job.controlresize='just_resize'}
     if(job.controlmode&&['balanced','more_prompt','more_control','unbalanced'].includes(job.controlresize)===false){job.controlresize='just_resize'}
-    //debugLog(job)
     return cast(job)
-}
-
-const rawGraphResponse = async(host,graph)=>{
-    let id = await postSession(host,graph)
-    await startSession(host,id)
-    let session = await pollSession(host,id)
-    //debugLog(session)
-    return session
-}
-
-const auditGraph = async(job)=>{
-    // audit a completed job graph for cost/time
-}
-
-const extractMetaFromSession = async(session)=>{
 }
 
 const hostHasModel = async(host,model)=>{
@@ -913,83 +765,61 @@ const hostHasModel = async(host,model)=>{
     } else { return false}
 }
 
-const depthMap = async(img,host,a_mult=2,bg_th=0.1)=>{
-    try{
-        if(!host)host=await findHost()
+const processImage = async(img,host,type,options) => {
+    try {
+        // todo this should check availability of the chosen preprocessor type on the host
+        if(!host) host=await findHost()
         let imgid = getUUID()
+        let graph = null
         let initimg = await uploadInitImage(host,img,imgid)
-        let graph={'nodes':{'midas_depth_image_processor':{'id':'midas_depth_image_processor','type':'midas_depth_image_processor','a_mult':a_mult,'bg_th':bg_th,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
-        let session = await rawGraphResponse(host,graph)
-        let images = await getSessionImages(host,session)
-        deleteImage(host,initimg.image_name)
-        return {images: images}
-    } catch (err) {
-        log(err)
-        return {error: err}
-    }
-}
-
-const canny = async(img,host,low_threshold=100,high_threshold=200)=>{
-    try{
-        if(!host)host=await findHost()
-        let imgid = getUUID()
-        let initimg = await uploadInitImage(host,img,imgid)
-        let graph={'nodes':{'canny_image_processor':{'id':'canny_image_processor','type':'canny_image_processor','low_threshold':low_threshold,'high_threshold':high_threshold,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
-        let session = await rawGraphResponse(host,graph)
-        let images = await getSessionImages(host,session)
-        deleteImage(host,initimg.image_name)
-        return {images: images}
-    } catch (err) {
-        log(err)
-        return {error: err}
-    }
-}
-
-const openpose = async(img,host,detect_resolution=512,hand_and_face=true,image_resolution=512)=>{
-    try{
-        if(!host)host=await findHost()
-        let imgid = getUUID()
-        let initimg = await uploadInitImage(host,img,imgid)
-        let graph={'nodes':{'openpose_image_processor':{'id':'openpose_image_processor','type':'openpose_image_processor','detect_resolution':detect_resolution,'hand_and_face':hand_and_face,'image_resolution':image_resolution,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
-        let session = await rawGraphResponse(host,graph)
-        let images = await getSessionImages(host,session)
-        deleteImage(host,initimg.image_name)
-        return {images: images}
-    } catch (err) {
-        log(err)
-        return {error: err}
-    }
-}
-
-const esrgan = async(img,host,model_name='RealESRGAN_x2plus.pth')=>{
-    try{
-        if(!host)host=await findHost()
-        let imgid = getUUID()
-        // read image dimensions before upscale
-        let resolution = await imageEdit.getResolution(img)
-        let width = resolution?.width
-        let height = resolution?.width
-        let totalPixels = width * height
-        // use config.maximum.pixels to find limits
-        let maxPixels = config.maximum.upscaledPixels ?? 4194304
-        if(totalPixels>=maxPixels){return {error: 'Image dimensions are too large! Max upscaled pixels = '+maxPixels}}
-        let initimg = await uploadInitImage(host,img,imgid)
-        let graph={
+        switch(type){
+            case 'esrgan':{
+                let resolution = await imageEdit.getResolution(img)
+                let width = resolution?.width
+                let height = resolution?.width
+                let totalPixels = width * height
+                let maxPixels = config.maximum.upscaledPixels ?? 4194304
+                if(totalPixels>=maxPixels){return {error: 'Image dimensions are too large! Max upscaled pixels = '+maxPixels}}
+                let model_name = options.model_name||RealESRGAN_x2plus.pth
+                graph = {nodes:{esrgan:{'id':'esrgan','type':'esrgan','model_name':model_name,'image':{'image_name':initimg.image_name}}}}
+                log(graph)
+                log(initimg)
+                log(initimg.image_name)
+                break
+            }
+            case 'openpose':{
+                let detect_resolution = options.detect_resolution||512
+                let hand_and_face = options.hand_and_face||true
+                let image_resolution = options.image_resolution||512
+                graph = {'nodes':{'openpose_image_processor':{'id':'openpose_image_processor','type':'openpose_image_processor','detect_resolution':detect_resolution,'hand_and_face':hand_and_face,'image_resolution':image_resolution,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
+                break
+            }
+            case 'canny':{
+                let low_threshold = options.low_threshold||100
+                let high_threshold = options.high_threshold||200
+                graph = {nodes:{canny_image_processor:{'id':'canny_image_processor','type':'canny_image_processor','low_threshold':low_threshold,'high_threshold':high_threshold,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
+                break
+            }
+            case 'depthmap':{
+                let a_mult = options.a_mult||2
+                let bg_th = option.bg_th||0.1
+                graph = {nodes:{midas_depth_image_processor:{'id':'midas_depth_image_processor','type':'midas_depth_image_processor','a_mult':a_mult,'bg_th':bg_th,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
+                break
+            }
+        }
+        let batch = {
             prepend:false,
             batch:{
                 data:[],
-                graph:{
-                    nodes:{esrgan:{'id':'esrgan','type':'esrgan','model_name':model_name,'image':{'image_name':initimg.image_name}}}
-                },
+                graph:graph,
                 runs:1
             }
         }
-        let batchId = await enqueueBatch(host,graph)
-        let sessionId = await pollQueue(host,batchId)
-        let session = await pollSession(host,sessionId) 
-        let images = await getSessionImages(host,session)
+        let batchId = await enqueueBatch(host,batch)
+        let images = await getBatchImages(host,batchId)
+        if(images.error){return {error:images.error}}
         deleteImage(host,initimg.image_name)
-        return {images: images}
+        return {images:images}
     } catch (err) {
         log(err)
         return {error: err}
@@ -1044,18 +874,27 @@ const controlnetnameToObject = async(controlnetname) => {
     throw `Unable to find online host with controlnet: ${controlnetname}`
 }
 
-
 getHostById = (id)=>{return cluster.find(h=>{h.id===id})}
 getHostByName = (name)=>{return cluster.find(h=>{h.name===name})}
 getHostByJobId = (id)=>{return cluster.find(h=>{h.jobs.includes(id)})}
-
+getHostOnlineCount = ()=>{return cluster.filter(h=>{return h.online&&!h.disabled}).length}
+getJobStats = ()=>{
+    let rc = resultCache
+    let completed = rc.filter(j=>{j.status==='completed'}).length
+    let pending = rc.filter(j=>{j.status==='pending'}).length
+    let progress = rc.filter(j=>{j.status==='in_progress'}).length
+    return {
+        completed,
+        pending,
+        progress
+    }
+}
 cast = async(job)=>{
     // easy mode, submit job, receive results
     const context = {
         job,
         host:null,
         batchId:null,
-        sessionId:null,
         images:[]
     }
     try{
@@ -1064,21 +903,18 @@ cast = async(job)=>{
             debugLog('Uploading initimg')
             initimgid = getUUID()
             context.job.initimgObject = await uploadInitImage(context.host,context.job.initimg,initimgid)
-            if(!context.job.control){context.job.control='i2l'}
+            if(!context.job.control){context.job.control=config.default.controlmode||'i2l'}
         }
         let graph = await buildGraphFromJob(context.job)
         context.batchId = await enqueueBatch(context.host,graph)
-        context.sessionId = await pollQueue(context.host,context.batchId)
-        let session = await pollSession(context.host,context.sessionId) // returned finished session
-        debugLog(context.host.name+' '+context.sessionId+' collecting images ')
-        context.images = await getSessionImages(context.host,session)   
+        context.images = await batchToImages(context.host,context.batchId)
+        delete resultCache[context.batchId]
         if(context.images?.error){return {error:context.images?.error}}
         if(context.job.initimgObject)deleteImage(context.host,context.job.initimgObject.image_name) // remove uploaded image after use
         let result = {
             job:context.job,
             host:context.host,
-            images:context.images,
-            session:session
+            images:context.images
         }
         return result
     }catch(err){
@@ -1086,7 +922,7 @@ cast = async(job)=>{
     }
 }
 
-init().then((r)=>{log(r)}).catch(e=>{log(e)})
+init().then(()=>{}).catch(e=>{log('init error:');log(e)})
 
 module.exports = {
     cluster,
@@ -1096,12 +932,11 @@ module.exports = {
         jobFromDream,
         jobFromMeta,
         validateJob,
-        rawGraphResponse,
         findHost,
-        depthMap,
-        canny,
-        openpose,
-        esrgan,
-        allUniqueModelsAvailable
+        allUniqueModelsAvailable,
+        processImage,
+        resultCache:getResultCache,
+        hostCount:getHostOnlineCount,
+        jobStats:getJobStats
     }
 }
