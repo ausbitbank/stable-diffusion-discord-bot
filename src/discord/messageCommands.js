@@ -14,6 +14,7 @@ let commands = [
         aliases: ['dream','drm','imagine','magin'],
         prefix:'!',
         command: async (args,msg)=>{
+            msg.addReaction('🫡') // salute emoji
             let img,imgurl
             let imgres = await extractImageAndUrlFromMessageOrReply(msg)
             if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
@@ -24,40 +25,6 @@ let commands = [
                 result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',imgurl)
             }
             return returnMessageResult(msg,result)
-        }
-    },
-    {
-        name: '4k',
-        description: 'Make a 4k (3840x2160) wallpaper',
-        permissionLevel: 'all',
-        aliases: ['4k'],
-        prefix:'!',
-        command: async(args,msg)=>{
-            debugLog('new 4k request: '+args.join(' '))
-            job={prompt:args.join(' '),lscale:3,upscale:2,width:640,height:360}
-            result = await invoke.validateJob(job)
-            return returnMessageResult(msg,result)
-        }
-    },
-    {
-        name: 'test',
-        description: 'Generic test trigger',
-        permissionLevel: 'owner',
-        aliases: ['test'],
-        prefix:'!',
-        command: async(args,msg)=>{
-            debugLog('test triggered: '+args.join(' '))
-            //let buf = await urlToBuffer('https://media.discordapp.net/attachments/968822563662860338/1143934598401757265/app_outputs_111410.691e4e6c.2999260581.png')
-            //let newbuf = await exif.edit(buf,'initimg','url','arty')
-            let result = {
-                //images: [{file:newbuf,name:getUUID()+'.png'}],
-                messages:[{content:'poll test'}]
-            }
-            return result
-            //graph={'nodes':{'midas_depth_image_processor':{'id':'midas_depth_image_processor','type':'midas_depth_image_processor','a_mult':2,'bg_th':0.1,'is_intermediate':true,'image':{'image_name':'13e06670-0572-4187-92ed-cb5aea231060.png'}}}}
-            //host=invoke.findHost()
-            //result = await invoke.rawGraphResponse(host,graph)
-            //return returnMessageResult(msg,result)
         }
     },
     {
@@ -138,17 +105,20 @@ let commands = [
             // RealESRGAN_x4plus.pth
             // RealESRGAN_x4plus_anime_6B
             // ESRGAN_SRx4_DF2KOST_official-ff704c30.pth
+            let modelname='RealESRGAN_x2plus.pth'
             let img,imgurl
             let imgres = await extractImageAndUrlFromMessageOrReply(msg)
             if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
             if(img){
-                let result = await invoke.esrgan(img,null,'RealESRGAN_x2plus.pth')
+                msg.addReaction('🫡') // salute emoji
+                //let result = await invoke.esrgan(img,null,modelname)
+                let result = await invoke.processImage(img,null,'esrgan',{model_name:modelname})
                 if(result.error){return {error:result.error}}
                 let buf = result.images[0]?.buffer
                 let resolution = await imageEdit.getResolution(buf)
                 let newWidth = resolution?.width
                 let newHeight = resolution?.height
-                return {messages:[{embeds:[{description:'Upscaled 2x with RealESRGAN_x2plus.pth to '+newWidth+' x '+newHeight,color:getRandomColorDec()}],components:[]}],files:[{file:buf,name:result.images[0].name}]}
+                return {messages:[{embeds:[{description:'Upscaled 2x with '+modelname+' to '+newWidth+' x '+newHeight,color:getRandomColorDec()}],components:[]}],files:[{file:buf,name:result.images[0].name}]}
             } else {
                 return { error:'No image attached to upscale'}
             }
@@ -218,8 +188,11 @@ let commands = [
             if(msg.messageReference?.messageID){
                 replymsg = await bot.getMessage(msg.channel.id, msg.messageReference.messageID)
                 if(replymsg.member.id===bot.application.id&&messageHasImageAttachments(replymsg)){
+                    msg.addReaction('🫡') // salute emoji
                     meta = await extractMetadataFromMessage(replymsg)
-                    meta.invoke.prompt = meta.invoke?.positive_prompt+'['+meta.invoke?.negative_prompt+'] '+parsedCmd._.join(' ')
+                    //meta.invoke.prompt = meta.invoke?.positive_prompt+'['+meta.invoke?.negative_prompt+'] '+parsedCmd._.join(' ')
+                } else {
+                    return
                 }
             } else {
                 return
@@ -352,7 +325,6 @@ parseMsg=async(msg)=>{
                         }
                     }
                     log(c.name+' triggered by '+username+' in '+msg.channel.name||msg.channel.id+' ('+guild+')')
-                    msg.addReaction('🫡') // salute emoji
                     try{
                         let result = await c.command(args,msg)
                         let messages = result?.messages
@@ -492,12 +464,19 @@ imageResultMessage = (userid,img,result,meta)=>{
     if(meta.invoke?.scale){t+=' :scales: '+meta.invoke.scale}
     if(meta.invoke?.model){t+=' :floppy_disk: '+meta.invoke.model?.model_name}
     if(meta.invoke?.clipskip){t+=' :clipboard: '+meta.invoke.clipskip}
+    if(meta.invoke?.strength){t+=' :muscle: '+meta.invoke.strength}
+    if(meta.invoke?.lscale&&meta.invoke?.lscale!==1){t+=' :mag_right: '+meta.invoke.lscale}
     if(meta.invoke?.loras?.length>0){
         t+=' :pill: '
         for (const l in meta.invoke?.loras){t+=meta.invoke.loras[l].lora.model_name+'('+meta.invoke.loras[l].weight+') '}
     }
-    if(meta.invoke?.inputImageUrl){t+=' :paperclip: attachment'}
+    if(meta.invoke?.inputImageUrl){t+=' :paperclip: '}
     if(meta.invoke?.control){t+=' :video_game: '+meta.invoke.control}
+    if(meta.invoke?.ipamodel){t+=' '+meta.invoke.ipamodel}
+    if(meta.invoke?.controlweight){t+=',w:'+meta.invoke.controlweight}
+    if(meta.invoke?.controlstart){t+=',s:'+meta.invoke.controlstart}
+    if(meta.invoke?.controlend){t+=',e:'+meta.invoke.controlend}
+    if(meta.invoke?.facemask){t+' :performing_arts: facemask'}
     let colordec=getRandomColorDec()
     return {
         content:':brain: <@'+userid+'>',
