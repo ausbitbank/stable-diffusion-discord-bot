@@ -11,6 +11,7 @@ const {slashCommands}=require('./slashCommands')
 var colors = require('colors')
 const {auth}=require('./auth')
 const {emojiCommands} = require("./emojiCommands")
+const {status} = require('./status')
 const { isFunction } = require("lodash")
 
 chat=async(channel,msg,file=null)=>{
@@ -98,13 +99,14 @@ async function botInit(){
     log('Connected to '.bgGreen.black+' discord'.bgGreen+' in '+bot.guilds.size+' guilds')
     log(('Invite bot to server: https://discord.com/oauth2/authorize?client_id='+bot.application.id+'&scope=bot&permissions=124992').dim)
     slashCommands.init()
+
     //if (config.hivePaymentAddress.length>0){checkNewPayments()}
   })
   // Runs on all messages received
   bot.on('messageCreate',async(msg)=>{
     if(config.ignoreAllBots&&msg.author.bot) return // ignore all bot messages
     if(config.logging.chat)logChat(msg)
-    parseMsg(msg).then().catch(e=>log(e))
+    parseMsg(msg).then().catch(e=>{log('Error on discord/parseMsg');log(e)})
   })
   // Runs on all interactions
   bot.on("interactionCreate", async (interaction) => {
@@ -116,6 +118,8 @@ async function botInit(){
   bot.on("messageReactionAdd", async (msg,emoji,reactor) => {
     emojiCommands.parse(msg,emoji,reactor)
   })
+  // Update status message max every 15 seconds if changed
+  status.init()
 }
 
 module.exports={
