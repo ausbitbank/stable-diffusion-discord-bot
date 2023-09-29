@@ -33,6 +33,7 @@
         "scale":4,
         "strength":0.7,
         "scheduler":"dpmpp_2m_sde_k",
+        "controlmode":"depth",
         "model":"swizz8-v3",
         "refinerModel":"sdxl_refiner_1.0",
         "inpaintModel":"deliberate-inpainting",
