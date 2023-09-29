@@ -16,9 +16,13 @@ let commands = [
         permissionLevel: 'all',
         aliases: ['refresh'],
         command: async (interaction)=>{
-            interaction.createMessage({content:':saluting_face: refreshing',flags:64})
+            try{
+                interaction.createMessage({content:':saluting_face: refreshing',flags:64})
+                interaction.message.addReaction('🎲')
+            } catch(err){
+                log(err)
+            }
             let img=null
-            interaction.message.addReaction('🎲')
             let meta = await messageCommands.extractMetadataFromMessage(interaction.message)
             if(meta.invoke?.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
             let result = await invoke.jobFromMeta(meta,img)
@@ -42,9 +46,9 @@ let commands = [
             await interaction.createMessage({content:':saluting_face: refreshing with **'+key+'** of `'+value+'`',flags:64})
             //interaction.message.addReaction('✏️')
             switch(key){
-                case 'scale':{value=parseFloat(value)}
-                case 'steps':{value=parseInt(value)}
-                case 'strength':{value=parseFloat(value)}
+                case 'scale':{value=parseFloat(value);break}
+                case 'steps':{value=parseInt(value);break}
+                case 'strength':{value=parseFloat(value);break}
             }
             let sourcemsg = await bot.getMessage(channelid, msgid)
             let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
@@ -177,7 +181,9 @@ let commands = [
             let channelid = interaction.channel.id
             let sourcemsg = await bot.getMessage(channelid,msgid)
             let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
-            let strength = meta.invoke.strength
+            let strength = meta.invoke.strength.toString()
+            //let strength = config?.default?.strength?.toString()||'0.7'
+            //strength = strength.toString()
             return interaction.createModal({
                 custom_id:'edit-'+sourcemsg.id,
                 title:'Edit the strength',
@@ -222,9 +228,9 @@ let commands = [
                             {type: 2, style: 1, label: 'Resolution', custom_id: 'editResolution-'+msgid, emoji: { name: '📏', id: null}, disabled: true },
                             {type: 2, style: 1, label: 'Scale', custom_id: 'editScale-'+msgid, emoji: { name: '⚖️', id: null}, disabled: false },
                             {type: 2, style: 1, label: 'Steps', custom_id: 'editSteps-'+msgid, emoji: { name: '♻️', id: null}, disabled: false },
-                            {type: 2, style: 1, label: 'Strength', custom_id: 'editStrength-'+msgid, emoji: { name: '💪', id: null}, disabled: true },
+                            {type: 2, style: 1, label: 'Strength', custom_id: 'editStrength-'+msgid, emoji: { name: '💪', id: null}, disabled: false },
                             {type: 2, style: 1, label: 'Sampler', custom_id: 'chooseSampler-'+msgid, emoji: { name: '👁️', id: null}, disabled: false }
-                      ]}
+                    ]}
                 ]
             }
             interaction.createMessage(tweakmsg)
@@ -277,12 +283,14 @@ let commands = [
                 ){
                 // admin or owner can delete
                 // tag the original request so its obvious what happened
+                /*
                 if(interaction.message.messageReference&&interaction.message.messageReference.messageID!==null){
                     try{
                         let sourcemsg = await bot.getMessage(interaction.channel.id,interaction.message.messageReference.messageID)
                         if(sourcemsg.member.id!==bot.application.id){sourcemsg.addReaction('🗑️')}
                     } catch(err){log(err)}
                 }
+                */
                 msg.delete()
             } else {
                 // otherwise make them show their vote
@@ -484,7 +492,7 @@ parseCommand = async(interaction)=>{
                             chat(channelid,message) // Send message, no attachment
                             }
                         })
-                    }catch(e){log(e)}
+                    }catch(e){log('error in componentCommands\\parseCmd');log(e)}
                 }
             })
         })
