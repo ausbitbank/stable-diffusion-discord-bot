@@ -46,8 +46,8 @@ var commands = [
                 let reactedmsg = await bot.getMessage(msg.channel.id,msg.id)
                 // only care about messages created by the bot or people reacting to their own messages
                 if(
-                    (reactedmsg.member.id!==bot.application.id)&&
-                    (reactor.user.id!==reactedmsg.member.id)){
+                    (reactedmsg.member?.id!==bot.application.id)&&
+                    (reactor.user?.id!==reactedmsg.member.id)){
                         debugLog('ignoring removeBadResult request')
                         return
                     }
