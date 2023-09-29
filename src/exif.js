@@ -27,12 +27,20 @@ load=async(buf)=>{
         let model = meta?.model
         let clipskip = meta?.clip_skip
         let loras=meta?.loras
-        let control=null
+        let control, controlweight, controlstart, controlend, ipamodel, facemask, prompt, strength, lscale, invert = null
         try{
             let workflow = JSON.parse(exif.invokeai_workflow?.value)
             //debugLog('extracted workflow:')
-            debugLog(workflow.notes.control)
-            control = workflow?.notes?.control        
+            control = workflow?.notes?.control
+            controlweight = workflow?.notes?.controlweight
+            controlstart = workflow?.notes?.controlstart
+            controlend = workflow?.notes?.controlend
+            ipamodel = workflow?.notes?.ipamodel
+            facemask = workflow?.notes?.facemask
+            prompt = workflow?.notes?.prompt
+            lscale = workflow?.notes?.lscale
+            strength = workflow?.notes?.strength
+            invert = workflow?.notes?.invert
         } catch(err){
             debugLog('Error parsing invokeai_workflow metadata')
             debugLog(err)
@@ -46,7 +54,6 @@ load=async(buf)=>{
         let pixelSteps=0
         let genWidth=0
         let genHeight=0
-        let lscale=1
         let controlnets=meta?.controlnets
         let inputImageUrl=null
         let scheduler=meta?.scheduler
@@ -99,7 +106,14 @@ load=async(buf)=>{
             clipskip,
             style,
             negstyle,
-            control
+            control,
+            controlweight,
+            controlstart,
+            controlend,
+            ipamodel,
+            facemask,
+            prompt,
+            strength
         }
     }
     return results
