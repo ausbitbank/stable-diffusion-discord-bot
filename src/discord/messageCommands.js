@@ -5,6 +5,7 @@ const {bot}=require('./bot')
 const {auth}=require('./auth')
 const {imageEdit}=require('../imageEdit')
 const parseArgs = require('minimist')
+const {fonturls} = require('../fonturls')
 // Process discord text message commands
 let commands = [
     {
@@ -39,11 +40,15 @@ let commands = [
             let imgres = await extractImageAndUrlFromMessageOrReply(msg)
             if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
             if(img){
-                //let buf = await extractImageBufferFromMessage(msg)
-                let result = await invoke.depthMap(img)
-                let buf = result.images[0]?.buffer
-                buf = await exif.modify(buf,'arty','imageType','depth')
-                return {messages:[{embeds:[{description:'Converted image to depth map',color:getRandomColorDec()}]}],files:[{file:buf,name:result.images[0].name}]}
+                msg.addReaction('🫡') // salute emoji
+                let result = await invoke.processImage(img,null,'depthmap',{a_mult:2,bg_th:0.1})
+                if (result?.images?.length>0){
+                    let buf = result.images[0]?.buffer
+                    buf = await exif.modify(buf,'arty','imageType','depth')
+                    return {messages:[{embeds:[{description:'Converted image to depth map',color:getRandomColorDec()}]}],files:[{file:buf,name:result.images[0].name}]}
+                } else {
+                    return {error:'Failed depth map creation'}
+                }
             } else {
                 return { error:'No image attached to create depthmap'}
             }
@@ -53,7 +58,7 @@ let commands = [
         name: 'edges',
         description: 'Return a canny edge detection of an input image',
         permissionLevel: 'all',
-        aliases: ['edges'],
+        aliases: ['edge','edges','canny'],
         prefix:'!',
         command: async(args,msg)=>{
             debugLog('canny edge detection creation triggered: '+args.join(' '))
@@ -61,10 +66,14 @@ let commands = [
             let imgres = await extractImageAndUrlFromMessageOrReply(msg)
             if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
             if(img){
-                let result = await invoke.canny(img)
-                let buf = result.images[0]?.buffer
-                buf = await exif.modify(buf,'arty','imageType','canny')
-                return {messages:[{embeds:[{description:'Converted to canny edge detection',color:getRandomColorDec()}]}],files:[{file:buf,name:result.images[0].name}]}
+                let result = await invoke.processImage(img,null,'canny',{low_threshold:100,high_threshold:200})
+                if(result?.images?.length>0){
+                    let buf = result.images[0]?.buffer
+                    buf = await exif.modify(buf,'arty','imageType','canny')
+                    return {messages:[{embeds:[{description:'Converted to canny edge detection',color:getRandomColorDec()}]}],files:[{file:buf,name:result.images[0].name}]}
+                } else {
+                    return {error:'Failed canny edge detection'}
+                }
             } else {
                 return { error:'No image attached to create canny edge detection'}
             }
@@ -82,11 +91,15 @@ let commands = [
             let imgres = await extractImageAndUrlFromMessageOrReply(msg)
             if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
             if(img){
-                let result = await invoke.openpose(img)
-                let buf = result.images[0]?.buffer
-                buf = await exif.modify(buf,'arty','imageType','openpose')
-                let components = [{type:1,components:[{type: 2, style: 1, label: 'Use this pose', custom_id: 'usepose', emoji: { name: '🤸', id: null}, disabled: true }]}]
-                return {messages:[{embeds:[{description:'Converted to openpose detection',color:getRandomColorDec()}],components:components}],files:[{file:buf,name:result.images[0].name}]}
+                let result = await invoke.processImage(img,null,{detect_resolution:512,hand_and_face:true,image_resolution:512})
+                if(result?.images?.length>0){
+                    let buf = result.images[0]?.buffer
+                    buf = await exif.modify(buf,'arty','imageType','openpose')
+                    let components = [{type:1,components:[{type: 2, style: 1, label: 'Use this pose', custom_id: 'usepose', emoji: { name: '🤸', id: null}, disabled: true }]}]
+                    return {messages:[{embeds:[{description:'Converted to openpose detection',color:getRandomColorDec()}],components:components}],files:[{file:buf,name:result.images[0].name}]}
+                }else{
+                    return {error:'Failed at openpose detection'}
+                }
             } else {
                 return { error:'No image attached to create pose detection'}
             }
@@ -176,6 +189,58 @@ let commands = [
             return result
         }
     },
+    {
+        name: 'textfontimage',
+        description: 'Create an image containing text for use as an controlnet input image, using invokes "textfontimage" community node from mickr777',
+        permissionLevel: 'all',
+        aliases: ['textfontimage'],
+        prefix:'!',
+        command: async (args,msg)=>{
+            // todo import and use parseArgs to parse settings
+            let userId=msg.user?.id||msg.member?.id||msg.author?.id
+            let options = parseArgs(args,{})
+            //let fonts = fonturls.list()
+            let fonturl = null
+            if(options.font){
+                // convert font name to font url
+                fonturl=fonturls.get(options.font)
+            } else {
+                let f = fonturls.random()
+                options.font = f.name
+                fonturl = f.url
+            }
+            let parsedOptions = {
+                text_input: options._.join(' '),
+                text_input_second_row: options.row2??null,
+                second_row_font_size:options.row2size??null,
+                font_url:fonturl,
+                local_font_path:null,
+                local_font:null,
+                image_width:options.width??1024,
+                image_height:options.height??512,
+                padding:options.padding??100,
+                row_gap:options.gap??50
+            }
+            //log(parsedOptions)
+            result = await invoke.textFontImage(parsedOptions)
+            if(result.error||result.images.length==0){return {error:'Error in textfontimage'}}
+            let response = {
+                embeds:[
+                    {description:':tada: textfontimage result for <@'+userId+'>\nText: `'+parsedOptions.text_input+'`, Width:`'+result.images[0].width+'` , Height: `'+result.images[0].height+'`, Font: `'+options.font+'`, Padding: `'+parsedOptions.padding+'`, Gap: `'+parsedOptions.row_gap+'`',color:getRandomColorDec()}
+                ],
+                components:[{type:1,components:[
+                    {type: 2, style: 1, label: 'depth controlnet (clear)', custom_id: 'depthcontrol', emoji: { name: '🪄', id: null}, disabled: true },
+                    {type: 2, style: 1, label: 'qrcode controlnet (subtle)', custom_id: 'qrcontrol', emoji: { name: '🪄', id: null}, disabled: true }
+                ]}]
+            }
+            return {
+                messages:[response],
+                files:[{file:result.images[0].buffer,name:result.images[0].name}]
+            }
+            //return result
+        }
+    },
+    //https://github.com/mickr777/textfontimage
     {
         name: 'append',
         description: 'Append to a renders prompt and arguments',
@@ -332,7 +397,7 @@ parseMsg=async(msg)=>{
                         let error = result?.error
                         if(error){
                             log('Error: '.bgRed+' '+error)
-                            chat(channelid,{content:':warning: '+error})
+                            chat(channelid,{content:'<@'+userid+'>', embeds:[{description:':warning: '+error,color:getRandomColorDec()}]})
                             return
                         }
                         if(!Array.isArray(messages)){messages=[messages]}
@@ -433,11 +498,13 @@ extractImageAndUrlFromMessageOrReply = async(msg)=>{
     if(messageHasImageAttachments(msg)){
         img = await extractImageBufferFromMessage(msg)
         url = await extractImageUrlFromMessage(msg)
+        debugLog('Extracted image attachment from message '+url)
     } else if(msg.messageReference?.messageID) {
         let sourcemsg = await bot.getMessage(msg.channel.id, msg.messageReference.messageID)
         if(messageHasImageAttachments(sourcemsg)){
             img = await extractImageBufferFromMessage(sourcemsg)
             url = await extractImageUrlFromMessage(sourcemsg)
+            debugLog('Extracted image attachment from message reply '+url)
         }
     } else {
         img=null
