@@ -150,7 +150,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     //      id can either be actual id, or a type (type-number for multiples) or reference lastid.clip etc for most recent id's
     var p=[] // 
     // Metadata accumulator
-    // todo add vae object and controlnets array
+    // todo vae object , controlnets array , ipAdapters array should be properly populated
     let metaObject = {
         is_intermediate:false,
         generation_mode:job.initimg?'img2img':'txt2img',
@@ -166,6 +166,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         model:job.model,
         loras:[],
         controlnets:[],
+        ipAdapters:[],
         vae:{model_name:'sd-vae-ft-mse',base_model:'sd-1'},
         positive_style_prompt:job.style??'',
         negative_style_prompt:job.negstyle??'',
@@ -277,8 +278,8 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         {node_path:lastid.noise,field_name:'seed',items:dataitems},
         {node_path:lastid.metadata_accumulator,field_name:'seed',items:dataitems}
     ])
-    // Tada! Graph built, submit to backend
-    debugLog(graph)
+    // Tada! Graph built
+    // debugLog(graph)
     return {
         prepend:false,
         batch:{
@@ -293,6 +294,7 @@ const enqueueBatch = async (host, graph, name='arty') => {
     // new in invoke 3.2.0rc1
     try {
         const response = await axios.post(host.url + '/api/v1/queue/'+name+'/enqueue_batch',graph)
+        //debugLog('enqueue response:');debugLog(response)
         return response.data.batch.batch_id
     } catch (err) {
         console.error('Error queueing batch',err.data)
@@ -395,6 +397,7 @@ const subscribeQueue = async(host,name='arty')=>{
         socket.on('batch_enqueued', msg => {
             // queue_id str, batch_id str, enqueued int, timestamp
             debugLog(host.name+' batch enqueued: '+msg.batch_id.dim)
+            debugLog(msg)
             resultCache[msg.batch_id] = {
                 batch_id:msg.batch_id,
                 status:'pending',
@@ -413,6 +416,7 @@ const subscribeQueue = async(host,name='arty')=>{
         })
         socket.on('invocation_complete', msg => {
             debugLog(host.name+' '+msg.queue_batch_id.dim+' finished '+msg.node.type)
+            //debugLog(msg)
             if(msg.result?.type==='image_output'){
                 // A finalized image being completed)
                 debugLog('image output: '+msg.result?.image?.image_name)
@@ -748,7 +752,7 @@ const validateJob = async(job)=>{
     if(!job.scale){job.scale=config.default.scale? config.default.scale : 0.7}
     // scheduler must be one of these
     let validSchedulers=config.schedulers||['ddim','ddpm','deis','lms','lms_k','pndm','heun','heun_k','euler','euler_k','euler_a','kdpm_2','kdpm_2_a','dpmpp_2s','dpmpp_2s_k','dpmpp_2m','dpmpp_2m_k','dpmpp_2m_sde','dpmpp_2m_sde_k','dpmpp_sde','dpmpp_sde_k','unipc']
-    if(!job.scheduler){job.scheduler=config.default.scheduler? config.default.scheduler : 'dpmpp_2m_sde_k'}
+    if(!job.scheduler){job.scheduler=config.default.scheduler? config.default.scheduler.toLowerCase() : 'dpmpp_2m_sde_k'}
      // lscale min 1 max 3 default 1
     if(!job.lscale||job.lscale<1||job.lscale>3){job.lscale=1}
     if(!job.clipskip){job.clipskip=0}
@@ -763,6 +767,45 @@ const validateJob = async(job)=>{
 const hostHasModel = async(host,model)=>{
     if(host?.models?.includes(model)){ return true
     } else { return false}
+}
+
+const textFontImage = async(options,host) => {
+    // uses/requires textfontimage community node from mickr777
+    // https://github.com/mickr777/textfontimage/tree/main
+    try {
+        // todo need to be sure the host has the node installed
+        if(!host)host=await findHost()
+        let graph = {nodes:{
+            Text_Font_to_Image:{
+                id:'Text_Font_to_Image',
+                type:'Text_Font_to_Image',
+                text_input:options.text_input,
+                font_url:options.font_url,
+                image_width:options.image_width,
+                image_height:options.image_height,
+                padding:options.padding,
+                row_gap:options.row_gap/*,
+                text_input_second_row:options.text_input_second_row,
+                second_row_font_size:options.second_row_font_size,
+                local_font_path:options.local_font_path,
+                local_font:options.local_font,*/
+            }
+        }}
+        debugLog(graph.nodes.Text_Font_to_Image)
+        let batch = {prepend:false,batch:{data:[],graph:graph,runs:1}}
+        let batchId = await enqueueBatch(host,batch)
+        let images = await batchToImages(host,batchId)
+        log(images)
+        if(images.error){return {error:images.error}}
+        if(!images||images.length===0){return{error:'Error in textFontImage'}}
+        deleteImage(host,images[0].name)
+        return {images:images}
+    } catch (err) {
+        log('Error in textFontImage')
+        log('uses/requires textfontimage community node from mickr777')
+        log('https://github.com/mickr777/textfontimage/tree/main')
+        return {error:err}
+    }
 }
 
 const processImage = async(img,host,type,options) => {
@@ -791,7 +834,7 @@ const processImage = async(img,host,type,options) => {
                 let detect_resolution = options.detect_resolution||512
                 let hand_and_face = options.hand_and_face||true
                 let image_resolution = options.image_resolution||512
-                graph = {'nodes':{'openpose_image_processor':{'id':'openpose_image_processor','type':'openpose_image_processor','detect_resolution':detect_resolution,'hand_and_face':hand_and_face,'image_resolution':image_resolution,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
+                graph = {nodes:{openpose_image_processor:{'id':'openpose_image_processor','type':'openpose_image_processor','detect_resolution':detect_resolution,'hand_and_face':hand_and_face,'image_resolution':image_resolution,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
                 break
             }
             case 'canny':{
@@ -802,7 +845,7 @@ const processImage = async(img,host,type,options) => {
             }
             case 'depthmap':{
                 let a_mult = options.a_mult||2
-                let bg_th = option.bg_th||0.1
+                let bg_th = options.bg_th||0.1
                 graph = {nodes:{midas_depth_image_processor:{'id':'midas_depth_image_processor','type':'midas_depth_image_processor','a_mult':a_mult,'bg_th':bg_th,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
                 break
             }
@@ -816,17 +859,15 @@ const processImage = async(img,host,type,options) => {
             }
         }
         let batchId = await enqueueBatch(host,batch)
-        let images = await getBatchImages(host,batchId)
+        let images = await batchToImages(host,batchId)
+        await deleteImage(host,initimg.image_name)
         if(images.error){return {error:images.error}}
-        deleteImage(host,initimg.image_name)
         return {images:images}
     } catch (err) {
         log(err)
         return {error: err}
     }
 }
-
-
 
 const modelnameToObject = async(modelname)=>{
     // look up models available on hosts
@@ -880,9 +921,13 @@ getHostByJobId = (id)=>{return cluster.find(h=>{h.jobs.includes(id)})}
 getHostOnlineCount = ()=>{return cluster.filter(h=>{return h.online&&!h.disabled}).length}
 getJobStats = ()=>{
     let rc = resultCache
-    let completed = rc.filter(j=>{j.status==='completed'}).length
-    let pending = rc.filter(j=>{j.status==='pending'}).length
-    let progress = rc.filter(j=>{j.status==='in_progress'}).length
+    let completed=0, pending=0, progress=0
+    for (const i in rc){
+        let r = rc[i]
+        if(r.status==='completed')completed++
+        if(r.status==='pending')pending++
+        if(r.status==='in_progress')progress++
+    }
     return {
         completed,
         pending,
@@ -937,6 +982,7 @@ module.exports = {
         processImage,
         resultCache:getResultCache,
         hostCount:getHostOnlineCount,
-        jobStats:getJobStats
+        jobStats:getJobStats,
+        textFontImage
     }
 }
