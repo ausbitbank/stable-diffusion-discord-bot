@@ -32,7 +32,7 @@
     "exifreader": "^4.12.0",
     "form-data": "^4.0.0",
     "fs.promises.exists": "^1.1.4",
-    "hive-tx": "^5.0.1",
+    "hive-tx": "^5.2.1",
     "jimp": "^0.22.8",
     "minimist": "^1.2.6",
     "moment": "^2.29.4",
