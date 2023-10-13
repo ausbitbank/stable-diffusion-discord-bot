@@ -19,7 +19,8 @@ let commands = [
             let img,imgurl
             let imgres = await extractImageAndUrlFromMessageOrReply(msg)
             if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
-            result = await invoke.jobFromDream(args,img)
+            let trackingmsg = await bot.createMessage(msg.channel.id,{content:':saluting_face: dreaming'})
+            result = await invoke.jobFromDream(args,img,{type:'discord',msg:trackingmsg})
             // inject the original template image url
             if(imgurl && !result.error && result.images?.length > 0){
                 debugLog('Attaching input image url to png metadata: '+imgurl)
@@ -91,7 +92,7 @@ let commands = [
             let imgres = await extractImageAndUrlFromMessageOrReply(msg)
             if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
             if(img){
-                let result = await invoke.processImage(img,null,{detect_resolution:512,hand_and_face:true,image_resolution:512})
+                let result = await invoke.processImage(img,null,'openpose',{detect_resolution:512,hand_and_face:true,image_resolution:512})
                 if(result?.images?.length>0){
                     let buf = result.images[0]?.buffer
                     buf = await exif.modify(buf,'arty','imageType','openpose')
@@ -253,21 +254,22 @@ let commands = [
             if(msg.messageReference?.messageID){
                 replymsg = await bot.getMessage(msg.channel.id, msg.messageReference.messageID)
                 if(replymsg.member.id===bot.application.id&&messageHasImageAttachments(replymsg)){
-                    msg.addReaction('🫡') // salute emoji
+                    //msg.addReaction('🫡') // salute emoji
                     meta = await extractMetadataFromMessage(replymsg)
-                    //meta.invoke.prompt = meta.invoke?.positive_prompt+'['+meta.invoke?.negative_prompt+'] '+parsedCmd._.join(' ')
+                    meta.invoke.prompt = meta.invoke?.prompt+' '+parsedCmd._.join(' ')
                 } else {
                     return
                 }
             } else {
                 return
             }
+            let trackingmsg = await bot.createMessage(msg.channel.id,{content:':saluting_face: dreaming'})
             Object.keys(parsedCmd).forEach(k=>{
-                debugLog('Appending '+parsedCmd[k])
+                debugLog('Appending '+meta.invoke[k]+' : '+parsedCmd[k])
                 if(k!=='_'){meta.invoke[k] = parsedCmd[k]}
             })
             if(meta.invoke?.inputImageUrl){img=urlToBuffer(meta.invoke.inputImageUrl)}
-            result = await invoke.jobFromMeta(meta,img)
+            result = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
             return returnMessageResult(msg,result)
         }
     },
@@ -389,7 +391,7 @@ parseMsg=async(msg)=>{
                             break
                         }
                     }
-                    log(c.name+' triggered by '+username+' in '+msg.channel.name||msg.channel.id+' ('+guild+')')
+                    log(c.name+' triggered by '+username+' in '+msg.channel.name??channelid+' ('+guildid+')')
                     try{
                         let result = await c.command(args,msg)
                         let messages = result?.messages
@@ -537,15 +539,16 @@ imageResultMessage = (userid,img,result,meta)=>{
         t+=' :pill: '
         for (const l in meta.invoke?.loras){t+=meta.invoke.loras[l].lora.model_name+'('+meta.invoke.loras[l].weight+') '}
     }
-    if(meta.invoke?.inputImageUrl){t+=' :paperclip: '}
+    if(meta.invoke?.inputImageUrl){t+=' :paperclip: [img]('+meta.invoke.inputImageUrl+')'}
     if(meta.invoke?.control){t+=' :video_game: '+meta.invoke.control}
     if(meta.invoke?.ipamodel){t+=' '+meta.invoke.ipamodel}
     if(meta.invoke?.controlweight){t+=',w:'+meta.invoke.controlweight}
     if(meta.invoke?.controlstart){t+=',s:'+meta.invoke.controlstart}
     if(meta.invoke?.controlend){t+=',e:'+meta.invoke.controlend}
-    if(meta.invoke?.facemask){t+' :performing_arts: facemask'}
+    if(meta.invoke?.facemask){t+=' :performing_arts: facemask'}
+    if(meta.invoke?.invert){t+=' inverted'}
     let colordec=getRandomColorDec()
-    return {
+    let newmsg = {
         content:':brain: <@'+userid+'>',
         embeds:[
             {
@@ -570,6 +573,53 @@ imageResultMessage = (userid,img,result,meta)=>{
         ],
         allowed_mentions:{users:[userid]}
     }
+    // if controlnet is enabled, allow dropdown menu for controlweight changes
+    let cnwos = [0,5,10,15,20,25,30,35,40,45,50,55,60,65,70,75,80,85,90,95,100]
+    let cnwos2 = [...cnwos,125,150,175,200]
+    if(meta.invoke?.inputImageUrl&&meta.invoke?.control&&meta.invoke?.controlweight){
+        let cnwo = []
+        for (const i in cnwos2){
+            let o = cnwos2[i]
+            let od = (parseFloat(meta.invoke.controlweight).toFixed(2)===(o/100).toFixed(2)) ? 'Selected' : null
+            cnwo.push({value:(o/100).toFixed(2),description:od,label:o+'%'})
+        }
+        newmsg.components.push({type:1,components:[{type: 3,custom_id:'edit-x-controlweight',placeholder:'Controlnet weight '+(parseFloat(meta.invoke.controlweight)*100).toFixed(0)+'%',min_values:1,max_values:1,options:cnwo}]})
+    }
+    // same for controlstart
+    if(meta.invoke?.inputImageUrl&&meta.invoke?.control&&meta.invoke?.controlstart){
+        let cnwo = []
+        for (const i in cnwos){
+            let o = cnwos[i]
+            let od = (parseFloat(meta.invoke.controlstart).toFixed(2)===(o/100).toFixed(2)) ? 'Selected' : null
+            cnwo.push({value:(o/100).toFixed(2),description:od,label:o+'%'})
+        }
+        newmsg.components.push({type:1,components:[{type: 3,custom_id:'edit-x-controlstart',placeholder:'Controlnet start at '+(parseFloat(meta.invoke.controlstart)*100).toFixed(0)+'%',min_values:1,max_values:1,options:cnwo}]})
+    }
+    // same for controlend
+    if(meta.invoke?.inputImageUrl&&meta.invoke?.control&&meta.invoke?.controlend){
+        let cnwo = []
+        for (const i in cnwos){
+            let o = cnwos[i]
+            let od = (parseFloat(meta.invoke.controlend).toFixed(2)===(o/100).toFixed(2)) ? 'Selected' : null
+            cnwo.push({value:(o/100).toFixed(2),description:od,label:o+'%'})
+        }
+        newmsg.components.push({type:1,components:[{type: 3,custom_id:'edit-x-controlend',placeholder:'Controlnet end at '+(parseFloat(meta.invoke.controlend)*100).toFixed(0)+'%',min_values:1,max_values:1,options:cnwo}]})
+    }
+    /*
+    // same for control itself
+    if(meta.invoke?.inputImageUrl&&meta.invoke?.control){
+        let cnwo = []
+        // todo detect controltype names and availability from api
+        let controltypes = ['ipa','i2l','depth','canny','openpose','qrCodeMonster_v20']
+        for (const i in controltypes){
+            let o = controltypes[i]
+            let od = (meta.invoke.control===o) ? 'Selected' : null
+            cnwo.push({value:o,label:od,label:o})
+        }
+        newmsg.components.push({type:1,components:[{type: 3,custom_id:'edit-x-control',placeholder:'Controlnet Type',min_values:1,max_values:1,options:cnwo}]})
+    }
+    */
+    return newmsg
 }
 
 help=()=>{
