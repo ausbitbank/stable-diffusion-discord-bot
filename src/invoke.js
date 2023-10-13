@@ -11,10 +11,11 @@ var colors = require('colors')
 const { isString, isObject } = require('lodash')
 const parseArgs = require('minimist')
 const {imageEdit} = require('./imageEdit.js')
+const {progress}=require('./discord/progress')
+const {resultCache}=require('./resultCache')
 var cluster=config.cluster
-let resultCache=[]
-
-const getResultCache = ()=>{return resultCache}
+//let resultCache=[]
+//const getResultCache = ()=>{return resultCache}
 
 const init=async()=>{
     // Setup cluster of invoke ai backends starting with primary
@@ -92,7 +93,8 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         graph.nodes[newid]={}
         graph.nodes[newid].type=type
         graph.nodes[newid].id=newid
-        if(type==='l2i'){ graph.nodes[newid].workflow=buildWorkflowFromJob(job)
+        if(type==='l2i'){
+            graph.nodes[newid].workflow=buildWorkflowFromJob(job)
         } else {
             graph.nodes[newid].workflow=null
         }
@@ -160,17 +162,18 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         width:job.width,
         positive_prompt:job.positive_prompt,
         negative_prompt:job.negative_prompt,
-        rand_device:'cpu',
+        rand_device:'cpu', // cpu only for reproducibility
         scheduler:job.scheduler,
         steps:job.steps,
         model:job.model,
-        loras:[],
+        loras:[], // loras array is legitimately populated below, need to do the same for controlnets/ipadapters/t2iadapters
         controlnets:[],
-        ipAdapters:[],
-        vae:{model_name:'sd-vae-ft-mse',base_model:'sd-1'},
-        positive_style_prompt:job.style??'',
-        negative_style_prompt:job.negstyle??'',
-        refiner_model:job.refiner_model,
+        ipAdapters:[],// invoke 3.2+
+        t2iAdapters:[],// invoke 3.3rc1+
+        //vae:{model_name:'sd-vae-ft-mse',base_model:'sd-1'}, // Removed this and VAE loader, configure VAE per model
+        positive_style_prompt:job.style??'', // todo apparently you're supposed to append your main prompt to the style prompt
+        negative_style_prompt:job.negstyle??'', // ^^
+        refiner_model:job.refiner_model, // todo remove all references to refiner model without breaking graph building
         refiner_cfg_scale:job.refiner_scale,
         refiner_steps:job.refiner_steps,
         refiner_scheduler:null,
@@ -185,7 +188,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     }
     if(['sd-1','sd-2'].includes(job.model.base_model)){
         node('main_model_loader',{model:job.model,is_intermediate:true},[])
-        node('vae_loader',{vae_model:{model_name:'sd-vae-ft-mse',base_model:'sd-1'},is_intermediate:true},[])
+        //node('vae_loader',{vae_model:{model_name:'sd-vae-ft-mse',base_model:'sd-1'},is_intermediate:true},[])
         if(job.loras?.length>0){for (const l in job.loras) {node('lora_loader',{is_intermediate:true,lora:{base_model:job.loras[l].model.base_model,model_name:job.loras[l].model.model_name},weight:job.loras[l].weight},[pipe(lastid.clip,'clip','SELF','clip'),pipe(lastid.unet,'unet','SELF','unet')])}} // lora loader, chain multiple loras with clip and unet into each other
     } else {
         node('sdxl_model_loader',{model:job.model,is_intermediate:true},[])
@@ -204,7 +207,6 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
             node('face_mask_detection',{is_intermediate:true,face_ids:'0',minimum_confidence:0.5,x_offset:0,y_offset:0,chunk:false,invert_mask:job.invert??false,image:{image_name:job.initimgObject.image_name}})
             node('i2l',{is_intermediate:false,fp32:true},[pipe(lastid.vae,'vae','SELF','vae'),pipe(lastid.image,'image','SELF','image')])
             node('create_denoise_mask',{is_intermediate:false,fp32:true,tiled:false},[pipe(lastid.image,'image','SELF','image'),pipe(lastid.mask,'mask','SELF','mask'),pipe(lastid.vae,'vae','SELF','vae')])
-            // todo lresize here ?
         } else if(job.control==='i2l'){
             // default to image to latents
             node('i2l',{is_intermediate:false,fp32:true,image:{image_name:job.initimgObject.image_name}},[pipe(lastid.vae,'vae','SELF','vae')])
@@ -266,7 +268,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         node('denoise_latents',{is_intermediate:true,steps:job.steps,cfg_scale:job.scale,denoising_start:denoising_start,denoising_end:1.0,scheduler:job.scheduler},p)
     }
     if(['sd-1','sd-2'].includes(job.model.base_model)){
-        node('l2i',{tiled:true,fp32:true,is_intermediate:false},[pipe('vae_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
+        node('l2i',{tiled:true,fp32:true,is_intermediate:false},[pipe('main_model_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
     } else {
         node('l2i',{tiled:true,fp32:true,is_intermediate:false},[pipe('sdxl_model_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
     }
@@ -279,7 +281,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         {node_path:lastid.metadata_accumulator,field_name:'seed',items:dataitems}
     ])
     // Tada! Graph built
-    // debugLog(graph)
+    debugLog(graph)
     return {
         prepend:false,
         batch:{
@@ -398,50 +400,186 @@ const subscribeQueue = async(host,name='arty')=>{
             // queue_id str, batch_id str, enqueued int, timestamp
             debugLog(host.name+' batch enqueued: '+msg.batch_id.dim)
             debugLog(msg)
-            resultCache[msg.batch_id] = {
+            // todo this should be moved to resultcache file
+            resultCache.set(msg.batch_id, {
                 batch_id:msg.batch_id,
                 status:'pending',
                 results:[],
                 progress:{}
-            }
-            //debugLog(resultCache)
+            })
         })
+/* new format of queue_item_status_changed in invoke3.3rc1
+["queue_item_status_changed",
+{
+    "queue_id":"default",
+    "queue_item":{
+        "queue_id":"default",
+        "item_id":4634,
+        "status":"in_progress",
+        "batch_id":"e594e9b7-774f-40d5-b2e0-9440b6db23de",
+        "session_id":"86472d5c-fa6e-4e2c-8f5d-2f6a079ec22d",
+        "error":null,
+        "created_at":"2023-10-12 20:54:06.696000",
+        "updated_at":"2023-10-12 20:54:06.736000",
+        "started_at":"2023-10-12 20:54:06.736000",
+        "completed_at":null
+    },
+    "batch_status":{
+        "queue_id":"default",
+        "batch_id":"e594e9b7-774f-40d5-b2e0-9440b6db23de",
+        "pending":0,
+        "in_progress":1,
+        "completed":0,
+        "failed":0,
+        "canceled":0,
+        "total":1
+    },
+    "queue_status":{
+        "queue_id":"default",
+        "item_id":4634,
+        "batch_id":"e594e9b7-774f-40d5-b2e0-9440b6db23de",
+        "session_id":"86472d5c-fa6e-4e2c-8f5d-2f6a079ec22d",
+        "pending":0,
+        "in_progress":1,
+        "completed":0,
+        "failed":0,
+        "canceled":0,
+        "total":1
+    },
+    "timestamp":1697144046
+}
+]
+*/
         socket.on('queue_item_status_changed', msg => {
             // queue_id str, queue_item_id int, status str, batch_id uuid, session_id uuid, error, created_at str, updated_at str, started_at str, completed at null, timestamp
-            debugLog(host.name+' '+msg.batch_id.dim+' '+msg.status)
-            resultCache[msg.batch_id].status=msg.status
+            debugLog(host.name+' '+msg.queue_item?.batch_id?.dim+' '+msg.queue_item?.status)
+            // resultCache.edit(msg.batch_id,'status',msg.status) // invoke 3.2
+            resultCache.edit(msg.queue_item?.batch_id,'status',msg.queue_item?.status) // invoke 3.3
         })
+/*
+["invocation_started",
+{
+    "queue_id":"default",
+    "queue_item_id":4634,
+    "queue_batch_id":"e594e9b7-774f-40d5-b2e0-9440b6db23de",
+    "graph_execution_state_id":"86472d5c-fa6e-4e2c-8f5d-2f6a079ec22d",
+    "node":{
+        "id":"f497394e-6422-4031-a48a-3f2c6327c996",
+        "is_intermediate":true,
+        "workflow":null,
+        "use_cache":true,
+        "model":{
+            "model_name":"artymix",
+            "base_model":"sd-1",
+            "model_type":"main"
+        },
+        "type":"main_model_loader"
+    },
+    "source_node_id":"main_model_loader",
+    "timestamp":1697144046
+}]
+*/
         socket.on('invocation_started', msg => {
             debugLog(host.name+' '+msg.queue_batch_id.dim+' started '+msg.node.type)
         })
+/*
+["invocation_complete",
+{
+    "queue_id":"default",
+    "queue_item_id":4634,
+    "queue_batch_id":"e594e9b7-774f-40d5-b2e0-9440b6db23de",
+    "graph_execution_state_id":"86472d5c-fa6e-4e2c-8f5d-2f6a079ec22d",
+    "node":{
+        "id":"f497394e-6422-4031-a48a-3f2c6327c996",
+        "is_intermediate":true,
+        "workflow":null,
+        "use_cache":true,
+        "model":{
+            "model_name":"artymix",
+            "base_model":"sd-1",
+            "model_type":"main"
+        },
+        "type":"main_model_loader"
+    },
+    "source_node_id":"main_model_loader",
+    "result":{
+        "unet":{
+            "unet":{
+                "model_name":"artymix",
+                "base_model":"sd-1",
+                "model_type":"main",
+                "submodel":"unet"
+            },
+            "scheduler":{
+                "model_name":"artymix",
+                "base_model":"sd-1",
+                "model_type":"main",
+                "submodel":"scheduler"
+            },
+            "loras":[],
+            "seamless_axes":[]
+        },
+        "clip":{
+            "tokenizer":{
+                "model_name":"artymix",
+                "base_model":"sd-1",
+                "model_type":"main",
+                "submodel":"tokenizer"
+            },
+            "text_encoder":{
+                "model_name":"artymix",
+                "base_model":"sd-1",
+                "model_type":"main",
+                "submodel":"text_encoder"
+            },
+            "skipped_layers":0,
+            "loras":[]
+        },
+        "vae":{
+            "vae":{
+                "model_name":"artymix",
+                "base_model":"sd-1",
+                "model_type":"main",
+                "submodel":"vae"
+            },
+            "seamless_axes":[]
+        },
+        "type":"model_loader_output"
+    },
+    "timestamp":1697144046
+}]
+*/
         socket.on('invocation_complete', msg => {
             debugLog(host.name+' '+msg.queue_batch_id.dim+' finished '+msg.node.type)
-            //debugLog(msg)
             if(msg.result?.type==='image_output'){
                 // A finalized image being completed)
                 debugLog('image output: '+msg.result?.image?.image_name)
-                resultCache[msg.queue_batch_id]?.results.push(msg.result)
-                //debugLog(resultCache)
+                resultCache.addResult(msg.queue_batch_id,msg.result)
             }
         })
         socket.on('generator_progress', msg => {
             log(host.name+' '+msg.queue_batch_id.dim+' '+msg.order+' : '+msg.step+' / '.dim+msg.total_steps)
             let buf=null
-            if(msg.progress_image?.dataURL){buf = Buffer.from(msg.progress_image.dataURL.split(','[1], 'base64'))}
-            resultCache[msg.queue_batch_id].progress = {
-                steps:msg.steps,
+            // decode progress images
+            //if(msg.progress_image?.dataURL){buf = Buffer.from(msg.progress_image.dataURL.split(','[1], 'base64'))}
+            resultCache.edit(msg.queue_batch_id,'progress',{
+                step:msg.step,
                 total_steps:msg.total_steps,
                 order:msg.order,
                 progress_image:buf,
                 timestamp:msg.timestamp
-            }
+            })
         })
-        socket.on('model_load_started', msg => {debugLog(host.name+' loading '+msg.model_type+' model: '+msg.base_model+'/'+msg.model_name+'/'+msg.submodel)})
-        //socket.on('model_load_completed', msg => {debugLog(host.name+' loaded: '+msg.model_name)})
+        socket.on('model_load_started', msg => {
+            debugLog(host.name+' loading '+msg.model_type+' model: '+msg.base_model+'/'+msg.model_name+'/'+msg.submodel)
+        })
+        socket.on('model_load_completed', msg => {
+            debugLog(host.name+' loaded: '+msg.model_name)
+        })
         socket.on('graph_execution_state_complete', msg => {
             // queue_id str, queue_item_id int, queue_batch_id uuid, graph_execution_state_id uuid, timestamp
+            debugLog(msg)
             debugLog(host.name+' graph done '.bgGreen+msg.queue_batch_id.dim)
-            //log(msg)
         })
     } catch(err) {
         log('Error with websocket for host '+host.name)
@@ -453,7 +591,8 @@ batchToImages = async(host,batchid)=>{
     let err=null
     let images=null
     while(!err){
-        let job = resultCache[batchid]
+        //let job = resultCache[batchid]
+        let job = resultCache.get(batchid)
         if(job?.status==='completed'){
             images = await getBatchImages(host,batchid)
             return images
@@ -469,8 +608,8 @@ getBatchImages = async(host,batchid)=>{
     // Return array of image buffers
     let result = []
     try{
-        for (const r in resultCache[batchid]?.results){
-            let res = resultCache[batchid]?.results[r]
+        for (const r in resultCache.get(batchid)?.results){
+            let res = resultCache.get(batchid)?.results[r]
             if(res.type==='image_output'){
                 res.buffer=await getImageBuffer(host,res?.image?.image_name)
                 res.name=res?.image?.image_name
@@ -587,7 +726,7 @@ const auto2invoke = (text)=>{
   })
 }
 
-const jobFromDream = async(cmd,img=null)=>{
+const jobFromDream = async(cmd,img=null,tracking=null)=>{
     // input oldschool !dream format, output job object
     debugLog('jobfromdream - cmd:'+cmd)
     var job = parseArgs(cmd,{boolean:['facemask','invert']})//string: ['sampler','text_mask'],boolean: ['seamless','hires_fix']}) // parse arguments //
@@ -602,6 +741,7 @@ const jobFromDream = async(cmd,img=null)=>{
     if(job.hrf){job.hires_fix=job.hrf;delete job.hrf}
     if(job.n){job.number=job.n;delete job.n}
     if(job.sampler){job.scheduler=job.sampler;delete job.sampler}
+    if(tracking){job.tracking=tracking}
     // take prompt from what's left
     //debugLog(job._)
     job.prompt=job._.join(' ')
@@ -609,7 +749,7 @@ const jobFromDream = async(cmd,img=null)=>{
     return validateJob(job)
 }
 
-const jobFromMeta = async(meta,img=null)=>{
+const jobFromMeta = async(meta,img=null,tracking=null)=>{
     let job = {}
     if(meta.invoke?.prompt){
         job.prompt=meta.invoke?.prompt
@@ -636,6 +776,7 @@ const jobFromMeta = async(meta,img=null)=>{
     job.loras = meta.invoke?.loras ? meta.invoke.loras : []
     job.scale = meta.invoke?.scale ? meta.invoke.scale : config.default.scale
     job.model = meta.invoke?.model ? meta.invoke.model : config.default.model
+    if(tracking){job.tracking = tracking}
     return validateJob(job)
 }
 
@@ -759,8 +900,8 @@ const validateJob = async(job)=>{
     if(!job.upscale){job.upscale=0}
     // set default init img mode
     if(!job.control&&job.initimg){job.control=config.default.controlmode||'i2l'}
-    if(job.controlresize&&['just_resize','crop_resize','fill_resize'].includes(job.controlresize)===false){job.controlresize='just_resize'}
-    if(job.controlmode&&['balanced','more_prompt','more_control','unbalanced'].includes(job.controlresize)===false){job.controlresize='just_resize'}
+    if(job.controlresize&&['just_resize','crop_resize','fill_resize'].includes(job.controlresize)===false){job.controlresize='just_resize'}else{job.controlresize='just_resize'}
+    if(job.controlmode&&['balanced','more_prompt','more_control','unbalanced'].includes(job.controlresize)===false){job.controlmode='balanced'}
     return cast(job)
 }
 
@@ -784,18 +925,16 @@ const textFontImage = async(options,host) => {
                 image_width:options.image_width,
                 image_height:options.image_height,
                 padding:options.padding,
-                row_gap:options.row_gap/*,
-                text_input_second_row:options.text_input_second_row,
+                row_gap:options.row_gap,
+                text_input_second_row:options.text_input_second_row/*
                 second_row_font_size:options.second_row_font_size,
                 local_font_path:options.local_font_path,
                 local_font:options.local_font,*/
             }
         }}
-        debugLog(graph.nodes.Text_Font_to_Image)
         let batch = {prepend:false,batch:{data:[],graph:graph,runs:1}}
         let batchId = await enqueueBatch(host,batch)
         let images = await batchToImages(host,batchId)
-        log(images)
         if(images.error){return {error:images.error}}
         if(!images||images.length===0){return{error:'Error in textFontImage'}}
         deleteImage(host,images[0].name)
@@ -825,9 +964,6 @@ const processImage = async(img,host,type,options) => {
                 if(totalPixels>=maxPixels){return {error: 'Image dimensions are too large! Max upscaled pixels = '+maxPixels}}
                 let model_name = options.model_name||RealESRGAN_x2plus.pth
                 graph = {nodes:{esrgan:{'id':'esrgan','type':'esrgan','model_name':model_name,'image':{'image_name':initimg.image_name}}}}
-                log(graph)
-                log(initimg)
-                log(initimg.image_name)
                 break
             }
             case 'openpose':{
@@ -920,7 +1056,7 @@ getHostByName = (name)=>{return cluster.find(h=>{h.name===name})}
 getHostByJobId = (id)=>{return cluster.find(h=>{h.jobs.includes(id)})}
 getHostOnlineCount = ()=>{return cluster.filter(h=>{return h.online&&!h.disabled}).length}
 getJobStats = ()=>{
-    let rc = resultCache
+    let rc = resultCache.get()
     let completed=0, pending=0, progress=0
     for (const i in rc){
         let r = rc[i]
@@ -952,8 +1088,12 @@ cast = async(job)=>{
         }
         let graph = await buildGraphFromJob(context.job)
         context.batchId = await enqueueBatch(context.host,graph)
+        // Trigger progress update reporting if enabled
+        if(context.job.tracking){
+            if(context.job.tracking?.type==='discord'){progress.update(job.tracking.msg,context.batchId)}
+        }
         context.images = await batchToImages(context.host,context.batchId)
-        delete resultCache[context.batchId]
+        resultCache.remove(context.batchId)
         if(context.images?.error){return {error:context.images?.error}}
         if(context.job.initimgObject)deleteImage(context.host,context.job.initimgObject.image_name) // remove uploaded image after use
         let result = {
@@ -980,7 +1120,6 @@ module.exports = {
         findHost,
         allUniqueModelsAvailable,
         processImage,
-        resultCache:getResultCache,
         hostCount:getHostOnlineCount,
         jobStats:getJobStats,
         textFontImage
