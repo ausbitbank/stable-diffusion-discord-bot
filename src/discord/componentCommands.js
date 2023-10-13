@@ -16,16 +16,18 @@ let commands = [
         permissionLevel: 'all',
         aliases: ['refresh'],
         command: async (interaction)=>{
+            let trackingmsg = null
             try{
-                interaction.createMessage({content:':saluting_face: refreshing',flags:64})
-                interaction.message.addReaction('🎲')
+                if(!interaction.acknowledged){interaction.acknowledge()}
+                //interaction.message.addReaction('🎲')
+                trackingmsg = await interaction.channel.createMessage({content:':saluting_face: refreshing'})
             } catch(err){
                 log(err)
             }
             let img=null
             let meta = await messageCommands.extractMetadataFromMessage(interaction.message)
             if(meta.invoke?.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
-            let result = await invoke.jobFromMeta(meta,img)
+            let result = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
             if(meta.invoke?.inputImageUrl && !result.error && result.images?.length > 0){result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke.inputImageUrl)}
             let newmsg = interaction.message
             newmsg.member = interaction.member
@@ -38,12 +40,15 @@ let commands = [
         permissionLevel: 'all',
         aliases: ['edit'],
         command: async (interaction)=>{
-            let msgid = interaction.data.custom_id.split('-')[1]
+            if(!interaction.acknowledged){interaction.acknowledge()}
+            let msgid = (interaction.data.custom_id.split('-')[1]==='x')?interaction.message.id : interaction.data.custom_id.split('-')[1]
             let channelid = interaction.channel.id
             let img = null
-            let key = interaction.data.components[0].components[0].custom_id
-            let value = interaction.data.components[0].components[0].value
-            await interaction.createMessage({content:':saluting_face: refreshing with **'+key+'** of `'+value+'`',flags:64})
+            //debugLog(interaction.data)
+            let key = interaction.data.custom_id.split('-')[2]??interaction.data.components[0].components[0].custom_id
+            let value = interaction.data.custom_id.split('-')[2]?interaction.data.values[0]:interaction.data.components[0].components[0].value
+            let trackingmsg = null
+            trackingmsg = await interaction.channel.createMessage({content:':saluting_face: refreshing with **'+key+'** of `'+value+'`'})
             //interaction.message.addReaction('✏️')
             switch(key){
                 case 'scale':{value=parseFloat(value);break}
@@ -55,7 +60,37 @@ let commands = [
             debugLog(interaction.member?.username||interaction.author?.username||interaction.user?.username+' edit '+key+' to: '+value)
             if(meta.invoke){meta.invoke[key] = value}
             if(meta.invoke?.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
-            let result = await invoke.jobFromMeta(meta,img)
+            let result = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
+            if(meta.invoke?.inputImageUrl && !result.error && result.images?.length > 0){result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke.inputImageUrl)}
+            let newmsg = sourcemsg
+            newmsg.member = interaction.member
+            return messageCommands.returnMessageResult(newmsg,result)
+        }
+    },
+    {
+        name: 'editResolution',
+        description: 'Capture a resolution from a modal dialog and apply it as width and height to an existing image',
+        permissionLevel: 'all',
+        aliases: ['editResolution'],
+        command: async (interaction)=>{
+            let msgid = interaction.data.custom_id.split('-')[1]
+            let channelid = interaction.channel.id
+            let img = null
+            let key = interaction.data.components[0].components[0].custom_id
+            let value = interaction.data.components[0].components[0].value
+            let trackingmsg = null
+            trackingmsg = await interaction.channel.createMessage({content:':saluting_face: refreshing with **'+key+'** of `'+value+'`'})
+            let sourcemsg = await bot.getMessage(channelid, msgid)
+            let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
+            debugLog(interaction.member?.username||interaction.author?.username||interaction.user?.username+' edit '+key+' to: '+value)
+            if(meta.invoke){
+                let w=value.split('x')[0]
+                let h=value.split('x')[0]
+                meta.invoke.width = w
+                meta.invoke.height = h
+            }
+            if(meta.invoke?.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
+            let result = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
             if(meta.invoke?.inputImageUrl && !result.error && result.images?.length > 0){result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke.inputImageUrl)}
             let newmsg = sourcemsg
             newmsg.member = interaction.member
@@ -123,7 +158,7 @@ let commands = [
             let channelid = interaction.channel.id
             let sourcemsg = await bot.getMessage(channelid,msgid)
             let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
-            let scale = meta.invoke.scale
+            let scale = meta.invoke.scale.toString()
             return interaction.createModal({
                 custom_id:'edit-'+sourcemsg.id,
                 title:'Edit the scale / cfg_scale',
@@ -152,7 +187,7 @@ let commands = [
             let channelid = interaction.channel.id
             let sourcemsg = await bot.getMessage(channelid,msgid)
             let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
-            let steps = meta.invoke.steps
+            let steps = meta.invoke.steps.toString()
             return interaction.createModal({
                 custom_id:'edit-'+sourcemsg.id,
                 title:'Edit the step count',
@@ -203,6 +238,37 @@ let commands = [
         }
     },
     {
+        name: 'editResolution',
+        description: 'Modal dialog to regenerate an image with a new resolution and seed, with the same settings',
+        permissionLevel: 'all',
+        aliases: ['editResolution'],
+        command: async (interaction)=>{
+            let msgid = interaction.data.custom_id.split('-')[1]
+            let channelid = interaction.channel.id
+            let sourcemsg = await bot.getMessage(channelid,msgid)
+            let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
+            let resolution = meta.invoke.width+'x'+meta.invoke.height
+            //let strength = config?.default?.strength?.toString()||'0.7'
+            //strength = strength.toString()
+            return interaction.createModal({
+                custom_id:'edit-'+sourcemsg.id,
+                title:'Edit the strength',
+                components:[
+                    {type:1,components:[
+                        {
+                            type:4,
+                            custom_id:'editResolution',
+                            label:'Resolution',
+                            style:2,
+                            value:resolution,
+                            required:true
+                        }
+                    ]}
+                ]
+            })
+        }
+    },
+    {
         name: 'tweak',
         description: 'Display tweak menu, as a message only visible to the requester',
         permissionLevel: 'all',
@@ -217,7 +283,7 @@ let commands = [
                         type:1,
                         components:[
                             {type: 2, style: 1, label: 'Aspect Ratio', custom_id: 'chooseAspectRatio-'+msgid, emoji: { name: '📐', id: null}, disabled: false },
-                            {type: 2, style: 1, label: 'Models', custom_id: 'chooseModel-'+msgid, emoji: { name: '💾', id: null}, disabled: true },
+                            {type: 2, style: 1, label: 'Models', custom_id: 'chooseModel-'+msgid, emoji: { name: '💾', id: null}, disabled: false },
                             {type: 2, style: 1, label: 'Textual Inversions', custom_id: 'chooseTi-'+msgid, emoji: { name: '💊', id: null}, disabled: true },
                             {type: 2, style: 1, label: 'Loras', custom_id: 'chooseLora-'+msgid, emoji: { name: '💊', id: null}, disabled: true }        ,
                             {type: 2, style: 1, label: 'Remove Background', custom_id: 'removeBackground-'+msgid, emoji: { name: '🪄', id: null}, disabled: false }        
@@ -242,27 +308,69 @@ let commands = [
         permissionLevel: 'all',
         aliases: ['chooseModel'],
         command: async (interaction)=>{
-            //interaction.acknowledge()
+            // todo make a general purpose function that pages data as needed = 5 dropdowns per page / 25 options per dropdown 
             let msgid = interaction.data.custom_id.split('-')[1]
-            let pageid = interaction.data.custom_id.split('-')[2]??0
-            //let channelid = interaction.channel.id
-            //let sourcemsg = await bot.getMessage(channelid,msgid)
+            if(interaction.data.values){
+                if(!interaction.acknowledged){interaction.acknowledge()}
+                let newmodelname = interaction.data.values[0]
+                debugLog('Changing model to '+newmodelname)
+                let trackingmsg = await interaction.channel.createMessage({content:':saluting_face: Changing model to '+newmodelname,embeds:[],components:[]})
+                let channelid = interaction.channel.id
+                let sourcemsg = await bot.getMessage(channelid,msgid)
+                let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
+                if(meta.invoke){meta.invoke.model = newmodelname}
+                let img = null
+                if(meta.invoke?.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
+                let result = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
+                if(meta.invoke?.inputImageUrl && !result.error && result.images?.length > 0){result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke.inputImageUrl)}
+                let newmsg = sourcemsg
+                newmsg.member = interaction.member
+                return messageCommands.returnMessageResult(newmsg,result)
+            }
             let models = await invoke.allUniqueModelsAvailable()
-            log(models)
+            //log(models)
+            let categories=[],sd1=[],sd2=[],sdxl=[],components=[]
+            for (const i in models){
+                let m = models[i]
+                if(m.model_type==='main'){
+                    switch(m.base_model){
+                        case('sd-1'):{sd1.push(m);break}
+                        case('sd-2'):{sd2.push(m);break}
+                        case('sdxl'):{sdxl.push(m);break}
+                    }
+                }
+            }
+            if(sd1.length>0){categories.push({label:'sd-1',items:sd1})}
+            if(sd2.length>0){categories.push({label:'sd-2',items:sd2})}
+            if(sdxl.length>0){categories.push({label:'sdxl',items:sdxl})}
+            // need a new menu for every 25 options in a category
+            let c=0
+            for (const i in categories){
+                let cat = categories[i]
+                let menu = {type:1,components:[{type: 3,custom_id:'chooseModel-'+msgid+'-'+c,placeholder:cat.label+' models',min_values:1,max_values:1,options:[]}]}
+                for (m in cat.items){
+                    let model = cat.items[m]
+                    menu.components[0].options.push({label:model.model_name?.substring(0,50),value:model.model_name,description:model.description?.substring(0,50),emoji:null})
+                    // if we hit the limit per dropdown, push the menu into component and ready for new menu
+                    if(menu.components[0].options.length===25){debugLog('at limit, pushing menu');components.push(menu);menu.options=[]}
+                }
+                // If we have any options, push them into component and clear
+                if(menu.components[0].options.length>0){
+                    components.push(menu)
+                    c++
+                }
+            }
             let dialog = {
                 content:':floppy_disk: **Model Menu**\nUse this menu to change the model/checkpoint being used, to give your image a specific style',
                 flags:64,
-                components:[
-                    {type:1,components:[
-                        {type: 3,custom_id:'chooseModel-'+msgid,placeholder:'Choose a model/checkpoint',min_values:1,max_values:1,options:[]}
-                    ]}
-                ]
+                components:components
             }
-            for (const m in models){
-                let model = models[m]
-                log(model)
+            try{
+                interaction.editParent(dialog)
+            } catch(err) {
+                log(err)
+                return {error:err}
             }
-            interaction.editParent(dialog)
         }
     },
     {
@@ -283,19 +391,22 @@ let commands = [
                 ){
                 // admin or owner can delete
                 // tag the original request so its obvious what happened
-                /*
                 if(interaction.message.messageReference&&interaction.message.messageReference.messageID!==null){
                     try{
                         let sourcemsg = await bot.getMessage(interaction.channel.id,interaction.message.messageReference.messageID)
                         if(sourcemsg.member.id!==bot.application.id){sourcemsg.addReaction('🗑️')}
                     } catch(err){log(err)}
                 }
-                */
-                msg.delete()
+                try{msg.delete()}catch(err){debugLog('Discord error removing message');debugLog(err)}
             } else {
                 // otherwise make them show their vote
-                msg.addReaction('🗑️')
-                interaction.createMessage({content:'Confirm your vote for removal by clicking the :wastebasket: emoji on the render',flags:64})
+                try{
+                    msg.addReaction('🗑️')
+                    interaction.createMessage({content:'Confirm your vote for removal by clicking the :wastebasket: emoji on the render',flags:64})
+                } catch (err) {
+                    debugLog('Emoji command remove failed')
+                    debugLog(err)
+                }
             }
         }
     },
@@ -333,14 +444,14 @@ let commands = [
         permissionLevel: ['all'],
         aliases: ['crop'],
         command: async (interaction)=>{
-            interaction.acknowledge()
+            if(!interaction.acknowledged){interaction.acknowledge()}
             let userid = interaction.member?.id||interaction.author?.id||interaction.user?.id
             let msgid=interaction.data.custom_id.split('-')[1]
             let msg=await bot.getMessage(interaction.channel.id,msgid)
             if(messageCommands.messageHasImageAttachments(msg)){
                 let url = await messageCommands.extractImageUrlFromMessage(msg)
                 let response = await removeBackground(url)
-                reply = {content:'<@'+userid+'> cropped image',}
+                reply = {content:'<@'+userid+'> cropped image (buggy, WIP)',}
                 interaction.createMessage(reply,{file:response.image,name:getUUID()+'.png'})
             }
         }
@@ -351,7 +462,7 @@ let commands = [
         permissionLevel:['all'],
         aliases:['chooseAspectRatio'],
         command: async (interaction)=>{
-            interaction.acknowledge()
+            if(!interaction.acknowledged){interaction.acknowledge()}
             let msgid = interaction.data.custom_id.split('-')[1]
             let msg=await bot.getMessage(interaction.channel.id,msgid)
             if(messageCommands.messageHasImageAttachments(msg)){
@@ -360,12 +471,12 @@ let commands = [
                     let pixels = parseInt(meta.invoke?.height) * parseInt(meta.invoke?.width)
                     if(interaction.data.values){
                         let res = await aspectRatio.ratioToRes(interaction.data.values[0],pixels)
-                        interaction.editParent({content:':saluting_face: '+res.description+' '+res.width+' x '+res.height+' selected',components:[],embeds:[]})
+                        let trackingmsg = await interaction.channel.createMessage({content:':saluting_face: '+res.description+' '+res.width+' x '+res.height+' selected',components:[],embeds:[]})
                         meta.invoke.width = res.width
                         meta.invoke.height = res.height
                         let img = null
                         if(meta.invoke?.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
-                        let result = await invoke.jobFromMeta(meta,img)
+                        let result = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
                         if(meta.invoke?.inputImageUrl && !result.error && result.images?.length > 0){result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke.inputImageUrl)}
                         let newmsg = msg
                         newmsg.member = interaction.member
@@ -444,7 +555,6 @@ parseCommand = async(interaction)=>{
     let username = interaction.user?.username||interaction.member?.username||interaction.author?.username
     let channelid = interaction.channel.id
     let guildid = interaction.guildID||'DM'
-    //log(guildid)
     if(!auth.check(userid,guildid,channelid)){return} // if not authorised, ignore
     let command = interaction.data.custom_id.split('-')[0]
     if(prefixes.includes(command)){
