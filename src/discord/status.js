@@ -19,12 +19,13 @@ init = async()=>{
 
 get = async()=>{
     try{
-        let rc = invoke.resultCache()
+        // let rc = resultCache.get()
         let hosts = invoke.hostCount()
         let js = invoke.jobStats()
-        let msg = 'Guilds: '+bot.guilds.size+', Jobs: '+js.progress+'('+js.pending+'), Hosts: '+hosts
+        let msg = 'Guilds: '+bot.guilds.size
         //debugLog('rc length: '+rc.length)
         if (js.pending>0||js.progress>0){
+            msg=msg+', Jobs: '+js.progress+'/'+js.pending+', Hosts: '+hosts
             busyStatusArr=[
                 {type:0,name:' in '+msg}
             ]
