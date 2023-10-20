@@ -11,8 +11,8 @@ load=async(buf)=>{
     //buf = await modify(buf,'arty_meta','keyname','value')
     exif = ExifReader.load(buf)
     //debugLog(exif)
-    let width = exif['Image Width'].value
-    let height = exif['Image Height'].value
+    //let width = exif['Image Width'].value
+    //let height = exif['Image Height'].value
     let results = {}
     // todo move this to invoke module after polish
     if(exif.invokeai_metadata){ //&&exif.invokeai_graph
@@ -27,7 +27,7 @@ load=async(buf)=>{
         let model = meta?.model
         let clipskip = meta?.clip_skip
         let loras=meta?.loras
-        let control, controlweight, controlstart, controlend, ipamodel, facemask, prompt, strength, lscale, invert = null
+        let control, controlweight, controlstart, controlend, ipamodel, facemask, prompt, strength, lscale, invert, width, height = null
         try{
             let workflow = JSON.parse(exif.invokeai_workflow?.value)
             //debugLog('extracted workflow:')
@@ -41,6 +41,8 @@ load=async(buf)=>{
             lscale = workflow?.notes?.lscale
             strength = workflow?.notes?.strength
             invert = workflow?.notes?.invert
+            width = workflow?.notes?.width
+            height = workflow?.notes?.height
         } catch(err){
             debugLog('Error parsing invokeai_workflow metadata')
             debugLog(err)
@@ -52,8 +54,8 @@ load=async(buf)=>{
         let scale=meta?.cfg_scale
         let steps=meta?.steps
         let pixelSteps=0
-        let genWidth=0
-        let genHeight=0
+        let genWidth=exif['Image Width'].value
+        let genHeight=exif['Image Height'].value
         let controlnets=meta?.controlnets
         let inputImageUrl=null
         let scheduler=meta?.scheduler
