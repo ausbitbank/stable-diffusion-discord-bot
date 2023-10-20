@@ -103,6 +103,7 @@ let commands = [
         permissionLevel: 'all',
         aliases: ['editPrompt'],
         command: async (interaction)=>{
+            if(!interaction.acknowledged){interaction.acknowledge}
             let meta = await messageCommands.extractMetadataFromMessage(interaction.message)
             let prompt = meta.invoke?.positive_prompt+' ['+meta.invoke?.negative_prompt+']'
             return interaction.createModal({
@@ -154,6 +155,7 @@ let commands = [
         permissionLevel: 'all',
         aliases: ['editScale'],
         command: async (interaction)=>{
+            if(!interaction.acknowledged){interaction.acknowledge}
             let msgid = interaction.data.custom_id.split('-')[1]
             let channelid = interaction.channel.id
             let sourcemsg = await bot.getMessage(channelid,msgid)
@@ -212,6 +214,7 @@ let commands = [
         permissionLevel: 'all',
         aliases: ['editStrength'],
         command: async (interaction)=>{
+            if(!interaction.acknowledged){interaction.acknowledge}
             let msgid = interaction.data.custom_id.split('-')[1]
             let channelid = interaction.channel.id
             let sourcemsg = await bot.getMessage(channelid,msgid)
@@ -285,8 +288,8 @@ let commands = [
                             {type: 2, style: 1, label: 'Aspect Ratio', custom_id: 'chooseAspectRatio-'+msgid, emoji: { name: '📐', id: null}, disabled: false },
                             {type: 2, style: 1, label: 'Models', custom_id: 'chooseModel-'+msgid, emoji: { name: '💾', id: null}, disabled: false },
                             {type: 2, style: 1, label: 'Textual Inversions', custom_id: 'chooseTi-'+msgid, emoji: { name: '💊', id: null}, disabled: true },
-                            {type: 2, style: 1, label: 'Loras', custom_id: 'chooseLora-'+msgid, emoji: { name: '💊', id: null}, disabled: true }        ,
-                            {type: 2, style: 1, label: 'Remove Background', custom_id: 'removeBackground-'+msgid, emoji: { name: '🪄', id: null}, disabled: false }        
+                            {type: 2, style: 1, label: 'Loras', custom_id: 'chooseLora-'+msgid, emoji: { name: '💊', id: null}, disabled: true },
+                            {type: 2, style: 1, label: 'Control', custom_id: 'chooseControl-'+msgid, emoji: { name: '🎮', id: null}, disabled: true },
                     ]},
                     {
                         type:1,
@@ -296,6 +299,11 @@ let commands = [
                             {type: 2, style: 1, label: 'Steps', custom_id: 'editSteps-'+msgid, emoji: { name: '♻️', id: null}, disabled: false },
                             {type: 2, style: 1, label: 'Strength', custom_id: 'editStrength-'+msgid, emoji: { name: '💪', id: null}, disabled: false },
                             {type: 2, style: 1, label: 'Sampler', custom_id: 'chooseSampler-'+msgid, emoji: { name: '👁️', id: null}, disabled: false }
+                    ]},
+                    {
+                        type:1,
+                        components:[
+                            {type: 2, style: 1, label: 'Remove Background', custom_id: 'removeBackground-'+msgid, emoji: { name: '🪄', id: null}, disabled: false }
                     ]}
                 ]
             }
@@ -310,6 +318,8 @@ let commands = [
         command: async (interaction)=>{
             // todo make a general purpose function that pages data as needed = 5 dropdowns per page / 25 options per dropdown 
             let msgid = interaction.data.custom_id.split('-')[1]
+            let models = await invoke.allUniqueModelsAvailable()
+            //debugLog(models) // todo remove after testing
             if(interaction.data.values){
                 if(!interaction.acknowledged){interaction.acknowledge()}
                 let newmodelname = interaction.data.values[0]
@@ -318,6 +328,18 @@ let commands = [
                 let channelid = interaction.channel.id
                 let sourcemsg = await bot.getMessage(channelid,msgid)
                 let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
+                // todo change resolution when switching between sd1/sdxl models, keep aspect ratio
+                // discover base model for old and new selections
+                let newmodel = models.find(m=>m.model_name===newmodelname) // undefined ?
+                if(meta.invoke?.model?.base_model!==newmodel?.base_model){
+                    let ar = await aspectRatio.resToRatio(meta.invoke?.width,meta.invoke?.height)
+                    let newpixels = newmodel?.base_model==='sdxl' ? 1048576 : 262144 // 1024x1024 for sdxl, 512x512 for sd1/2
+                    let newres = await aspectRatio.ratioToRes(ar,newpixels)
+                    if(meta.invoke && newmodel){
+                        meta.invoke.width = newres?.width
+                        meta.invoke.height = newres?.height
+                    }
+                }
                 if(meta.invoke){meta.invoke.model = newmodelname}
                 let img = null
                 if(meta.invoke?.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
@@ -327,8 +349,6 @@ let commands = [
                 newmsg.member = interaction.member
                 return messageCommands.returnMessageResult(newmsg,result)
             }
-            let models = await invoke.allUniqueModelsAvailable()
-            //log(models)
             let categories=[],sd1=[],sd2=[],sdxl=[],components=[]
             for (const i in models){
                 let m = models[i]
@@ -374,11 +394,39 @@ let commands = [
         }
     },
     {
+        name: 'chooseControl',
+        description: 'Add, remove and configure control adapters',
+        permissionLevel: ['all'],
+        aliases: ['chooseControl'],
+        command: async (interaction)=>{
+            if(!interaction.acknowledged){interaction.acknowledge()}
+            let msgid = interaction.data.custom_id.split('-')[1]
+            // At first, keep it simple and allow configuring a single control adapter by name
+            // need to discover current if base_model is sdxl or not
+            // pull image meta
+            let channelid = interaction.channel.id
+            let sourcemsg = await bot.getMessage(channelid,msgid)
+            let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
+            let base = meta?.invoke?.model?.base_model
+            debugLog(base)
+            debugLog(meta?.invoke?.inputImageUrl)
+            debugLog(meta?.invoke?.inputImageUrl)
+            // get all controlnet types
+            let cnets = await invoke.allUniqueControlnetsAvailable()
+            // reduce to simple array of names of relevant models
+            cnets = cnets.filter(c=>c.base_model===base).map(c=>c.model_name)
+            // get all ip adapter types
+            let ipa = await invoke.allUniqueIpAdaptersAvailable()
+            ipa = ipa.filter(c=>c.base_model===base).map(c=>c.model_name)
+        }
+    },
+    {
         name: 'remove',
         description: 'Allow either the creator or bot admin to remove a result',
         permissionLevel: ['all'],
         aliases: ['remove'],
         command: async (interaction)=>{
+            if(!interaction.acknowledged){interaction.acknowledge()}
             let msgid=interaction.message.id
             let msg=await bot.getMessage(interaction.channel.id,msgid)
             // should immediately delete for admin, creator, guild admin
@@ -498,19 +546,15 @@ let commands = [
             let msgid = interaction.data.custom_id.split('-')[1]
             if(interaction.data.values){
                 // capture a response instead of asking for one
-                //interaction.acknowledge()
-                interaction.editParent({
-                    content:':saluting_face: refreshing with **Scheduler** of `'+interaction.data.values[0]+'`',
-                    components:[],
-                    embeds:[]
-                })
+                if(!interaction.acknowledged){interaction.acknowledge()}
+                let trackingmsg = await interaction.channel.createMessage({content:':saluting_face: refreshing with **Scheduler** of `'+interaction.data.values[0]+'`'})
                 let channelid = interaction.channel.id
                 let sourcemsg = await bot.getMessage(channelid,msgid)
                 let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
                 let img = null
                 meta.invoke.scheduler = interaction.data.values[0]
                 if(meta.invoke.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
-                let result = await invoke.jobFromMeta(meta,img)
+                let result = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
                 if(meta.invoke.inputImageUrl && !result.error && result.images?.length > 0){result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke.inputImageUrl)}
                 let newmsg = interaction.message
                 newmsg.member = interaction.member
