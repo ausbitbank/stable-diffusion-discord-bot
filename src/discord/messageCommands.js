@@ -81,6 +81,83 @@ let commands = [
         }
     },
     {
+        name: 'lineart',
+        description: 'Return a lineart version of an input image',
+        permissionLevel: 'all',
+        aliases: ['lineart'],
+        prefix:'!',
+        command: async(args,msg)=>{
+            debugLog('lineart creation triggered: '+args.join(' '))
+            let img,imgurl
+            let imgres = await extractImageAndUrlFromMessageOrReply(msg)
+            if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
+            if(img){
+                let result = await invoke.processImage(img,null,'lineart',{detect_resolution:512,image_resolution:512,coarse:false})
+                if(result?.images?.length>0){
+                    let buf = result.images[0]?.buffer
+                    buf = await exif.modify(buf,'arty','imageType','lineart')
+                    return {messages:[{embeds:[{description:'Converted to lineart',color:getRandomColorDec()}]}],files:[{file:buf,name:result.images[0].name}]}
+                } else {
+                    return {error:'Failed lineart'}
+                }
+            } else {
+                return { error:'No image attached to create lineart'}
+            }
+        }
+    },
+    {
+        name: 'lineartanime',
+        description: 'Return a lineart anime version of an input image',
+        permissionLevel: 'all',
+        aliases: ['lineartanime'],
+        prefix:'!',
+        command: async(args,msg)=>{
+            debugLog('lineart anime creation triggered: '+args.join(' '))
+            let img,imgurl
+            let imgres = await extractImageAndUrlFromMessageOrReply(msg)
+            if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
+            if(img){
+                let result = await invoke.processImage(img,null,'lineartanime',{detect_resolution:512,image_resolution:512})
+                if(result?.images?.length>0){
+                    let buf = result.images[0]?.buffer
+                    buf = await exif.modify(buf,'arty','imageType','lineartanime')
+                    return {messages:[{embeds:[{description:'Converted to lineart anime',color:getRandomColorDec()}]}],files:[{file:buf,name:result.images[0].name}]}
+                } else {
+                    return {error:'Failed lineart anime'}
+                }
+            } else {
+                return { error:'No image attached to create lineart anime'}
+            }
+        }
+    },
+    {
+        name: 'colormap',
+        description: 'Return a pixelated color map version of an input image',
+        permissionLevel: 'all',
+        aliases: ['colormap','colourmap'],
+        prefix:'!',
+        command: async(args,msg)=>{
+            debugLog('color map creation triggered: '+args.join(' '))
+            let img,imgurl
+            let imgres = await extractImageAndUrlFromMessageOrReply(msg)
+            if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
+            if(img){
+                debugLog(args)
+                let tile_size = args.length>0 ? parseInt(args[0]) : 64
+                let result = await invoke.processImage(img,null,'colormap',{tile_size:tile_size})
+                if(result?.images?.length>0){
+                    let buf = result.images[0]?.buffer
+                    buf = await exif.modify(buf,'arty','imageType','colormap')
+                    return {messages:[{embeds:[{description:'Converted to colormap with tile size '+tile_size,color:getRandomColorDec()}]}],files:[{file:buf,name:result.images[0].name}]}
+                } else {
+                    return {error:'Failed color map'}
+                }
+            } else {
+                return { error:'No image attached to create color map'}
+            }
+        }
+    },
+    {
         name: 'pose',
         description: 'Return a openpose pose detection of an input image',
         permissionLevel: 'all',
@@ -270,6 +347,10 @@ let commands = [
             })
             if(meta.invoke?.inputImageUrl){img=urlToBuffer(meta.invoke.inputImageUrl)}
             result = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
+            if(meta.invoke?.inputImageUrl && !result.error && result.images?.length > 0){
+                debugLog('Attaching input image url to png metadata: '+meta.invoke?.inputImageUrl)
+                result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke?.inputImageUrl)
+            }
             return returnMessageResult(msg,result)
         }
     },
@@ -353,6 +434,41 @@ let commands = [
                 }
                 if(marr.length>0){
                     let newdlg = {color:getRandomColorDec(),description:'**'+basemodels[modeltype]+' models**:\n'+marr.join('\n')}
+                    dialog.embeds.push(newdlg)
+                }
+            }
+            return {messages:[dialog],files:[]}
+        }
+    },
+    {
+        name: 'loras',
+        description: 'List currently available loras',
+        permissionLevel: 'all',
+        aliases:['lora','loras'],
+        prefix:'!',
+        command: async(args,msg)=>{
+            let models = await invoke.allUniqueLorasAvailable()
+            let sd1 = models.filter(obj => obj.base_model === 'sd-1')
+            let sd2 = models.filter(obj => obj.base_model === 'sd-2')
+            let sdxl = models.filter(obj => obj.base_model === 'sdxl')
+            let dialog = {
+                content:'',
+                flags:64,
+                embeds:[
+                    {description:'Loras currently available\n**sd-1**: '+sd1.length+' , **sd-2**: '+sd2.length+' **sdxl**: '+sdxl.length,color:getRandomColorDec()}
+                ],
+                components:[]
+            }
+            let basemodels = ['sd-1','sd-2','sdxl']
+            for (const modeltype in basemodels){
+                let filteredModels = models.filter(obj=>obj.base_model===basemodels[modeltype])
+                let marr=[]
+                for (const m in filteredModels){
+                    let model = filteredModels[m]
+                    marr.push(model.model_name)
+                }
+                if(marr.length>0){
+                    let newdlg = {color:getRandomColorDec(),description:'**'+basemodels[modeltype]+' loras**:\n'+marr.join('\n')}
                     dialog.embeds.push(newdlg)
                 }
             }
@@ -527,6 +643,7 @@ imageResultMessage = (userid,img,result,meta)=>{
     let t=''
     if(meta.invoke?.cost){t+=' :coin: '+meta.invoke.cost}
     if(img.width&&img.height){t+=' :straight_ruler: '+img.width+'x'+img.height}
+    //if(img.genWidth&&img.genHeight){t+=' :triangle_ruler: '+img.genWidth+'x'+img.genHeight}
     if(meta.invoke?.steps){t+=' :recycle: '+meta.invoke.steps}
     if(meta.invoke?.scheduler){t+=' :eye: '+meta.invoke.scheduler}
     if(meta.invoke?.seed){t+=' :seedling: '+meta.invoke.seed}
@@ -606,11 +723,15 @@ imageResultMessage = (userid,img,result,meta)=>{
         newmsg.components.push({type:1,components:[{type: 3,custom_id:'edit-x-controlend',placeholder:'Controlnet end at '+(parseFloat(meta.invoke.controlend)*100).toFixed(0)+'%',min_values:1,max_values:1,options:cnwo}]})
     }
     /*
-    // same for control itself
+    // get all available controlnet modes
     if(meta.invoke?.inputImageUrl&&meta.invoke?.control){
         let cnwo = []
         // todo detect controltype names and availability from api
-        let controltypes = ['ipa','i2l','depth','canny','openpose','qrCodeMonster_v20']
+        //let controltypes = ['ipa','i2l','depth','canny','openpose','qrCodeMonster_v20']
+        let controltypes = await invoke.allUniqueControlnetsAvailable() // no async here, lets just move all this shit out to a component command rather then rework as async
+        controltypes = controltypes.map(o=>o.model_name)
+        // todo filter by base model, only show models relevant to current render
+        debugLog(controltypes)
         for (const i in controltypes){
             let o = controltypes[i]
             let od = (meta.invoke.control===o) ? 'Selected' : null
