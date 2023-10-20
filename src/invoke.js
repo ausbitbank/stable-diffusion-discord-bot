@@ -1,16 +1,16 @@
 // All functions that directly touch invoke should be handled and/or exported from here
 // Abstract and simplify external interface as much as possible
 
-const {config,log,debugLog,getUUID,validUUID,urlToBuffer,sleep,shuffle,tidyNumber}=require('./utils.js')
-const {random}=require('./random.js')
-const {exif}=require('./exif.js')
+const {config,log,debugLog,getUUID,validUUID,urlToBuffer,sleep,shuffle,tidyNumber}=require('./utils')
+const {random}=require('./random')
+const {exif}=require('./exif')
 const io = require('socket.io-client')
 const axios = require('axios')
 const FormData = require('form-data')
 var colors = require('colors')
 const { isString, isObject } = require('lodash')
 const parseArgs = require('minimist')
-const {imageEdit} = require('./imageEdit.js')
+const {imageEdit} = require('./imageEdit')
 const {progress}=require('./discord/progress')
 const {resultCache}=require('./resultCache')
 var cluster=config.cluster
@@ -36,22 +36,23 @@ const init=async()=>{
 const initHost=async(host)=>{
     try{
         // on connect, get all the backend info we can in parallel
-        const [version, models, lora, ti, vae, controlnet, cfg] = await Promise.all([getVersion(host),getModels(host,'main'),getModels(host,'lora'),getModels(host,'embedding'),getModels(host,'vae'),getModels(host,'controlnet'),getConfig(host)])
+        const [version, models, lora, ti, vae, controlnet, ip_adapter, t2i_adapter, cfg] = await Promise.all([getVersion(host),getModels(host,'main'),getModels(host,'lora'),getModels(host,'embedding'),getModels(host,'vae'),getModels(host,'controlnet'),getModels(host,'ip_adapter'),getModels(host,'t2i_adapter'),getConfig(host)])
         host.version = version
         host.models = models
         host.lora = lora
         host.ti = ti
         host.vae = vae
         host.controlnet = controlnet
+        host.ip_adapter = ip_adapter
+        host.t2i_adapter = t2i_adapter
         host.config = cfg
         host.online = true
         host.activeJob = null
         host.socket = io(host.url,{path: '/ws/socket.io'})
         host.jobs = []
-        log('Connected to '.bgGreen.black+host.name.bgGreen+' with InvokeAI Version: '+host.version+'\nModels: '+host.models.length+',Loras: '+host.lora.length+', Embeddings: '+host.ti.length+', Vaes: '+host.vae.length+', Controlnets '+host.controlnet.length)
+        log('Connected to '.bgGreen.black+host.name.bgGreen+' with InvokeAI Version: '+host.version+'\nModels: '+host.models.length+',Loras: '+host.lora.length+', Embeddings: '+host.ti.length+', Vaes: '+host.vae.length+', Controlnets: '+host.controlnet.length+', Ip Adapters: '+host.ip_adapter.length+', T2i Adapters: '+host.t2i_adapter.length)
         queueStatus(host)
         subscribeQueue(host,'arty')
-        // still unable to subscribe to websocket, no event messages happen after subscribe_queue emit ?
     } catch (err) {
         host.online = false
         log('Failed to init host '+host.name+' : '+err.code)
@@ -63,7 +64,7 @@ buildWorkflowFromJob = (job)=>{
     let keys = Object.keys(job)
     for (const i in keys){
         let key = keys[i]
-        if(['prompt','strength','control','controlstart','controlend','controlweight','ipamodel','facemask','lscale','invert'].includes(key)){essentials[key] = job[key]}
+        if(['prompt','strength','control','controlstart','controlend','controlweight','ipamodel','facemask','lscale','invert','width','height'].includes(key)){essentials[key] = job[key]}
     }
     let workflow = {
         name:"arty",
@@ -86,7 +87,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         edges:[],
     }
     let data = []
-    let lastid={unet:null,clip:null,vae:null,latents:null,noise:null,image:null,width:null,height:null,controlnet:null,mask:null,denoise_mask:null,width:null,height:null,metadata_accumulator:null,ip_adapter:null}
+    let lastid={unet:null,clip:null,vae:null,latents:null,noise:null,image:null,width:null,height:null,controlnet:null,mask:null,denoise_mask:null,width:null,height:null,metadata_accumulator:null,ip_adapter:null,t2i_adapter:null}
     let pipe = (fromnode,fromfield,tonode,tofield)=>{return {source:{node_id:fromnode,field:fromfield},destination:{node_id:tonode,field:tofield}}}
     let node = (type,params,edges)=>{
         let newid=getUUID()
@@ -112,6 +113,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         if(['create_denoise_mask'].includes(type)){lastid.denoise_mask=newid}
         if(['metadata_accumulator'].includes(type)){lastid.metadata_accumulator=newid}
         if(['ip_adapter'].includes(type)){lastid.ip_adapter=newid}
+        if(['t2i_adapter'].includes(type)){lastid.t2i_adapter=newid}
         edges?.forEach(e=>{
             if(!validUUID(e.destination.node_id)){ // not already plumbed with a valid UUID
                 if(e.destination.node_id==='SELF'){ e.destination.node_id=newid
@@ -179,7 +181,10 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         refiner_scheduler:null,
         refiner_positive_aesthetic_score:null,
         refiner_negative_aesthetic_score:null,
-        refiner_start:null
+        refiner_start:null,
+        hrf_height:job.hrf_height??null,
+        hrf_width:job.hrf_width??null,
+        hrf_strength:job.hrf_strength??null,
     }
     // Reformat lora array for metadata object
     if(job.loras?.length>0){for (const l in job.loras){metaObject.loras.push({lora:{model_name:job.loras[l].model.model_name,base_model:job.loras[l].model.base_model},weight:job.loras[l].weight})}}
@@ -202,6 +207,12 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
             if(job.ipamodel){ipamodel=job.ipamodel}
             debugLog('Using ip_adapter with input image, model '+ipamodel)
             node('ip_adapter',{ip_adapter_model:{base_model:job.model.base_model,model_name:ipamodel},begin_step_percent:job.controlstart?job.controlstart:0,end_step_percent:job.controlend?job.controlend:1,is_intermediate:true,image:{image_name:job.initimgObject.image_name},weight:job.controlweight?job.controlweight:1},[])
+        // todo need to incorporate t2i as well, copy ipamodel syntax, add a --t2imodel param
+        // } else if (job.control==='t2i') {
+        //      let t2imodel=(job.model.base_model==='sdxl')?'canny-sdxl':'canny-sd15'
+        //      if(job.t2imodel){t2imodel=job.t2imodel}
+        //      debugLog('Using t2i_adapter with input image, model '+t2imodel)
+        //      node('t2i_adapter',{t2i_adapter_model:{base_model:job.model.base_model,model_name:t2imodel},begin_step_percent:job.controlstart?job.controlstart:0,end_step_percent:job.controlend?job.controlend:1,is_intermediate:true,image:{image_name:job.initimgObject.image_name},weight:job.controlweight?job.controlweight:1},[])
         } else if(job.facemask){
             debugLog('Using face mask detection')
             node('face_mask_detection',{is_intermediate:true,face_ids:'0',minimum_confidence:0.5,x_offset:0,y_offset:0,chunk:false,invert_mask:job.invert??false,image:{image_name:job.initimgObject.image_name}})
@@ -768,6 +779,7 @@ const jobFromMeta = async(meta,img=null,tracking=null)=>{
     if(meta.invoke?.facemask){job.facemask=meta.invoke.facemask;job.control='i2l'}
     if(meta.invoke?.invert){job.facemask=meta.invoke.invert}
     if(meta.invoke?.strength){job.strength=meta.invoke.strength}
+    if(meta.invoke?.lscale){job.lscale=meta.invoke.lscale}
     job.steps = meta.invoke?.steps ? meta.invoke.steps : config.default.steps
     // todo need to look at job.model.base_model and use sdxl width/height defaults if not already in meta.invoke
     job.width = meta.invoke?.width ? meta.invoke.width : config.default.width ?? config.default.size
@@ -820,13 +832,69 @@ const extractLoras = async (inputString) => {
 }
 
 const allUniqueModelsAvailable = async()=>{
-    // Return an object with all available models, across all connected & online hosts //todo : no repeats
+    // Return an object with all available main models, across all connected & online hosts //todo : no repeats
     let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
     let allModels=[]
     for (const h in availableHosts){
         let host=cluster[h]
         for (const m in host.models){
             let model = host.models[m]
+            allModels.push({model_name:model.model_name,base_model:model.base_model,model_type:model.model_type,description:model.description})
+        }
+    }
+    return allModels
+}
+
+const allUniqueLorasAvailable = async()=>{
+    // Return an object with all available lora models, across all connected & online hosts //todo : no repeats
+    let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
+    let allModels=[]
+    for (const h in availableHosts){
+        let host=cluster[h]
+        for (const m in host.lora){
+            let model = host.lora[m]
+            allModels.push({model_name:model.model_name,base_model:model.base_model,model_type:model.model_type,description:model.description})
+        }
+    }
+    return allModels
+}
+
+const allUniqueControlnetsAvailable = async()=>{
+    // Return an object with all available controlnet models, across all connected & online hosts //todo : no repeats
+    let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
+    let allModels=[]
+    for (const h in availableHosts){
+        let host=cluster[h]
+        for (const m in host.controlnet){
+            let model = host.controlnet[m]
+            allModels.push({model_name:model.model_name,base_model:model.base_model,model_type:model.model_type,description:model.description})
+        }
+    }
+    return allModels
+}
+
+const allUniqueIpAdaptersAvailable = async()=>{
+    // Return an object with all available ip adapter models, across all connected & online hosts //todo : no repeats
+    let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
+    let allModels=[]
+    for (const h in availableHosts){
+        let host=cluster[h]
+        for (const m in host.ip_adapter){
+            let model = host.ip_adapter[m]
+            allModels.push({model_name:model.model_name,base_model:model.base_model,model_type:model.model_type,description:model.description})
+        }
+    }
+    return allModels
+}
+
+const allUniqueT2iAdaptersAvailable = async()=>{
+    // Return an object with all available t2i adapter models, across all connected & online hosts //todo : no repeats
+    let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
+    let allModels=[]
+    for (const h in availableHosts){
+        let host=cluster[h]
+        for (const m in host.t2i_adapter){
+            let model = host.t2i_adapter[m]
             allModels.push({model_name:model.model_name,base_model:model.base_model,model_type:model.model_type,description:model.description})
         }
     }
@@ -985,6 +1053,24 @@ const processImage = async(img,host,type,options) => {
                 graph = {nodes:{midas_depth_image_processor:{'id':'midas_depth_image_processor','type':'midas_depth_image_processor','a_mult':a_mult,'bg_th':bg_th,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
                 break
             }
+            case 'lineart':{
+                let detect_resolution = options.detect_resolution||512
+                let image_resolution = options.image_resolution||512
+                let coarse = options.coarse||false
+                graph = {nodes:{lineart_image_processor:{'id':'lineart_image_processor','type':'lineart_image_processor','coarse':coarse,'detect_resolution':detect_resolution,'image_resolution':image_resolution,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
+                break
+            }
+            case 'lineartanime':{
+                let detect_resolution = options.detect_resolution||512
+                let image_resolution = options.image_resolution||512
+                graph = {nodes:{lineart_anime_image_processor:{'id':'lineart_anime_image_processor','type':'lineart_image_processor','detect_resolution':detect_resolution,'image_resolution':image_resolution,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
+                break
+            }
+            case 'colormap':{
+                let tile_size = options.tile_size||64
+                graph = {nodes:{color_map_image_processor:{'id':'color_map_image_processor','type':'color_map_image_processor','color_map_tile_size':tile_size,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
+                break
+            }
         }
         let batch = {
             prepend:false,
@@ -1088,6 +1174,7 @@ cast = async(job)=>{
         }
         let graph = await buildGraphFromJob(context.job)
         context.batchId = await enqueueBatch(context.host,graph)
+        if(!context.batchId||context.batchId?.error){return {error:'Error queuing job '}}
         // Trigger progress update reporting if enabled
         if(context.job.tracking){
             if(context.job.tracking?.type==='discord'){progress.update(job.tracking.msg,context.batchId)}
@@ -1119,6 +1206,10 @@ module.exports = {
         validateJob,
         findHost,
         allUniqueModelsAvailable,
+        allUniqueControlnetsAvailable,
+        allUniqueIpAdaptersAvailable,
+        allUniqueT2iAdaptersAvailable,
+        allUniqueLorasAvailable,
         processImage,
         hostCount:getHostOnlineCount,
         jobStats:getJobStats,
