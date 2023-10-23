@@ -1,6 +1,6 @@
 // Aspect ratio calculator and dialog
 const {config,log,debugLog}=require('../utils.js')
-let ratios = ['1:1','2:3','3:2','3:4','4:3','5:4','4:5','7:4','4:7','9:5','5:9','6:13','13:6','9:16','16:9','9:32','32:9']
+let ratios = ['1:1','2:3','3:2','3:4','4:3','5:4','4:5','7:4','4:7','9:5','5:9','6:13','13:6','9:16','16:9','9:20','20:9','9:32','32:9']
 
 const ratioToRes = async(ratio,pixels)=>{
     // feed in a ratio like '5:4' and a pixel count and return a width / height / label
@@ -20,6 +20,19 @@ const ratioToRes = async(ratio,pixels)=>{
     return {ratio:ratio,width:width,height:height,description:d}
 }
 
+const resToRatio = async(width,height)=>{
+    // feed in width, height and get a close aspect ratio in whole numbers eg 16:9
+    let divisor = gcd(width, height)
+    let aspect = width / divisor + ':' + height / divisor
+    return aspect
+}
+
+const gcd = (a, b)=>{
+    // greatest common divisor
+    if (b === 0) {return a}
+    return gcd(b, a % b)
+}
+
 const dialog = async(msgid,pixels)=>{
     let d = {
         content:':eye: ** Aspect Ratios**\nDifferent aspect ratios will give different compositions',
@@ -37,6 +50,7 @@ const dialog = async(msgid,pixels)=>{
 module.exports = {
     aspectRatio:{
         ratioToRes,
+        resToRatio,
         dialog
     }
 }
