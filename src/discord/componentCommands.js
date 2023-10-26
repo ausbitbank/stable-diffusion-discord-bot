@@ -18,9 +18,9 @@ let commands = [
         command: async (interaction)=>{
             let trackingmsg = null
             try{
-                if(!interaction.acknowledged){interaction.acknowledge()}
+                if(!interaction.acknowledged){interaction?.acknowledge()}
                 //interaction.message.addReaction('🎲')
-                trackingmsg = await interaction.channel.createMessage({content:':saluting_face: refreshing'})
+                trackingmsg = await bot.createMessage(interaction.channel.id,{content:':saluting_face: refreshing'})
             } catch(err){
                 log(err)
             }
@@ -40,16 +40,14 @@ let commands = [
         permissionLevel: 'all',
         aliases: ['edit'],
         command: async (interaction)=>{
-            if(!interaction.acknowledged){interaction.acknowledge()}
+            if(!interaction?.acknowledged){interaction?.acknowledge()}
             let msgid = (interaction.data.custom_id.split('-')[1]==='x')?interaction.message.id : interaction.data.custom_id.split('-')[1]
             let channelid = interaction.channel.id
             let img = null
-            //debugLog(interaction.data)
             let key = interaction.data.custom_id.split('-')[2]??interaction.data.components[0].components[0].custom_id
             let value = interaction.data.custom_id.split('-')[2]?interaction.data.values[0]:interaction.data.components[0].components[0].value
             let trackingmsg = null
-            trackingmsg = await interaction.channel.createMessage({content:':saluting_face: refreshing with **'+key+'** of `'+value+'`'})
-            //interaction.message.addReaction('✏️')
+            trackingmsg = await bot.createMessage(channelid,{content:':saluting_face: refreshing with **'+key+'** of `'+value+'`'})
             switch(key){
                 case 'scale':{value=parseFloat(value);break}
                 case 'steps':{value=parseInt(value);break}
@@ -79,7 +77,7 @@ let commands = [
             let key = interaction.data.components[0].components[0].custom_id
             let value = interaction.data.components[0].components[0].value
             let trackingmsg = null
-            trackingmsg = await interaction.channel.createMessage({content:':saluting_face: refreshing with **'+key+'** of `'+value+'`'})
+            trackingmsg = await bot.createMessage(channelid,{content:':saluting_face: refreshing with **'+key+'** of `'+value+'`'})
             let sourcemsg = await bot.getMessage(channelid, msgid)
             let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
             debugLog(interaction.member?.username||interaction.author?.username||interaction.user?.username+' edit '+key+' to: '+value)
@@ -103,7 +101,7 @@ let commands = [
         permissionLevel: 'all',
         aliases: ['editPrompt'],
         command: async (interaction)=>{
-            if(!interaction.acknowledged){interaction.acknowledge}
+            if(!interaction?.acknowledged){interaction.acknowledge}
             let meta = await messageCommands.extractMetadataFromMessage(interaction.message)
             let prompt = meta.invoke?.positive_prompt+' ['+meta.invoke?.negative_prompt+']'
             return interaction.createModal({
@@ -321,10 +319,10 @@ let commands = [
             let models = await invoke.allUniqueModelsAvailable()
             //debugLog(models) // todo remove after testing
             if(interaction.data.values){
-                if(!interaction.acknowledged){interaction.acknowledge()}
+                if(!interaction.acknowledged){interaction?.acknowledge()}
                 let newmodelname = interaction.data.values[0]
                 debugLog('Changing model to '+newmodelname)
-                let trackingmsg = await interaction.channel.createMessage({content:':saluting_face: Changing model to '+newmodelname,embeds:[],components:[]})
+                let trackingmsg = await bot.createMessage(interaction.channel.id,{content:':saluting_face: Changing model to '+newmodelname,embeds:[],components:[]})
                 let channelid = interaction.channel.id
                 let sourcemsg = await bot.getMessage(channelid,msgid)
                 let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
@@ -399,7 +397,7 @@ let commands = [
         permissionLevel: ['all'],
         aliases: ['chooseControl'],
         command: async (interaction)=>{
-            if(!interaction.acknowledged){interaction.acknowledge()}
+            if(!interaction.acknowledged){interaction?.acknowledge()}
             let msgid = interaction.data.custom_id.split('-')[1]
             // At first, keep it simple and allow configuring a single control adapter by name
             // need to discover current if base_model is sdxl or not
@@ -426,7 +424,7 @@ let commands = [
         permissionLevel: ['all'],
         aliases: ['remove'],
         command: async (interaction)=>{
-            if(!interaction.acknowledged){interaction.acknowledge()}
+            if(!interaction.acknowledged){interaction?.acknowledge()}
             let msgid=interaction.message.id
             let msg=await bot.getMessage(interaction.channel.id,msgid)
             // should immediately delete for admin, creator, guild admin
@@ -492,7 +490,7 @@ let commands = [
         permissionLevel: ['all'],
         aliases: ['crop'],
         command: async (interaction)=>{
-            if(!interaction.acknowledged){interaction.acknowledge()}
+            if(!interaction.acknowledged){interaction?.acknowledge()}
             let userid = interaction.member?.id||interaction.author?.id||interaction.user?.id
             let msgid=interaction.data.custom_id.split('-')[1]
             let msg=await bot.getMessage(interaction.channel.id,msgid)
@@ -510,16 +508,20 @@ let commands = [
         permissionLevel:['all'],
         aliases:['chooseAspectRatio'],
         command: async (interaction)=>{
-            if(!interaction.acknowledged){interaction.acknowledge()}
+            if(!interaction.acknowledged){interaction?.acknowledge()}
             let msgid = interaction.data.custom_id.split('-')[1]
             let msg=await bot.getMessage(interaction.channel.id,msgid)
             if(messageCommands.messageHasImageAttachments(msg)){
                 let meta = await messageCommands.extractMetadataFromMessage(msg)
-                if(meta && meta.invoke && meta.invoke.width && meta.invoke.height){
-                    let pixels = parseInt(meta.invoke?.height) * parseInt(meta.invoke?.width)
+                let height = meta?.invoke?.height ?? meta?.invoke?.genHeight
+                let width = meta?.invoke?.width ?? meta?.invoke?.genWidth
+                if(meta && meta.invoke && width && height){
+                    let pixels = parseInt(height) * parseInt(width)
                     if(interaction.data.values){
                         let res = await aspectRatio.ratioToRes(interaction.data.values[0],pixels)
-                        let trackingmsg = await interaction.channel.createMessage({content:':saluting_face: '+res.description+' '+res.width+' x '+res.height+' selected',components:[],embeds:[]})
+                        // interaction.channel.createMessage does not work in DM
+                        //let trackingmsg = await interaction.channel.createMessage({content:':saluting_face: '+res.description+' '+res.width+' x '+res.height+' selected',components:[],embeds:[]})
+                        let trackingmsg = await bot.createMessage(msg.channel.id,{content:':saluting_face: '+res.description+' '+res.width+' x '+res.height+' selected',components:[],embeds:[]})
                         meta.invoke.width = res.width
                         meta.invoke.height = res.height
                         let img = null
@@ -546,9 +548,9 @@ let commands = [
             let msgid = interaction.data.custom_id.split('-')[1]
             if(interaction.data.values){
                 // capture a response instead of asking for one
-                if(!interaction.acknowledged){interaction.acknowledge()}
-                let trackingmsg = await interaction.channel.createMessage({content:':saluting_face: refreshing with **Scheduler** of `'+interaction.data.values[0]+'`'})
+                if(!interaction.acknowledged){interaction?.acknowledge()}
                 let channelid = interaction.channel.id
+                let trackingmsg = await bot.createMessage(channelid,{content:':saluting_face: refreshing with **Scheduler** of `'+interaction.data.values[0]+'`'})
                 let sourcemsg = await bot.getMessage(channelid,msgid)
                 let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
                 let img = null
@@ -622,7 +624,7 @@ parseCommand = async(interaction)=>{
                             }
                         }
                         //log(interaction)
-                        log(c.name+' triggered by '+username+' in '+interaction.channel?.name||interaction.channel?.id+' ('+interaction.member?.guild?.name||'DM'+')')
+                        log(c.name+' triggered by '+username+' in '+interaction.channel?.name||channelid+' ('+interaction.member?.guild?.name||'DM'+')')
                         let result = await c.command(interaction)
                         let messages = result?.messages
                         let files = result?.files
@@ -641,9 +643,9 @@ parseCommand = async(interaction)=>{
                         messages.forEach(message=>{
                             if(files.length>0)file=files.shift() // grab the top file
                             if(message&&file){
-                            chat(channelid,message,file) // Send message with attachment
+                                chat(channelid,message,file) // Send message with attachment
                             }else if(message){
-                            chat(channelid,message) // Send message, no attachment
+                                chat(channelid,message) // Send message, no attachment
                             }
                         })
                     }catch(e){log('error in componentCommands\\parseCmd');log(e)}
