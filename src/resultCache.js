@@ -25,7 +25,8 @@ const edit = (id,key,value)=>{
             batch_id:id,
             status:'pending',
             results:[],
-            progress:{}
+            progress:{},
+            hostname:null
         }
         resultCache[id][key]=value
     }
