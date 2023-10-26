@@ -47,17 +47,17 @@ var commands = [
                 // only care about messages created by the bot or people reacting to their own messages
                 if(
                     (reactedmsg.member?.id!==bot.application.id)&&
-                    (reactor.user?.id!==reactedmsg.member.id)){
+                    (reactor.user?.id!==reactedmsg.member?.id)){
                         debugLog('ignoring removeBadResult request')
                         return
                     }
                 if(
-                    (parseInt(reactor.user.id)===config.adminID)||
-                    (reactedmsg.mentions&&reactedmsg.mentions[0].id===reactor.user.id)||
-                    (reactor.user.id===reactedmsg.member.id)){
+                    (parseInt(reactor.user?.id)===config.adminID)||
+                    (reactedmsg.mentions&&reactedmsg.mentions[0]?.id===reactor.user?.id)||
+                    (reactor.user?.id===reactedmsg.member?.id)){
                         // admin and owner can remove renders without voting
                         // anyone can remove their own messages via self votes
-                        debugLog('Removing bad result from '+reactedmsg.member.username+' triggered by '+reactor.user.username)
+                        debugLog('Removing bad result from '+reactedmsg?.member?.username+' triggered by '+reactor?.user?.username??reactor?.id)
                         reactedmsg.delete().catch(()=>{})
                 } else {
                     debugLog('not removing result, not triggered by creator or admin')
@@ -77,8 +77,16 @@ for (const ci in commands){
 }
 
 parse = async(msg,emoji,reactor)=>{
+    //
+    //let userid = interaction.member?.id||interaction.author?.id||interaction.user?.id
+    //let username = interaction.user?.username||interaction.member?.username||interaction.author?.username
+    //let channelid = interaction.channel.id
+    //let guildid = interaction.guildID||'DM'
+    //
+    let userid = parseInt(reactor?.id)
+    let channelid = parseInt(msg.channel?.id)
     if(!emojis.includes(emoji.name)) return // Quickly rule out irrelevant emoji reactions
-    if(!auth.check(msg.member?.id,msg.guildID,msg.channel?.id)){return} // if not authorised, ignore
+    if(!auth.check(userid,msg.guildID??'DM',channelid)){return} // if not authorised, ignore
     for (const ci in commands){
         let c=commands[ci]
         if(c.aliases.includes(emoji.name)){
