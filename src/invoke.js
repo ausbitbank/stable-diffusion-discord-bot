@@ -155,6 +155,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     var p=[] // 
     // Metadata accumulator
     // todo vae object , controlnets array , ipAdapters array should be properly populated
+    let fp32 = true // get black boxes
     let metaObject = {
         is_intermediate:false,
         generation_mode:job.initimg?'img2img':'txt2img',
@@ -216,11 +217,11 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         } else if(job.facemask){
             debugLog('Using face mask detection')
             node('face_mask_detection',{is_intermediate:true,face_ids:'0',minimum_confidence:0.5,x_offset:0,y_offset:0,chunk:false,invert_mask:job.invert??false,image:{image_name:job.initimgObject.image_name}})
-            node('i2l',{is_intermediate:false,fp32:true},[pipe(lastid.vae,'vae','SELF','vae'),pipe(lastid.image,'image','SELF','image')])
-            node('create_denoise_mask',{is_intermediate:false,fp32:true,tiled:false},[pipe(lastid.image,'image','SELF','image'),pipe(lastid.mask,'mask','SELF','mask'),pipe(lastid.vae,'vae','SELF','vae')])
+            node('i2l',{is_intermediate:false,fp32:fp32},[pipe(lastid.vae,'vae','SELF','vae'),pipe(lastid.image,'image','SELF','image')])
+            node('create_denoise_mask',{is_intermediate:false,fp32:fp32,tiled:false},[pipe(lastid.image,'image','SELF','image'),pipe(lastid.mask,'mask','SELF','mask'),pipe(lastid.vae,'vae','SELF','vae')])
         } else if(job.control==='i2l'){
             // default to image to latents
-            node('i2l',{is_intermediate:false,fp32:true,image:{image_name:job.initimgObject.image_name}},[pipe(lastid.vae,'vae','SELF','vae')])
+            node('i2l',{is_intermediate:false,fp32:fp32,image:{image_name:job.initimgObject.image_name}},[pipe(lastid.vae,'vae','SELF','vae')])
             // todo do we resize the image first instead of resizing latents ?
             node('lresize',{model:'bilinear',antialias:false,width:job.width,height:job.height},[pipe(lastid.latents,'latents','SELF','latents')])
         } else {
@@ -279,9 +280,9 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         node('denoise_latents',{is_intermediate:true,steps:job.steps,cfg_scale:job.scale,denoising_start:denoising_start,denoising_end:1.0,scheduler:job.scheduler},p)
     }
     if(['sd-1','sd-2'].includes(job.model.base_model)){
-        node('l2i',{tiled:true,fp32:true,is_intermediate:false},[pipe('main_model_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
+        node('l2i',{tiled:true,fp32:fp32,is_intermediate:false},[pipe('main_model_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
     } else {
-        node('l2i',{tiled:true,fp32:true,is_intermediate:false},[pipe('sdxl_model_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
+        node('l2i',{tiled:true,fp32:fp32,is_intermediate:false},[pipe('sdxl_model_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
     }
     //if(job.upscale&&job.upscale===2){node('esrgan',{model_name:'RealESRGAN_x2plus.pth'},[pipe(lastid.image,'image','SELF','image')])}
     //debugLog('Add data section to graph. Initial seed is '+job.seed+' , number is '+job.number)
@@ -410,13 +411,14 @@ const subscribeQueue = async(host,name='arty')=>{
         socket.on('batch_enqueued', msg => {
             // queue_id str, batch_id str, enqueued int, timestamp
             debugLog(host.name+' batch enqueued: '+msg.batch_id.dim)
-            debugLog(msg)
+            //debugLog(msg)
             // todo this should be moved to resultcache file
             resultCache.set(msg.batch_id, {
                 batch_id:msg.batch_id,
                 status:'pending',
                 results:[],
-                progress:{}
+                progress:{},
+                hostname:host.name
             })
         })
 /* new format of queue_item_status_changed in invoke3.3rc1
@@ -562,11 +564,8 @@ const subscribeQueue = async(host,name='arty')=>{
 */
         socket.on('invocation_complete', msg => {
             debugLog(host.name+' '+msg.queue_batch_id.dim+' finished '+msg.node.type)
-            if(msg.result?.type==='image_output'){
-                // A finalized image being completed)
-                debugLog('image output: '+msg.result?.image?.image_name)
-                resultCache.addResult(msg.queue_batch_id,msg.result)
-            }
+            if(msg.result?.type==='image_output'){debugLog('image output: '+msg.result?.image?.image_name)} // A finalized image being completed)
+            resultCache.addResult(msg.queue_batch_id,msg.result)
         })
         socket.on('generator_progress', msg => {
             log(host.name+' '+msg.queue_batch_id.dim+' '+msg.order+' : '+msg.step+' / '.dim+msg.total_steps)
@@ -582,14 +581,17 @@ const subscribeQueue = async(host,name='arty')=>{
             })
         })
         socket.on('model_load_started', msg => {
-            debugLog(host.name+' loading '+msg.model_type+' model: '+msg.base_model+'/'+msg.model_name+'/'+msg.submodel)
+            let t = msg.base_model+'/'+msg.model_name
+            if(msg.submodel){t= t+'/'+msg.submodel}
+            debugLog(host.name+' loading '+t)
+            resultCache.addResult(msg.queue_batch_id,{type:t})
         })
         socket.on('model_load_completed', msg => {
             debugLog(host.name+' loaded: '+msg.model_name)
         })
         socket.on('graph_execution_state_complete', msg => {
             // queue_id str, queue_item_id int, queue_batch_id uuid, graph_execution_state_id uuid, timestamp
-            debugLog(msg)
+            //debugLog(msg)
             debugLog(host.name+' graph done '.bgGreen+msg.queue_batch_id.dim)
         })
     } catch(err) {
@@ -602,7 +604,6 @@ batchToImages = async(host,batchid)=>{
     let err=null
     let images=null
     while(!err){
-        //let job = resultCache[batchid]
         let job = resultCache.get(batchid)
         if(job?.status==='completed'){
             images = await getBatchImages(host,batchid)
