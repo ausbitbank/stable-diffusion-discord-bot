@@ -77,5 +77,6 @@
     "logging":{
         "chat":false,
         "debug":false
-    }
+    },
+    "schedulers":["ddim","euler","deis","ddpm","dpmpp_2s","dpmpp_2m","dpmpp_2m_sde","dpmpp_sde","heun","kdpm_2","lms","pndm","unipc","euler_k","dpmpp_2s_k","dpmpp_2m_k","dpmpp_2m_sde_k","dpmpp_sde_k","heun_k","lms_k","euler_a","kdpm_2_a"]
 }
