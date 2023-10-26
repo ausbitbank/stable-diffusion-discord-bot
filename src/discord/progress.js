@@ -1,5 +1,5 @@
 // Track progress for a specific job, report to discord on changes
-const {config,log,debugLog,getUUID,validUUID,urlToBuffer,sleep,shuffle,tidyNumber, getRandomColorDec}=require('../utils.js')
+const {log,debugLog,sleep}=require('../utils.js')
 const {resultCache}=require('../resultCache')
 
 update = async(msg,batchid)=>{
@@ -19,7 +19,6 @@ update = async(msg,batchid)=>{
             if(statusmsg&&statusmsg!==cached){
                 // send message
                 cached=statusmsg
-                //debugLog(statusmsg.file)
                 await msg.edit(statusmsg.msg,statusmsg.file)
             }
             if(['completed','failed'].includes(result.status)){
@@ -38,13 +37,23 @@ returnProgressMessage = (batchid) =>{
     let err = false
     try {
         let r = resultCache.get(batchid)
-        let content= 'Job '+batchid
+        let content= ''//+batchid
         file=null
         if(r){
-            content = content+'\nStatus: '+r.status+'\n'
+            switch(r.status){
+                case('in_progress'):content=':green_circle: In progress';break
+                case('pending'):content=':orange_circle: Pending';break
+                case('failed'):content=':red_circle: Failed';break
+            }
+            content+=' '
+            if(r.hostname){content+=' on `'+r.hostname+'`'}
+            content+='\n'
+            //debugLog(r.results[r.results.length-1])
             if(['in_progress'].includes(r.status)&&r.progress?.step!==undefined){
                 let percent = (parseInt(r.progress?.step) / parseInt(r.progress?.total_steps))*100
-                content+=' Step: '+r.progress?.step+' / '+r.progress?.total_steps+' ('+percent.toFixed(0)+'%) '+emoji(percent/100)
+                content+=emoji(percent/100)+' '+r.progress?.step+' / '+r.progress?.total_steps+' ('+percent.toFixed(0)+'%) '
+            } else if(r.results.length>0 && r.results[r.results.length-1].type) {
+                content = content + ':floppy_disk: ' + r.results[r.results.length-1].type + '\n'
             }
             /* Cannot edit attachments on an existing message
             /// Can edit image urls if we have public url
