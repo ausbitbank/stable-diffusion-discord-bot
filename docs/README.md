@@ -56,7 +56,7 @@ Once in your server you can right click him and "**manage integrations**" to cho
 Recommend at least **8gb video ram**, **lots of storage space**, and joining the support server for help (see #bot-help)
 
 Requirements:
--  [InvokeAI](https://github.com/invoke-ai/InvokeAI) **v2.3.x** installed and running on your system first
+-  [InvokeAI](https://github.com/invoke-ai/InvokeAI) **v2.3.5post2** installed and running on your system first
    - Ensure InvokeAI is running in `browser-based UI` mode
 - [git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
 - [docker-compose](https://docs.docker.com/compose/install/)
