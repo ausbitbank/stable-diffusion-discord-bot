@@ -18,7 +18,7 @@ let commands = [
         command: async (interaction)=>{
             let trackingmsg = null
             try{
-                if(!interaction.acknowledged){interaction?.acknowledge()}
+                if(!interaction?.acknowledged){interaction?.acknowledge()}
                 //interaction.message.addReaction('🎲')
                 trackingmsg = await bot.createMessage(interaction.channel.id,{content:':saluting_face: refreshing'})
             } catch(err){
@@ -103,7 +103,8 @@ let commands = [
         command: async (interaction)=>{
             if(!interaction?.acknowledged){interaction.acknowledge}
             let meta = await messageCommands.extractMetadataFromMessage(interaction.message)
-            let prompt = meta.invoke?.positive_prompt+' ['+meta.invoke?.negative_prompt+']'
+            let prompt = meta.invoke?.positive_prompt
+            if(meta.invoke?.negative_prompt){prompt=prompt+' ['+meta.invoke?.negative_prompt+']'}
             return interaction.createModal({
                 custom_id:'edit-'+interaction.message.id,
                 title:'Edit the random prompt?',
@@ -219,7 +220,6 @@ let commands = [
             let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
             let strength = meta.invoke.strength.toString()
             //let strength = config?.default?.strength?.toString()||'0.7'
-            //strength = strength.toString()
             return interaction.createModal({
                 custom_id:'edit-'+sourcemsg.id,
                 title:'Edit the strength',
@@ -475,7 +475,7 @@ let commands = [
                     content:'<@'+userid+'> removed image background',
                     embeds:[{description:response.msg}],
                     components:[{type:1,components:[
-                        {type: 2, style: 1, label: 'Crop', custom_id: 'crop-'+msgid, emoji: { name: '✂️', id: null}, disabled: false }
+                        {type: 2, style: 1, label: 'Crop', custom_id: 'crop-'+msgid, emoji: { name: '✂️', id: null}, disabled: true }
                     ]}
                     ]
                 }
@@ -587,6 +587,31 @@ let commands = [
                 changeSamplerResponse.components[0].components[0].options.push({label: s,value: s})
             })
             return interaction.editParent(changeSamplerResponse)//.then((r)=>{}).catch((e)=>{console.error(e)})
+        }
+    },
+    {
+        name:'cancelBatch',
+        description:'Cancel a specific batchid',
+        permissionLevel:['all'],
+        aliases:['cancelBatch'], // aliases wont work here
+        command: async(interaction)=>{
+            // Ideally this should only respond to cancel requests from original creator, or bot admin
+            // keep it simple for initial version
+            // extract batchid from commmand id
+            let userid = parseInt(interaction?.user?.id)
+            if(!interaction?.acknowledged){interaction?.acknowledge()}
+            let batchid = interaction.data.custom_id.replace('cancelBatch-','')
+            // todo auth gating here
+            // we can get the interacting user from the interaction
+            if(userid===config?.adminID){
+                // pass to invoke function
+                let response = await invoke.cancelBatch(batchid)
+                log(response)
+            } else {
+                log('Rejected cancel attempt - not admin')
+                log(interaction?.user?.id)
+                log(config.adminID)
+            }
         }
     }
 ]
