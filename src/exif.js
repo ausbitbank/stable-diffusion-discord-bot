@@ -11,8 +11,8 @@ load=async(buf)=>{
     //buf = await modify(buf,'arty_meta','keyname','value')
     exif = ExifReader.load(buf)
     //debugLog(exif)
-    //let width = exif['Image Width'].value
-    //let height = exif['Image Height'].value
+    let width = exif['Image Width'].value
+    let height = exif['Image Height'].value
     let results = {}
     // todo move this to invoke module after polish
     if(exif.invokeai_metadata){ //&&exif.invokeai_graph
@@ -27,28 +27,35 @@ load=async(buf)=>{
         let model = meta?.model
         let clipskip = meta?.clip_skip
         let loras=meta?.loras
-        let control, controlweight, controlstart, controlend, ipamodel, facemask, prompt, strength, lscale, invert, width, height = null
+        let control, controlweight, controlstart, controlend, ipamodel, facemask, strength, lscale, invert, hrf, hrfwidth, hrfheight, prompt = null
         try{
-            let workflow = JSON.parse(exif.invokeai_workflow?.value)
-            //debugLog('extracted workflow:')
-            control = workflow?.notes?.control
-            controlweight = workflow?.notes?.controlweight
-            controlstart = workflow?.notes?.controlstart
-            controlend = workflow?.notes?.controlend
-            ipamodel = workflow?.notes?.ipamodel
-            facemask = workflow?.notes?.facemask
-            prompt = workflow?.notes?.prompt
-            lscale = workflow?.notes?.lscale
-            strength = workflow?.notes?.strength
-            invert = workflow?.notes?.invert
-            width = workflow?.notes?.width
-            height = workflow?.notes?.height
+            //debugLog(exif.invokeai_metadata.value)
+            let workflow = JSON.parse(meta.arty)
+            //debugLog('extracted job info from meta:')
+            //debugLog(workflow)
+            control = workflow?.control
+            controlweight = workflow?.controlweight
+            controlstart = workflow?.controlstart
+            controlend = workflow?.controlend
+            ipamodel = workflow?.ipamodel
+            facemask = workflow?.facemask
+            prompt = workflow?.prompt
+            lscale = workflow?.lscale
+            strength = workflow?.strength
+            invert = workflow?.invert
+            hrf = workflow?.hrf
+            hrfwidth = workflow?.hrfwidth
+            hrfheight = workflow?.hrfheight
+            //width = workflow?.notes?.width
+            //height = workflow?.notes?.height
         } catch(err){
             debugLog('Error parsing invokeai_workflow metadata')
-            debugLog(err)
+            //debugLog(err)
         }
         let positive_prompt=meta?.positive_prompt
         let negative_prompt=meta?.negative_prompt
+        //let prompt = positive_prompt
+        //if(negative_prompt){prompt=prompt+' ['+negative_prompt+']'}
         let style=meta?.positive_style_prompt
         let negstyle=meta?.negative_style_prompt
         let scale=meta?.cfg_scale
@@ -115,7 +122,10 @@ load=async(buf)=>{
             ipamodel,
             facemask,
             prompt,
-            strength
+            strength,
+            hrf,
+            hrfheight,
+            hrfwidth
         }
     }
     return results
