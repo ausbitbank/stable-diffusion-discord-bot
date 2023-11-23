@@ -4,7 +4,7 @@ const {resultCache}=require('../resultCache')
 
 update = async(msg,batchid)=>{
     // Call once, repetitively update message with results of get(batchid)
-    let error=false,done=false,statusmsg=null,cached=null,result=null,interval=1000,fails=0
+    let error=false,done=false,statusmsg=null,cached=null,result=null,interval=500,fails=0
     while(!error&&!done){
         //debugLog('discord tracking progress loop for batch '+batchid)
         try {
@@ -21,7 +21,7 @@ update = async(msg,batchid)=>{
                 cached=statusmsg
                 await msg.edit(statusmsg.msg,statusmsg.file)
             }
-            if(['completed','failed'].includes(result.status)){
+            if(['completed','failed','cancelled'].includes(result.status)){
                 await msg.delete()
                 return
             }
@@ -63,7 +63,8 @@ returnProgressMessage = (batchid) =>{
                 file=[{file:r.progress.progress_image,name:'preview-'+getUUID()+'.png'}]
             }
             */
-        let msg = {embeds: [{description:content}]}
+        let components = [{type:1,components:[{type:2,style:4,label:'Cancel',custom_id:'cancelBatch-'+batchid,emoji:{name:'🗑️',id:null},disabled:false}]}]
+        let msg = {embeds: [{description:content}],components:components}
         return {msg:msg}//,file}
         //return msg
         } else {
