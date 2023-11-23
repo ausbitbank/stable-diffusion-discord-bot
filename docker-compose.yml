@@ -11,8 +11,8 @@ services:
       - ./config:/app/config # configuration file and database folder that must persist
     extra_hosts:
       - "host.docker.internal:host-gateway" # Allow refering to host gateway to access rembg (more reliable then hostname?)
-    networks:
-      - artynet
+  #  networks:
+  #    - artynet
   # Background removal
   rembg:
     image: "danielgatis/rembg"
@@ -21,8 +21,8 @@ services:
     ports:
       - "5000:5000"
     entrypoint: "rembg s"
-    networks:
-      - artynet
+  #  networks:
+  #    - artynet
   #artydb:
   #  image: apache/couchdb:latest
   #  container_name: artydb
@@ -39,6 +39,6 @@ services:
   #  entrypoint: "start file:/db/arty.db"
 #volumes:
 #  artydb:
-networks:
-  artynet:
-    driver: bridge
+#networks:
+#  artynet:
+#    driver: bridge
