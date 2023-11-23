@@ -7,12 +7,13 @@ const {exif}=require('./exif')
 const io = require('socket.io-client')
 const axios = require('axios')
 const FormData = require('form-data')
-var colors = require('colors')
+require('colors') // no var needed
 const { isString, isObject } = require('lodash')
 const parseArgs = require('minimist')
 const {imageEdit} = require('./imageEdit')
 const {progress}=require('./discord/progress')
 const {resultCache}=require('./resultCache')
+const {aspectRatio}=require('./discord/aspectRatio')
 var cluster=config.cluster
 //let resultCache=[]
 //const getResultCache = ()=>{return resultCache}
@@ -64,8 +65,9 @@ buildWorkflowFromJob = (job)=>{
     let keys = Object.keys(job)
     for (const i in keys){
         let key = keys[i]
-        if(['prompt','strength','control','controlstart','controlend','controlweight','ipamodel','facemask','lscale','invert','width','height'].includes(key)){essentials[key] = job[key]}
+        if(['prompt','strength','control','controlstart','controlend','controlweight','ipamodel','facemask','lscale','invert','width','height','hrf','hrfwidth','hrfheight'].includes(key)){essentials[key] = job[key]}
     }
+    /*
     let workflow = {
         name:"arty",
         author:"ausbitbank",
@@ -77,7 +79,9 @@ buildWorkflowFromJob = (job)=>{
         meta:{version:"1.0.0"},
         nodes:[]
     }
-    return JSON.stringify(workflow)
+    */
+    //return JSON.stringify(workflow)
+    return JSON.stringify(essentials)
 }
 
 buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
@@ -87,7 +91,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         edges:[],
     }
     let data = []
-    let lastid={unet:null,clip:null,vae:null,latents:null,noise:null,image:null,width:null,height:null,controlnet:null,mask:null,denoise_mask:null,width:null,height:null,metadata_accumulator:null,ip_adapter:null,t2i_adapter:null}
+    let lastid={unet:null,clip:null,vae:null,latents:null,noise:null,image:null,width:null,height:null,controlnet:null,mask:null,denoise_mask:null,width:null,height:null,metadata:null,merge_metadata:null,core_metadata:null,metadata_item:null,ip_adapter:null,t2i_adapter:null,collect:null,string:null}
     let pipe = (fromnode,fromfield,tonode,tofield)=>{return {source:{node_id:fromnode,field:fromfield},destination:{node_id:tonode,field:tofield}}}
     let node = (type,params,edges)=>{
         let newid=getUUID()
@@ -95,10 +99,11 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         graph.nodes[newid].type=type
         graph.nodes[newid].id=newid
         if(type==='l2i'){
-            graph.nodes[newid].workflow=buildWorkflowFromJob(job)
-        } else {
+            //graph.nodes[newid].workflow=buildWorkflowFromJob(job)
+        //} else {
             graph.nodes[newid].workflow=null
         }
+        //graph.nodes[newid].use_cache=true
         Object.keys(params)?.forEach((k)=>{graph.nodes[newid][k]=params[k]})
         // by tracking and updating most recent used ids we can break the job into components easier
         if(['main_model_loader','sdxl_model_loader','sdxl_model_refiner_loader','lora_loader','sdxl_lora_loader'].includes(type)){lastid.unet=newid}
@@ -111,7 +116,12 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         if(['openpose_image_processor','l2i','face_mask_detection'].includes(type)){lastid.image=newid}
         if(['face_mask_detection'].includes(type)){lastid.mask=newid,lastid.width=newid;lastid.height=newid}
         if(['create_denoise_mask'].includes(type)){lastid.denoise_mask=newid}
-        if(['metadata_accumulator'].includes(type)){lastid.metadata_accumulator=newid}
+        if(['core_metadata'].includes(type)){lastid.core_metadata=newid}
+        if(['metadata_item'].includes(type)){lastid.metadata_item=newid}
+        if(['metadata'].includes(type)){lastid.metadata=newid}
+        if(['merge_metadata'].includes(type)){lastid.merge_metadata=newid}
+        if(['collect'].includes(type)){lastid.collect=newid}
+        if(['string'].includes(type)){lastid.string=newid}
         if(['ip_adapter'].includes(type)){lastid.ip_adapter=newid}
         if(['t2i_adapter'].includes(type)){lastid.t2i_adapter=newid}
         edges?.forEach(e=>{
@@ -155,7 +165,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     var p=[] // 
     // Metadata accumulator
     // todo vae object , controlnets array , ipAdapters array should be properly populated
-    let fp32 = true // get black boxes
+    let fp32 = true // get black boxes if false without enabling fp16 vae fix on all sdxl models in invoke
     let metaObject = {
         is_intermediate:false,
         generation_mode:job.initimg?'img2img':'txt2img',
@@ -176,16 +186,16 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         //vae:{model_name:'sd-vae-ft-mse',base_model:'sd-1'}, // Removed this and VAE loader, configure VAE per model
         positive_style_prompt:job.style??'', // todo apparently you're supposed to append your main prompt to the style prompt
         negative_style_prompt:job.negstyle??'', // ^^
-        refiner_model:job.refiner_model, // todo remove all references to refiner model without breaking graph building
+        /*refiner_model:job.refiner_model, // todo remove all references to refiner model without breaking graph building
         refiner_cfg_scale:job.refiner_scale,
         refiner_steps:job.refiner_steps,
         refiner_scheduler:null,
         refiner_positive_aesthetic_score:null,
         refiner_negative_aesthetic_score:null,
-        refiner_start:null,
-        hrf_height:job.hrf_height??null,
-        hrf_width:job.hrf_width??null,
-        hrf_strength:job.hrf_strength??null,
+        refiner_start:null,*/
+        hrf_height:job.hrfheight??null,
+        hrf_width:job.hrfwidth??null,
+        hrf_strength:job.hrf_strength??job.strength??null
     }
     // Reformat lora array for metadata object
     if(job.loras?.length>0){for (const l in job.loras){metaObject.loras.push({lora:{model_name:job.loras[l].model.model_name,base_model:job.loras[l].model.base_model},weight:job.loras[l].weight})}}
@@ -241,9 +251,20 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     if(lastid.width&&lastid.height){
         node('noise',{use_cpu:true},[pipe(lastid.width,'width','SELF','width'),pipe(lastid.height,'height','SELF','height')])
     }else{
-        node('noise',{width:job.width,height:job.height,use_cpu:true},[])
+        if(job.hrf&&job.hrfheight&&job.hrfwidth){
+            node('noise',{width:job.hrfwidth,height:job.hrfheight,use_cpu:true},[])
+        } else {
+            node('noise',{width:job.width,height:job.height,use_cpu:true},[])
+        }
     }
-    node('metadata_accumulator',metaObject,[])
+    // insert job metadata into string, pipe to metadata_item, pipe to metadata , pipe to collect alongside core_metadata output, into merge_metadata as final meta output
+    node('string',{value:buildWorkflowFromJob(job)},[])
+    node('metadata_item',{label:'arty'},[pipe(lastid.string,'value','SELF','value')])
+    node('metadata',{},[pipe(lastid.metadata_item,'item','SELF','items')]) // fails with no error when uncommented
+    node('core_metadata',metaObject,[])
+    node('collect',{},[pipe(lastid.metadata,'metadata','SELF','item'),pipe(lastid.core_metadata,'metadata','SELF','item')])
+    node('merge_metadata',{},[pipe(lastid.collect,'collection','SELF','collection')])
+
     if(['sd-1','sd-2'].includes(job.model.base_model)){
         node('compel',{prompt:job.positive_prompt},[pipe(lastid.clip,'clip','SELF','clip')])
         node('compel',{prompt:job.negative_prompt},[pipe(lastid.clip,'clip','SELF','clip')])
@@ -269,7 +290,10 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     if(lastid.latents){p.push(pipe(lastid.latents,'latents','SELF','latents'))}
     let denoising_start = 0.0
     if(job.strength&&job.initimgObject&&job.control==='i2l'){denoising_start=1.0-job.strength}
+    //debugLog('p:')
+    //debugLog(p)
     node('denoise_latents',{is_intermediate:true,noise:null,steps:job.steps,cfg_scale:job.scale,denoising_start:denoising_start,denoising_end:1.0,scheduler:job.scheduler},p)
+/* Disabled crap lscale implementation, replace with new hrf as per invoke 3.4+
 
     if(job.lscale&&job.lscale!==1){ // upscale latents, low fidelity
         node('lscale',{scale_factor:job.lscale,mode:'bilinear',antialias:false},[pipe(lastid.latents,'latents','SELF','latents')])
@@ -279,28 +303,60 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         if(job.strength){denoising_start=1.0-job.strength}
         node('denoise_latents',{is_intermediate:true,steps:job.steps,cfg_scale:job.scale,denoising_start:denoising_start,denoising_end:1.0,scheduler:job.scheduler},p)
     }
-    if(['sd-1','sd-2'].includes(job.model.base_model)){
-        node('l2i',{tiled:true,fp32:fp32,is_intermediate:false},[pipe('main_model_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
-    } else {
-        node('l2i',{tiled:true,fp32:fp32,is_intermediate:false},[pipe('sdxl_model_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('metadata_accumulator','metadata','SELF','metadata')])
+*/
+    // new Hires fix implementation
+    // do initial render at basemodel default pixellimit in correct aspect ratio
+    // l2i , img_resize to full res , noise at full res , i2l , denoise latents at start 0.55 , l2i
+    
+    if(job.hrf&&job.hrfwidth&&job.hrfheight){
+        debugLog('Applying hires fix, init width:'+job.hrfwidth+', height:'+job.hrfheight)
+        denoising_start = 0.55//1.0 - job.strength??0.55
+        debugLog('denoising start is '+denoising_start)
+        node('l2i',{fp32:fp32,is_intermediate:true},[pipe(lastid.latents,'latents','SELF','latents'),pipe('main_model_loader','vae','SELF','vae')])
+        node('img_resize',{width:job.width,height:job.height,is_intermediate:true},[pipe('l2i','image','SELF','image')])
+        node('noise',{seed:job.seed,width:job.width,height:job.height},[])
+        if(['sd-1','sd-2'].includes(job.model.base_model)){
+            debugLog(lastid.vae)
+            node('i2l',{is_intermediate:true},[pipe('img_resize','image','SELF','image'),pipe('main_model_loader','vae','SELF','vae')])
+            p = [pipe('compel','conditioning','SELF','positive_conditioning'),pipe('compel-2','conditioning','SELF','negative_conditioning')]
+        } else { // sdxl
+            node('i2l',{is_intermediate:true},[pipe('img_resize','image','SELF','image'),pipe('sdxl_model_loader','vae','SELF','vae')])
+            p = [pipe('sdxl_compel_prompt','conditioning','SELF','positive_conditioning'),pipe('sdxl_compel_prompt-2','conditioning','SELF','negative_conditioning')]
+        }
+        p.push(pipe(lastid.noise,'noise','SELF','noise'))
+        p.push(pipe(lastid.unet,'unet','SELF','unet'))
+        if(lastid.control){p.push(pipe(lastid.control,'control','SELF','control'))}
+        if(lastid.ip_adapter){p.push(pipe(lastid.ip_adapter,'ip_adapter','SELF','ip_adapter'))}
+        if(lastid.denoise_mask){p.push(pipe(lastid.denoise_mask,'denoise_mask','SELF','denoise_mask'))}
+        if(lastid.latents){p.push(pipe(lastid.latents,'latents','SELF','latents'))}
+        node('denoise_latents',{is_intermediate:true,steps:job.steps,cfg_scale:job.scale,scheduler:job.scheduler,denoising_start:denoising_start,denoising_end:1.0},p)
     }
+    
+    // final output
+    if(['sd-1','sd-2'].includes(job.model.base_model)){
+        node('l2i',{tiled:true,fp32:fp32,is_intermediate:false},[pipe('main_model_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('merge_metadata','metadata','SELF','metadata')])
+    } else {
+        node('l2i',{tiled:true,fp32:fp32,is_intermediate:false},[pipe('sdxl_model_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('merge_metadata','metadata','SELF','metadata')])
+    }
+
     //if(job.upscale&&job.upscale===2){node('esrgan',{model_name:'RealESRGAN_x2plus.pth'},[pipe(lastid.image,'image','SELF','image')])}
     //debugLog('Add data section to graph. Initial seed is '+job.seed+' , number is '+job.number)
     let dataitems = [job.seed]
     while(dataitems.length<job.number){dataitems.push(random.seed())}
     data.push([
         {node_path:lastid.noise,field_name:'seed',items:dataitems},
-        {node_path:lastid.metadata_accumulator,field_name:'seed',items:dataitems}
+        {node_path:lastid.core_metadata,field_name:'seed',items:dataitems}
     ])
     // Tada! Graph built
+    //debugLog(data)
     debugLog(graph)
     return {
-        prepend:false,
         batch:{
             data:data,
             graph:graph,
             runs:1,
-        }
+        },
+        prepend:false
     }
 }
 
@@ -316,7 +372,6 @@ const enqueueBatch = async (host, graph, name='arty') => {
     }
 }
 
-
 const batchStatus = async (host,batch_id,name='arty')=>{
     try {
         const response = await axios.get(host.url + '/api/v1/queue/'+name+'/b/'+batch_id+'/status')
@@ -326,7 +381,6 @@ const batchStatus = async (host,batch_id,name='arty')=>{
         throw(err.code)
     }
 }
-
 
 const queueStatus = async (host,name='arty')=>{
     try {
@@ -354,6 +408,26 @@ const queuePrune = async (host,name='arty')=>{
         const response = await axios.put(host.url + '/api/v1/queue/'+name+'/prune')
         log('Pruning queue "'+name+'" on host '+host.name+'; deleted '+response.data?.deleted+' completed or failed jobs.')
         return response.data
+    } catch (err) {
+        log(err)
+        throw(err.code)
+    }
+}
+
+const cancelBatch = async(batchid,host=null,name='arty')=>{
+    log('cancelbatch started with batchid '+batchid)
+    // if host not specified, discover from batchid
+    try {
+        if(host===null){
+            let result = resultCache.get(batchid)
+            // find host by hostname from cluster array
+            host = cluster.find(h=>{return h.name===result?.hostname})
+        }
+        const response = await axios.put(host.url+'/api/v1/queue/'+name+'/cancel_by_batch_ids',{batch_ids:[batchid]})
+        if(response.status===200){
+            log('Batch cancelled')
+            resultCache.edit(batchid,'status','cancelled')
+        }
     } catch (err) {
         log(err)
         throw(err.code)
@@ -564,8 +638,14 @@ const subscribeQueue = async(host,name='arty')=>{
 */
         socket.on('invocation_complete', msg => {
             debugLog(host.name+' '+msg.queue_batch_id.dim+' finished '+msg.node.type)
-            if(msg.result?.type==='image_output'){debugLog('image output: '+msg.result?.image?.image_name)} // A finalized image being completed)
-            resultCache.addResult(msg.queue_batch_id,msg.result)
+            if(msg.result?.type==='image_output'&&msg.node.is_intermediate){
+                debugLog('ignore intermediate image')
+            } else {
+                resultCache.addResult(msg.queue_batch_id,msg.result)
+            }
+            // A finalized image being completed)
+            //debugLog('image output: '+msg.result?.image?.image_name)
+            
         })
         socket.on('generator_progress', msg => {
             log(host.name+' '+msg.queue_batch_id.dim+' '+msg.order+' : '+msg.step+' / '.dim+msg.total_steps)
@@ -599,6 +679,22 @@ const subscribeQueue = async(host,name='arty')=>{
     }
 }
 
+batchToResult = async(host,batchid)=>{
+    // Take a batch id, return results array from completed session
+    let err=null
+    let result=null
+    while(!err){
+        let job = resultCache.get(batchid)
+        if(job?.status==='completed'){
+            debugLog('Job completed:')
+            debugLog(job)
+            return job.results
+        }
+        if(job?.status==='failed'){err=true;return {error:'Job failed'}}
+        await sleep(1000)
+    }
+}
+
 batchToImages = async(host,batchid)=>{
     // Take a batch id, return images from completed session
     let err=null
@@ -610,9 +706,11 @@ batchToImages = async(host,batchid)=>{
             return images
         }
         if(job?.status==='failed'){err=true;return {error:'Job failed'}}
-        await sleep(4000)
+        await sleep(1000)
     }
 }
+
+
 
 getBatchImages = async(host,batchid)=>{
     // Get image results from our host result cache for a given batch id we know has completed execution
@@ -741,7 +839,7 @@ const auto2invoke = (text)=>{
 const jobFromDream = async(cmd,img=null,tracking=null)=>{
     // input oldschool !dream format, output job object
     debugLog('jobfromdream - cmd:'+cmd)
-    var job = parseArgs(cmd,{boolean:['facemask','invert']})//string: ['sampler','text_mask'],boolean: ['seamless','hires_fix']}) // parse arguments //
+    var job = parseArgs(cmd,{boolean:['facemask','invert','hrf']})//string: ['sampler','text_mask'],boolean: ['seamless','hires_fix']}) // parse arguments //
     // set argument aliases
     if(job.s){job.steps=job.s;delete job.s}
     if(job.S){job.seed=job.S;delete job.S}
@@ -750,12 +848,11 @@ const jobFromDream = async(cmd,img=null,tracking=null)=>{
     if(job.C){job.scale=job.C;delete job.C}
     if(job.A){job.sampler=job.A;delete job.A}
     if(job.f){job.strength=job.f;delete job.f}
-    if(job.hrf){job.hires_fix=job.hrf;delete job.hrf}
     if(job.n){job.number=job.n;delete job.n}
     if(job.sampler){job.scheduler=job.sampler;delete job.sampler}
     if(tracking){job.tracking=tracking}
     // take prompt from what's left
-    //debugLog(job._)
+    debugLog('Debug hrf inside jobfromdream :');debugLog(job.hrf);debugLog(cmd)
     job.prompt=job._.join(' ')
     if(img){job.initimg=img}
     return validateJob(job)
@@ -781,6 +878,11 @@ const jobFromMeta = async(meta,img=null,tracking=null)=>{
     if(meta.invoke?.invert){job.facemask=meta.invoke.invert}
     if(meta.invoke?.strength){job.strength=meta.invoke.strength}
     if(meta.invoke?.lscale){job.lscale=meta.invoke.lscale}
+    if(meta.invoke?.hrf){
+        job.hrf=meta.invoke.hrf
+        if(meta.invoke?.hrfwidth)job.hrf=meta.invoke.hrfwidth
+        if(meta.invoke?.hrfheight)job.hrf=meta.invoke.hrfheight
+    }
     job.steps = meta.invoke?.steps ? meta.invoke.steps : config.default.steps
     // todo need to look at job.model.base_model and use sdxl width/height defaults if not already in meta.invoke
     job.width = meta.invoke?.width ? meta.invoke.width : config.default.width ?? config.default.size
@@ -793,10 +895,10 @@ const jobFromMeta = async(meta,img=null,tracking=null)=>{
     return validateJob(job)
 }
 
-const getDiffusionResolution = (number)=>{
+const getDiffusionResolution = (number,smallestResStep=8)=>{
     // Diffusion resolution needs to be divisible by a specific number
     // invoke2 = 64 , invoke3 = 8
-    let smallestResStep = 8
+    //let smallestResStep = 8
     const quotient = Math.floor(number / smallestResStep)  // Get the quotient of the division
     const closestNumber = quotient * smallestResStep  // Multiply the quotient by res step to get the closest number
     return closestNumber
@@ -919,6 +1021,10 @@ const validateJob = async(job)=>{
     } catch(err){
         return {error: err}
     }
+    // Set default model if not selected
+    if(!job.model){job.model=await modelnameToObject(config.default.model)}
+    // Upgrade from model string to model object
+    if(!isObject(job.model)){job.model=await modelnameToObject(job.model)}
     // split into positive/negative prompts
     const npromptregex = /\[(.*?)\]/g // match content of [square brackets]
     const npromptmatches = job.prompt?.match(npromptregex)
@@ -931,6 +1037,7 @@ const validateJob = async(job)=>{
         } else {
             job.negative_prompt=config.default.negprompt||''
         }
+        debugLog('negative prompt: '+job.negative_prompt)
     }
     job.positive_prompt=job.prompt?.replace(npromptregex,'')
     // set defaults if not already set
@@ -938,8 +1045,6 @@ const validateJob = async(job)=>{
     if(!job.negstyle){job.negstyle=''}
     if(!job.number){job.number=1}else if(job.number>1&&job.seed){delete job.seed} // cannot feed a seed into the iterator afaik
     if(!job.seed&&job.number!==1||!Number.isInteger(job.seed)||job.seed<1||job.seed>4294967295){job.seed=random.seed()}
-    if(!job.model){job.model=await modelnameToObject(config.default.model)}//{model_name:'degenerate526urpm',base_model:'sd-1',model_type:'main'}}
-    if(!isObject(job.model)){job.model=await modelnameToObject(job.model)}
     if(!job.steps){job.steps=config.defaultSteps? config.defaultSteps : 30}
     if(!job.strength){job.strength=config.default.strength||0.75}
     if(job.steps>config.maximum.steps){return{error:'Steps `'+job.steps+'` is above the current maximum step count `'+config.maximum.steps+'`'}}
@@ -971,6 +1076,24 @@ const validateJob = async(job)=>{
     if(!job.control&&job.initimg){job.control=config.default.controlmode||'i2l'}
     if(job.controlresize&&['just_resize','crop_resize','fill_resize'].includes(job.controlresize)===false){job.controlresize='just_resize'}else{job.controlresize='just_resize'}
     if(job.controlmode&&['balanced','more_prompt','more_control','unbalanced'].includes(job.controlresize)===false){job.controlmode='balanced'}
+    if(job.hrf){
+        // set default res for hires fix based on base model and aspect ratio
+        let hrfpixellimit=604*604 // sd1
+        if(job.model?.base_model==='sdxl'){hrfpixellimit=1024*1024}
+        let curpixels=job.width*job.height
+        if(curpixels>hrfpixellimit){
+            //debugLog('res too big, calc aspect ratio for hi res fix')
+            let aspect = await aspectRatio.resToRatio(job.width,job.height)
+            let newres = await aspectRatio.ratioToRes(aspect,hrfpixellimit)
+            if(!job.hrfheight){job.hrfheight=getDiffusionResolution(newres.height)}
+            if(!job.hrfwidth){job.hrfwidth=getDiffusionResolution(newres.width)}
+        } else {
+            if(!job.hrfheight){job.hrfheight=getDiffusionResolution(job.height)}
+            if(!job.hrfwidth){job.hrfwidth=getDiffusionResolution(job.width)}
+        }
+        // get 
+
+    }
     return cast(job)
 }
 
@@ -995,10 +1118,10 @@ const textFontImage = async(options,host) => {
                 image_height:options.image_height,
                 padding:options.padding,
                 row_gap:options.row_gap,
-                text_input_second_row:options.text_input_second_row/*
-                second_row_font_size:options.second_row_font_size,
-                local_font_path:options.local_font_path,
-                local_font:options.local_font,*/
+                text_input_second_row:options.text_input_second_row,
+                local_font_path:options.local_font_path
+                /*second_row_font_size:options.second_row_font_size,
+                local_font:options.local_font*/
             }
         }}
         let batch = {prepend:false,batch:{data:[],graph:graph,runs:1}}
@@ -1012,6 +1135,7 @@ const textFontImage = async(options,host) => {
         log('Error in textFontImage')
         log('uses/requires textfontimage community node from mickr777')
         log('https://github.com/mickr777/textfontimage/tree/main')
+        debugLog(err)
         return {error:err}
     }
 }
@@ -1092,6 +1216,32 @@ const processImage = async(img,host,type,options) => {
     }
 }
 
+const nightmarePromptGen = async(host,options={temp:1.8,top_k:40,top_p:0.9,repo_id:'cactusfriend/nightmare-invokeai-prompts',prompt:'arty'})=>{
+    if(!host) host=await findHost()
+    let graph = {
+        nodes:{
+            nightmare_promptgen:{'id':'nightmare_promptgen','is_intermediate':false,'prompt':options.prompt,'repo_id':options.repo_id,'temp':options.temp,'top_k':options.top_k,'top_p':options.top_p,'type':'nightmare_promptgen','use_cache':false}
+        }
+    }
+    let batch = {
+        prepend:false,
+        batch:{
+            data:[],
+            graph:graph,
+            runs:3
+        }
+    }
+    try {
+        let batchId = await enqueueBatch(host,batch)
+        let result = await batchToResult(host,batchId)
+        return result
+    } catch(err) {
+        debugLog('Nightmare prompt generator failed to execute');debugLog(err)
+        return {error:'Nightmare prompt generator failed to execute'}
+    }
+    
+}
+
 const modelnameToObject = async(modelname)=>{
     // look up models available on hosts
     let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
@@ -1168,6 +1318,7 @@ cast = async(job)=>{
     try{
         context.host=await findHost(context.job)
         if(context.job.initimg){
+            // todo allow for multiple init images, upload them all, return array of objects
             debugLog('Uploading initimg')
             initimgid = getUUID()
             context.job.initimgObject = await uploadInitImage(context.host,context.job.initimg,initimgid)
@@ -1214,6 +1365,8 @@ module.exports = {
         processImage,
         hostCount:getHostOnlineCount,
         jobStats:getJobStats,
-        textFontImage
+        textFontImage,
+        cancelBatch,
+        nightmarePromptGen
     }
 }
