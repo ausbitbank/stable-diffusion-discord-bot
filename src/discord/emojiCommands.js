@@ -139,9 +139,9 @@ const sendToStarGallery = async(msg,emoi,reactor)=>{ // Make a copy without butt
     let messageId = msg.id
     let alreadyInGallery = false
     let guild = bot.guilds.get(guildId)
-    if(!guild) return
+    if(!guild){debugLog('Unable to find guild, DM?');return}
     let galleryChannel = guild.channels.find(channel => {return channel.name === 'star-gallery'})
-    if(!galleryChannel) return
+    if(!galleryChannel){debugLog('No star-gallery channel in guild');return}
     if (originalChannelId===galleryChannel.id) return
     // Make sure we have the full message object now instead of the shortform thing we get when eris doesn't have the message cached yet
     msg = await bot.getMessage(msg.channel.id,msg.id)
