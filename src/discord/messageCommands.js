@@ -12,7 +12,7 @@ let commands = [
         name: 'dream',
         description: 'Text to image',
         permissionLevel: 'all',
-        aliases: ['dream','drm','imagine','magin'],
+        aliases: ['dream','drm','imagine','magin','drm3'],
         prefix:'!',
         command: async (args,msg)=>{
             msg.addReaction('🫡') // salute emoji
@@ -282,6 +282,8 @@ let commands = [
             if(options.font){
                 // convert font name to font url
                 fonturl=fonturls.get(options.font)
+                debugLog(fonturl)
+                if(!fonturl){return {error:'Unable to find font name `'+options.font+'`'}}
             } else {
                 let f = fonturls.random()
                 options.font = f.name
@@ -289,11 +291,11 @@ let commands = [
             }
             let parsedOptions = {
                 text_input: options._.join(' '),
-                text_input_second_row: options.row2??null,
-                second_row_font_size:options.row2size??null,
+                text_input_second_row: options.row2??'',
+                second_row_font_size:options.row2size??'',
                 font_url:fonturl,
-                local_font_path:null,
-                local_font:null,
+                local_font_path:'',
+                local_font:'',
                 image_width:options.width??1024,
                 image_height:options.height??512,
                 padding:options.padding??100,
@@ -327,7 +329,7 @@ let commands = [
         prefix:'',
         command: async(args,msg)=>{
             let replymsg,meta,img
-            let parsedCmd = parseArgs(args,{})
+            let parsedCmd = parseArgs(args,{boolean:['facemask','invert','hrf']})
             if(msg.messageReference?.messageID){
                 replymsg = await bot.getMessage(msg.channel.id, msg.messageReference.messageID)
                 if(replymsg.member.id===bot.application.id&&messageHasImageAttachments(replymsg)){
@@ -474,6 +476,38 @@ let commands = [
             }
             return {messages:[dialog],files:[]}
         }
+    },
+    {
+        name:'nightmarePromptGen',
+        description:'Autocomplete prompts with nightmare prompt generator',
+        permissionLevel:'all',
+        aliases:['nightmare'],
+        prefix:'!',
+        command: async(args,msg)=>{
+            // Requires custom node https://github.com/gogurtenjoyer/nightmare-promptgen
+            // Do NOT allow repo_id to be directly set by user or you deserve what happens next
+            // OG 500mb model:  cactusfriend/nightmare-invokeai-prompts
+            // 1.5gb model:     cactusfriend/nightmare-promptgen-XL
+            let options = parseArgs(args,{})
+            let parsedOptions = {
+                prompt:options._.join(' '),
+                temp:options.temp??1.8,
+                top_k:options.top_k??40,
+                top_p:options.top_p??0.9,
+                repo_id:'cactusfriend/nightmare-promptgen-XL'
+            }
+            let response = await invoke.nightmarePromptGen(null,parsedOptions)
+            debugLog(response)
+            let newMsg = {
+                content:':brain: **Generated prompts:**',
+                embeds:[
+                ]
+            }
+            for (let answer in response){
+                newMsg.embeds.push({description:response[answer].prompt,color:getRandomColorDec()})
+            }
+            return {messages:[newMsg],files:[]}
+        }
     }
 ]
 
@@ -552,6 +586,7 @@ returnMessageResult = async(msg,result)=>{
             let meta=await exif.load(image.buffer)
             message = imageResultMessage(msg.member?.id||msg.author?.id,image,result,meta)
             if(msg.id){
+                //debugLog(msg)
                 message.messageReference={message_id:msg.id}
             }
             messages.push(message)
@@ -570,9 +605,10 @@ returnMessageResult = async(msg,result)=>{
 }
 
 extractImageBufferFromMessage = async (msg)=>{
+    // extract a single image buffer from a message
     let buf=null
     for (const a of msg.attachments){
-        let validMimetypes=['image/png','image/jpeg','image/webp']
+        let validMimetypes=['image/png','image/jpeg','image/jpg','image/webp','image/svg']
         if(validMimetypes.includes(a.content_type)){
             buf = await urlToBuffer(a.proxy_url)
             if(['image/webp','image/svg'].includes(a.content_type)){buf = await imageEdit.convertToPng(buf)}
@@ -582,13 +618,41 @@ extractImageBufferFromMessage = async (msg)=>{
     return buf
 }
 
+extractImageBuffersFromMessage = async (msg)=>{
+    // extract multiple buffers from message as an array
+    let buf=null
+    let bufArr=[]
+    for (const a of msg.attachments){
+        let validMimetypes=['image/png','image/jpeg','image/jpg','image/webp','image/svg']
+        if(validMimetypes.includes(a.content_type)){
+            buf = await urlToBuffer(a.proxy_url)
+            if(['image/webp','image/svg'].includes(a.content_type)){buf = await imageEdit.convertToPng(buf)}
+            bufArr.push(buf)
+        }
+    }
+    return bufArr
+}
+
 extractImageUrlFromMessage = async (msg)=>{
+    // extract a single image url from a message
     for (const a of msg.attachments){
         let validMimetypes=['image/png','image/jpeg','image/webp']
         if(validMimetypes.includes(a.content_type)){
             return a.proxy_url
         }
     }
+}
+
+extractImageUrlsFromMessage = async (msg)=>{
+    // extract an array of image urls from a message
+    let imgArr=[]
+    for (const a of msg.attachments){
+        let validMimetypes=['image/png','image/jpeg','image/webp']
+        if(validMimetypes.includes(a.content_type)){
+            imgArr.push(a.proxy_url)
+        }
+    }
+    return imgArr
 }
 
 extractMetadataFromMessage = async (msg)=>{
@@ -602,6 +666,7 @@ extractMetadataFromMessage = async (msg)=>{
 }
 
 messageHasImageAttachments = (msg)=>{
+    // return true or false
     if(msg.attachments?.length>0){
         for (const a of msg.attachments){
             let validMimetypes=['image/png','image/jpeg','image/webp']
@@ -612,6 +677,7 @@ messageHasImageAttachments = (msg)=>{
 }
 
 extractImageAndUrlFromMessageOrReply = async(msg)=>{
+    // extract a single image buffer and url from a message or reply
     let img,url
     if(messageHasImageAttachments(msg)){
         img = await extractImageBufferFromMessage(msg)
@@ -631,6 +697,29 @@ extractImageAndUrlFromMessageOrReply = async(msg)=>{
     return {img,url}
 }
 
+extractImagesAndUrlsFromMessageOrReply = async(msg)=>{
+    // extract multiple image buffers and urls from a message or reply
+    let imgs,urls = []
+    if(messageHasImageAttachments(msg)){
+        imgs = await extractImageBuffersFromMessage(msg)
+        urls = await extractImageUrlFromMessage(msg)
+        debugLog('Extracted image attachments from message:')
+        debugLog(urls)
+    } else if(msg.messageReference?.messageID) {
+        let sourcemsg = await bot.getMessage(msg.channel.id, msg.messageReference.messageID)
+        if(messageHasImageAttachments(sourcemsg)){
+            imgs = await extractImageBuffersFromMessage(sourcemsg)
+            urls = await extractImageUrlsFromMessage(sourcemsg)
+            debugLog('Extracted image attachments from message reply:')
+            debugLog(urls)
+        }
+    } else {
+        imgs=[]
+        urls=[]
+    }
+    return {imgs,urls}
+}
+
 getAvatarUrl = async(userId)=>{
     let user = await bot.users.get(userId)
     let avatarHash = user.avatar
@@ -640,6 +729,7 @@ getAvatarUrl = async(userId)=>{
 
 imageResultMessage = (userid,img,result,meta)=>{
     let p=result.job.prompt
+    //if(result.job.negative_prompt){p=p+' ['+result.job.negative_prompt+']'}
     let t=''
     if(meta.invoke?.cost){t+=' :coin: '+meta.invoke.cost}
     if(img.width&&img.height){t+=' :straight_ruler: '+img.width+'x'+img.height}
@@ -664,6 +754,9 @@ imageResultMessage = (userid,img,result,meta)=>{
     if(meta.invoke?.controlend){t+=',e:'+meta.invoke.controlend}
     if(meta.invoke?.facemask){t+=' :performing_arts: facemask'}
     if(meta.invoke?.invert){t+=' inverted'}
+    if(meta.invoke?.hrf){t+=' :telescope: hrf'}
+    if(meta.invoke?.hrfwidth){t+=' '+meta.invoke.hrfwidth+'x'}
+    if(meta.invoke?.hrfheight){t+=meta.invoke.hrfheight}
     let colordec=getRandomColorDec()
     let newmsg = {
         content:':brain: <@'+userid+'>',
@@ -775,8 +868,10 @@ module.exports = {
         prefixes,
         parseMsg,
         extractImageBufferFromMessage,
+        extractImageBuffersFromMessage,
         extractMetadataFromMessage,
         extractImageUrlFromMessage,
+        extractImageUrlsFromMessage,
         messageHasImageAttachments,
         returnMessageResult
     }
