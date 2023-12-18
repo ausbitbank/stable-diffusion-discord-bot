@@ -44,6 +44,6 @@
     "socket.io-client": "^4.5.2",
     "topgg-autoposter": "^2.0.1",
     "@top-gg/sdk": "^3.1.5",
-    "stripe":"^12.9.0"
+    "stripe":"^14.9.0"
   }
 }
