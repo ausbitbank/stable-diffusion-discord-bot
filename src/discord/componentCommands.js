@@ -218,7 +218,7 @@ let commands = [
             let channelid = interaction.channel.id
             let sourcemsg = await bot.getMessage(channelid,msgid)
             let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
-            let strength = meta.invoke.strength.toString()
+            let strength = meta.invoke.strength.toString()??config.default.strength
             //let strength = config?.default?.strength?.toString()||'0.7'
             return interaction.createModal({
                 custom_id:'edit-'+sourcemsg.id,
@@ -370,7 +370,13 @@ let commands = [
                     let model = cat.items[m]
                     menu.components[0].options.push({label:model.model_name?.substring(0,50),value:model.model_name,description:model.description?.substring(0,50),emoji:null})
                     // if we hit the limit per dropdown, push the menu into component and ready for new menu
-                    if(menu.components[0].options.length===25){debugLog('at limit, pushing menu');components.push(menu);menu.options=[]}
+                    if(menu.components[0].options.length===25){
+                        // todo fix : crashes if triggered by too many models
+                        // discord lib complaints about identical value
+                        debugLog('at limit, pushing menu')
+                        components.push(menu)
+                        menu.options=[]
+                    }
                 }
                 // If we have any options, push them into component and clear
                 if(menu.components[0].options.length>0){
@@ -443,12 +449,11 @@ let commands = [
                         if(sourcemsg.member.id!==bot.application.id){sourcemsg.addReaction('🗑️')}
                     } catch(err){log(err)}
                 }
-                try{msg.delete()}catch(err){debugLog('Discord error removing message');debugLog(err)}
+                try{await msg?.delete()}catch(err){debugLog('Discord error removing message');debugLog(err)}
             } else {
                 // otherwise make them show their vote
                 try{
                     msg.addReaction('🗑️')
-                    interaction.createMessage({content:'Confirm your vote for removal by clicking the :wastebasket: emoji on the render',flags:64})
                 } catch (err) {
                     debugLog('Emoji command remove failed')
                     debugLog(err)
@@ -508,7 +513,6 @@ let commands = [
         permissionLevel:['all'],
         aliases:['chooseAspectRatio'],
         command: async (interaction)=>{
-            if(!interaction.acknowledged){interaction?.acknowledge()}
             let msgid = interaction.data.custom_id.split('-')[1]
             let msg=await bot.getMessage(interaction.channel.id,msgid)
             if(messageCommands.messageHasImageAttachments(msg)){
@@ -518,6 +522,7 @@ let commands = [
                 if(meta && meta.invoke && width && height){
                     let pixels = parseInt(height) * parseInt(width)
                     if(interaction.data.values){
+                        //try{if(!interaction.acknowledged){interaction?.acknowledge()}}catch(err){log(err)}
                         let res = await aspectRatio.ratioToRes(interaction.data.values[0],pixels)
                         // interaction.channel.createMessage does not work in DM
                         //let trackingmsg = await interaction.channel.createMessage({content:':saluting_face: '+res.description+' '+res.width+' x '+res.height+' selected',components:[],embeds:[]})
@@ -533,7 +538,7 @@ let commands = [
                         return messageCommands.returnMessageResult(newmsg,result)
                     } else {
                         let dialog = await aspectRatio.dialog(msgid,pixels)
-                        interaction.editParent(dialog)
+                        interaction.editParent(dialog) // bug here, occasional(?) crash with interaction already acknowledged, move the acknowledge code
                     }
                 }
             }
@@ -602,7 +607,6 @@ let commands = [
             if(!interaction?.acknowledged){interaction?.acknowledge()}
             let batchid = interaction.data.custom_id.replace('cancelBatch-','')
             // todo auth gating here
-            // we can get the interacting user from the interaction
             if(userid===config?.adminID){
                 // pass to invoke function
                 let response = await invoke.cancelBatch(batchid)
