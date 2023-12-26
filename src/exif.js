@@ -8,9 +8,8 @@ const pngtext = require('png-chunk-text')
 
 
 load=async(buf)=>{
-    //buf = await modify(buf,'arty_meta','keyname','value')
+    //buf = await modify(buf,'arty_meta','keyname','value'))
     exif = ExifReader.load(buf)
-    //debugLog(exif)
     let width = exif['Image Width'].value
     let height = exif['Image Height'].value
     let results = {}
