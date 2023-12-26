@@ -1,4 +1,4 @@
-const {config,log,debugLog,urlToBuffer}=require('../utils')
+const {config,log,debugLog,urlToBuffer,getRandomColorDec}=require('../utils')
 const {bot}=require('./bot')
 const {invoke}=require('../invoke')
 const {messageCommands}=require('./messageCommands')
@@ -7,9 +7,9 @@ const {auth}=require('./auth')
 const Eris = require("eris")
 //const Constants = Eris.Constants
 const Collection = Eris.Collection
-
+const {fonturls} = require('../fonturls')
 // Get samplers from config ready for /dream slash command
-var samplers=config.schedulers||['euler','deis','ddim','ddpm','dpmpp_2s','dpmpp_2m','dpmpp_2m_sde','dpmpp_sde','heun','kdpm_2','lms','pndm','unipc','euler_k','dpmpp_2s_k','dpmpp_2m_k','dpmpp_2m_sde_k','dpmpp_sde_k','heun_k','lms_k','euler_a','kdpm_2_a']
+var samplers=config.schedulers||['euler','deis','ddim','ddpm','dpmpp_2s','dpmpp_2m','dpmpp_2m_sde','dpmpp_sde','heun','kdpm_2','lms','pndm','unipc','euler_k','dpmpp_2s_k','dpmpp_2m_k','dpmpp_2m_sde_k','dpmpp_sde_k','heun_k','lms_k','euler_a','kdpm_2_a','lcm']
 var samplersSlash=[]
 samplers.forEach((s)=>{samplersSlash.push({name: s, value: s})})
 var defaultSampler=config.default.scheduler?config.default.scheduler:'dpmpp_2m_sde_k'
@@ -54,8 +54,21 @@ var slashCommands = [
         imgurl = attachmentOrig.url
         img = await urlToBuffer(imgurl)
       }
-      debugLog(username+' triggered dream command')
+      log(username+' triggered dream command')
+      //debugLog(i)
       let job={}
+      // todo integrate tracking message
+      /*
+      try {
+        let trackingmsg = await bot.createMessage(msg.channel.id,{content:':saluting_face: dreaming'})
+        debugLog('tracking msg')
+        let trackingmsg = await i.createMessage({content:':saluting_face: dreaming'})
+        job.tracking = {type:'discord',msg:trackingmsg}
+      } catch (err) {
+        debugLog('Error creating tracking msg')
+        debugLog(err)
+      }
+      */
       for (const arg in i.data.options){
         let a = i.data.options[arg]
         switch (a.name){
@@ -82,12 +95,70 @@ var slashCommands = [
         debugLog(message)
         if(files.length>0)file=files.shift() // grab the top file
         if(message&&file){
-          log(message)
+          //log(message)
           i.createMessage(message,file) // Send message with attachment
         }else if(message){
           i.createMessage(message) // Send message, no attachment
         }
       })
+    }
+  },
+  {
+    name: 'text',
+    description: 'Create an image with text',
+    cooldown: 500,
+    options:[
+      {type: 3, name: 'row1', description: 'Text', required: true, min_length: 1, max_length:1000 },
+      {type: 3, name: 'row2', description: 'Text row 2', required: false, min_length: 1, max_length:1000 },
+      {type: 4, name: 'width', description: 'width of the image in pixels', required: false, min_value: 256, max_value: 1024 },
+      {type: 4, name: 'height', description: 'height of the image in pixels', required: false, min_value: 256, max_value: 1024 },
+      {type: 4, name: 'padding', description: 'padding around text in pixels', required: false, min_value: 0, max_value: 1000 },
+      {type: 4, name: 'gap', description: 'gap between rows in pixels', required: false, min_value: 0, max_value: 1000 },
+      {type: 4, name: 'row2size', description: 'row 2 font size', required: false, min_value: 5, max_value: 100 },
+    ],
+    execute: async(i) => {
+      let userid=i.member?.id??i.user?.id
+      let username=i.member?.username??i.user?.username
+      log(username+' triggered text command')
+      let options = {}
+      for (const arg in i.data.options){
+        let a = i.data.options[arg]
+        switch(a.name){
+          default:options[a.name]=a.value;break
+        }
+      }
+      let f = fonturls.random()
+      let fonturl = f.url
+      /*
+      if(options.font){
+          // convert font name to font url
+          fonturl=fonturls.get(options.font)
+          if(!fonturl){return {error:'Unable to find font name `'+options.font+'`'}}
+      }
+      */
+      let parsedOptions = {
+        text_input:options.row1??'arty',
+        text_input_second_row:options.row2??'',
+        second_row_font_size:options.row2size??'',
+        font_url:fonturl,
+        local_font_path:'',
+        local_font:'',
+        image_width:options.width??1024,
+        image_height:options.height??1024,
+        padding:options.padding??100,
+        row_gap:options.gap??50
+      }
+      let result = await invoke.textFontImage(parsedOptions)
+      if(result.error||result.images.length==0){
+        i.createMessage({embeds:[{description:':warning: Failed to create text image',color:getRandomColorDec()}]})
+      } else {
+        let response = {
+            embeds:[
+                {description:':tada: textfontimage result for <@'+userid+'>\nText: `'+parsedOptions.text_input+'`, Width:`'+result.images[0].width+'` , Height: `'+result.images[0].height+'`, Font: `'+f.name+'`, Padding: `'+parsedOptions.padding+'`, Gap: `'+parsedOptions.row_gap+'`',color:getRandomColorDec()}
+            ]
+        }
+        i.createMessage(response,{file:result.images[0].buffer,name:result.images[0].name})
+      }
     }
   }
 ]
@@ -220,7 +291,6 @@ parseCommand = async(interaction)=>{
         if(!auth.check(interaction.user?.id,interaction.guild?.id??'DM',interaction.channel?.id)){return} // if not authorised, ignore
         // run the stored slash command
         bot.commands.get(interaction.data.name).execute(interaction)
-        interaction.deleteMessage('@original')
       }catch(err){
         log(err)
         await interaction.createMessage({content:'There was an error while executing this command!', flags: 64}).catch((e) => {log(e)})
