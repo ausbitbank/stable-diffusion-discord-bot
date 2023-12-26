@@ -4,7 +4,7 @@ const log = console.log.bind(console)
 const crypto = require('crypto')
 const debounce = require('debounce')
 const debugLog = (m)=>{if(config.logging.debug){log(m)}}
-function shuffle(array) {for (let i = array.length - 1; i > 0; i--) {let j = Math.floor(Math.random() * (i + 1));[array[i], array[j]] = [array[j], array[i]]}} // fisher-yates shuffle
+const shuffle = (array)=>{for (let i = array.length - 1; i > 0; i--) {let j = Math.floor(Math.random() * (i + 1));[array[i], array[j]] = [array[j], array[i]]}} // fisher-yates shuffle
 const getRandomColorDec=()=>{return Math.floor(Math.random()*16777215)}
 const partialMatches=(strings,search)=>{
   let results = []
@@ -32,7 +32,18 @@ const urlToBuffer = async(url)=>{
         .catch(err=>{reject(err)})
       })
 }
-function shuffle(array) {for (let i = array.length - 1; i > 0; i--) {let j = Math.floor(Math.random() * (i + 1));[array[i], array[j]] = [array[j], array[i]]}} // fisher-yates shuffle
+const extractFilenameFromUrl=(url)=>{
+  var path = decodeURI(url) // Decode URL if it contains encoded characters
+  var lastSlashIndex = path.lastIndexOf('/') // Find the last occurrence of "/"
+  var filenameWithExtension = path.substring(lastSlashIndex + 1) // Extract the filename with extension
+  var filename = filenameWithExtension.split('?')[0] // Remove any query parameters from the filename
+  return filename
+}
+
+const isURL=(string)=>{
+  const urlPattern = /^(https?:\/\/)?([\w.-]+\.[a-zA-Z]{2,})(:[0-9]+)?(\/[\w\/.-]*)*(\?[\w=&-]+)?(#\w*)?$/
+  return urlPattern.test(string)
+}
 
 module.exports = {
     config,
@@ -46,5 +57,7 @@ module.exports = {
     sleep,
     shuffle,
     debounce,
-    tidyNumber
+    tidyNumber,
+    extractFilenameFromUrl,
+    isURL
 }
