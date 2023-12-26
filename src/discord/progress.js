@@ -6,7 +6,6 @@ update = async(msg,batchid)=>{
     // Call once, repetitively update message with results of get(batchid)
     let error=false,done=false,statusmsg=null,cached=null,result=null,interval=500,fails=0
     while(!error&&!done){
-        //debugLog('discord tracking progress loop for batch '+batchid)
         try {
             await sleep(interval)
             result = resultCache.get(batchid)
@@ -17,9 +16,8 @@ update = async(msg,batchid)=>{
                 continue
             }
             if(statusmsg&&statusmsg!==cached){
-                // send message
-                cached=statusmsg
-                await msg.edit(statusmsg.msg,statusmsg.file)
+                cached=statusmsg // update cache
+                await msg.edit(statusmsg.msg,statusmsg.file) // edit progress message
             }
             if(['completed','failed','cancelled'].includes(result.status)){
                 await msg.delete()
@@ -40,15 +38,16 @@ returnProgressMessage = (batchid) =>{
         let content= ''//+batchid
         file=null
         if(r){
+            //debugLog(batchid+' - '+r.status)
             switch(r.status){
                 case('in_progress'):content=':green_circle: In progress';break
                 case('pending'):content=':orange_circle: Pending';break
                 case('failed'):content=':red_circle: Failed';break
+                case('completed'):content=':tada: Completed';break
             }
             content+=' '
             if(r.hostname){content+=' on `'+r.hostname+'`'}
             content+='\n'
-            //debugLog(r.results[r.results.length-1])
             if(['in_progress'].includes(r.status)&&r.progress?.step!==undefined){
                 let percent = (parseInt(r.progress?.step) / parseInt(r.progress?.total_steps))*100
                 content+=emoji(percent/100)+' '+r.progress?.step+' / '+r.progress?.total_steps+' ('+percent.toFixed(0)+'%) '
