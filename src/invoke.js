@@ -51,7 +51,7 @@ const initHost=async(host)=>{
         host.activeJob = null
         host.socket = io(host.url,{path: '/ws/socket.io'})
         host.jobs = []
-        log('Connected to '.bgGreen.black+host.name.bgGreen+' with InvokeAI Version: '+host.version+'\nModels: '+host.models.length+',Loras: '+host.lora.length+', Embeddings: '+host.ti.length+', Vaes: '+host.vae.length+', Controlnets: '+host.controlnet.length+', Ip Adapters: '+host.ip_adapter.length+', T2i Adapters: '+host.t2i_adapter.length)
+        log('Connected to '.bgGreen.black+host.name.bgGreen+' with InvokeAI Version: '+host.version+'\nModels: '+host.models.length+', Loras: '+host.lora.length+', Embeddings: '+host.ti.length+', Vaes: '+host.vae.length+', Controlnets: '+host.controlnet.length+', Ip Adapters: '+host.ip_adapter.length+', T2i Adapters: '+host.t2i_adapter.length)
         queueStatus(host)
         subscribeQueue(host,'arty')
     } catch (err) {
@@ -106,10 +106,10 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         //graph.nodes[newid].use_cache=true
         Object.keys(params)?.forEach((k)=>{graph.nodes[newid][k]=params[k]})
         // by tracking and updating most recent used ids we can break the job into components easier
-        if(['main_model_loader','sdxl_model_loader','sdxl_model_refiner_loader','lora_loader','sdxl_lora_loader'].includes(type)){lastid.unet=newid}
+        if(['main_model_loader','sdxl_model_loader','sdxl_model_refiner_loader','lora_loader','sdxl_lora_loader','seamless','freeu'].includes(type)){lastid.unet=newid}
         if(['main_model_loader','sdxl_model_loader','clip_skip','lora_loader','sdxl_lora_loader'].includes(type)){lastid.clip=newid}
         if(['sdxl_model_loader','sdxl_refiner_model_loader','sdxl_lora_loader'].includes(type)){lastid.clip2=newid}
-        if(['sdxl_model_loader','main_model_loader','vae_loader','denoise_latents'].includes(type)){lastid.vae=newid}
+        if(['sdxl_model_loader','main_model_loader','vae_loader','seamless'].includes(type)){lastid.vae=newid}
         if(['t2l','ttl','lscale','l2l','i2l','denoise_latents','lresize'].includes(type)){lastid.latents=newid}
         if(['noise'].includes(type)){lastid.noise=newid}
         if(['controlnet'].includes(type)){lastid.control=newid}
@@ -196,6 +196,8 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         hrf_height:job.hrfheight??null,
         hrf_width:job.hrfwidth??null,
         hrf_strength:job.hrf_strength??job.strength??null
+        //seamless_x:true/false,
+        //seamless_y:true/false
     }
     // Reformat lora array for metadata object
     if(job.loras?.length>0){for (const l in job.loras){metaObject.loras.push({lora:{model_name:job.loras[l].model.model_name,base_model:job.loras[l].model.base_model},weight:job.loras[l].weight})}}
@@ -209,6 +211,25 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     } else {
         node('sdxl_model_loader',{model:job.model,is_intermediate:true},[])
         if(job.loras?.length>0){for (const l in job.loras) {node('sdxl_lora_loader',{is_intermediate:true,lora:{base_model:job.loras[l].model.base_model,model_name:job.loras[l].model.model_name},weight:job.loras[l].weight},[pipe(lastid.clip,'clip','SELF','clip'),pipe(lastid.clip2,'clip2','SELF','clip2'),pipe(lastid.unet,'unet','SELF','unet')])}} // lora loader, chain multiple loras with clip and unet into each other
+    }
+    // Add freeu node https://stable-diffusion-art.com/freeu/
+    // current default settings :
+    // sd1 b1:1.2,b2:1.4,s1:0.9,s2:0.2
+    // sd2 b1:1.1,b2:1.2,s1:0.9,s2:0.2
+    // sdxl b1:1.1,b2:1.2,s1:0.6,s2:0.4
+    // todo make optional in config and per job option
+    // DO NOT USE WITH LORAS, it breaks them
+    /*
+    if(job.model.base_model==='sd-1'){node('freeu',{is_intermediate:true,b1:1.2,b2:1.4,s1:0.9,s2:0.2,use_cache:true},[pipe('main_model_loader','unet','SELF','unet')])}
+    if(job.model.base_model==='sd-2'){node('freeu',{is_intermediate:true,b1:1.1,b2:1.2,s1:0.9,s2:0.2,use_cache:true},[pipe('main_model_loader','unet','SELF','unet')])}
+    if(job.model.base_model==='sdxl'){node('freeu',{is_intermediate:true,b1:1.1,b2:1.2,s1:0.6,s2:0.4,use_cache:true},[pipe('sdxl_model_loader','unet','SELF','unet')])}
+    */
+
+    // Tamper with unet and vae if using seamless mode
+    if(job.seamlessx===true||job.seamlessy===true){
+        node('seamless',{is_intermediate:true,use_cache:false,seamless_x:job.seamlessx===true?true:false,seamless_y:job.seamlessy===true?true:false},[pipe(lastid.unet,'SELF','unet','SELF'),pipe(lastid.vae,'SELF','vae','SELF')])
+        debugLog('Added seamless, partial graph is:');debugLog(graph)
+        // todo ^^ graph submit fails with no error when using seamless x or y or both ? revisit after sleep
     }
 
     if(job.initimgObject){
@@ -247,6 +268,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
                     },[])
         }
     }
+
     node('clip_skip',{skipped_layers:job.clipskip??0,is_intermediate:true},[pipe(lastid.clip,'clip','SELF','clip')])
     if(lastid.width&&lastid.height){
         node('noise',{use_cpu:true},[pipe(lastid.width,'width','SELF','width'),pipe(lastid.height,'height','SELF','height')])
@@ -290,8 +312,6 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     if(lastid.latents){p.push(pipe(lastid.latents,'latents','SELF','latents'))}
     let denoising_start = 0.0
     if(job.strength&&job.initimgObject&&job.control==='i2l'){denoising_start=1.0-job.strength}
-    //debugLog('p:')
-    //debugLog(p)
     node('denoise_latents',{is_intermediate:true,noise:null,steps:job.steps,cfg_scale:job.scale,denoising_start:denoising_start,denoising_end:1.0,scheduler:job.scheduler},p)
 /* Disabled crap lscale implementation, replace with new hrf as per invoke 3.4+
 
@@ -334,9 +354,11 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     
     // final output
     if(['sd-1','sd-2'].includes(job.model.base_model)){
-        node('l2i',{tiled:true,fp32:fp32,is_intermediate:false},[pipe('main_model_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('merge_metadata','metadata','SELF','metadata')])
+        //node('l2i',{tiled:true,fp32:fp32,is_intermediate:false},[pipe('main_model_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('merge_metadata','metadata','SELF','metadata')])
+        node('l2i',{tiled:true,fp32:fp32,is_intermediate:false},[pipe(lastid.vae,'vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('merge_metadata','metadata','SELF','metadata')])
     } else {
-        node('l2i',{tiled:true,fp32:fp32,is_intermediate:false},[pipe('sdxl_model_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('merge_metadata','metadata','SELF','metadata')])
+        //node('l2i',{tiled:true,fp32:fp32,is_intermediate:false},[pipe('sdxl_model_loader','vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('merge_metadata','metadata','SELF','metadata')])
+        node('l2i',{tiled:true,fp32:fp32,is_intermediate:false},[pipe(lastid.vae,'vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('merge_metadata','metadata','SELF','metadata')])
     }
 
     //if(job.upscale&&job.upscale===2){node('esrgan',{model_name:'RealESRGAN_x2plus.pth'},[pipe(lastid.image,'image','SELF','image')])}
@@ -349,7 +371,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     ])
     // Tada! Graph built
     //debugLog(data)
-    debugLog(graph)
+    //debugLog(graph)
     return {
         batch:{
             data:data,
@@ -444,7 +466,8 @@ const findHost = async(job=null)=>{
     }
     if(isString(job?.model)){
         debugLog('Job.model is a string, convert to model object')
-        try{ job.model=await modelnameToObject(job.model)
+        try{
+            job.model=await modelnameToObject(job.model)
         }catch(err){
             log('error in findHost model search')
             log(err)
@@ -836,10 +859,10 @@ const auto2invoke = (text)=>{
   })
 }
 
-const jobFromDream = async(cmd,img=null,tracking=null)=>{
+const jobFromDream = async(cmd,images=null,tracking=null)=>{
     // input oldschool !dream format, output job object
     debugLog('jobfromdream - cmd:'+cmd)
-    var job = parseArgs(cmd,{boolean:['facemask','invert','hrf']})//string: ['sampler','text_mask'],boolean: ['seamless','hires_fix']}) // parse arguments //
+    var job = parseArgs(cmd,{boolean:['facemask','invert','hrf','seamlessx','seamlessy']})//string: ['sampler','text_mask'],boolean: ['seamless','hires_fix']}) // parse arguments //
     // set argument aliases
     if(job.s){job.steps=job.s;delete job.s}
     if(job.S){job.seed=job.S;delete job.S}
@@ -854,7 +877,8 @@ const jobFromDream = async(cmd,img=null,tracking=null)=>{
     // take prompt from what's left
     debugLog('Debug hrf inside jobfromdream :');debugLog(job.hrf);debugLog(cmd)
     job.prompt=job._.join(' ')
-    if(img){job.initimg=img}
+    if(images){job.initimg=images}
+    //if(images){job.images=images}
     return validateJob(job)
 }
 
@@ -883,7 +907,7 @@ const jobFromMeta = async(meta,img=null,tracking=null)=>{
         if(meta.invoke?.hrfwidth)job.hrf=meta.invoke.hrfwidth
         if(meta.invoke?.hrfheight)job.hrf=meta.invoke.hrfheight
     }
-    job.steps = meta.invoke?.steps ? meta.invoke.steps : config.default.steps
+    job.steps = meta.invoke?.steps??config.default.steps
     // todo need to look at job.model.base_model and use sdxl width/height defaults if not already in meta.invoke
     job.width = meta.invoke?.width ? meta.invoke.width : config.default.width ?? config.default.size
     job.height = meta.invoke?.height ? meta.invoke.height : config.default.height ?? config.default.size
@@ -1006,95 +1030,113 @@ const allUniqueT2iAdaptersAvailable = async()=>{
 
 const validateJob = async(job)=>{
     // examine job object, reject on invalid parameters, add defaults as required
-    // if no prompt, get a random one
-    if(!job.prompt||job.prompt.length===0) job.prompt=random.get('prompt')
-    // replace randomisers
-    job.prompt=random.parse(job.prompt)
-    // convert prompt weighting from auto1111 format to invoke/compel
-    job.prompt=auto2invoke(job.prompt)
-    // extract Loras in withLora(name,wieght) format into job.loras
     try{
-        let el = await extractLoras(job.prompt)
-        if(el.error){return {error:el.error}}
-        //job.prompt = el.stripped // Decided against stripping from prompt
-        job.loras = el.loras
-    } catch(err){
-        return {error: err}
-    }
-    // Set default model if not selected
-    if(!job.model){job.model=await modelnameToObject(config.default.model)}
-    // Upgrade from model string to model object
-    if(!isObject(job.model)){job.model=await modelnameToObject(job.model)}
-    // split into positive/negative prompts
-    const npromptregex = /\[(.*?)\]/g // match content of [square brackets]
-    const npromptmatches = job.prompt?.match(npromptregex)
-    if(npromptmatches?.length>0){
-        job.negative_prompt=npromptmatches.join(' ').replace('[','').replace(']','')
-    }else{
-        // default negative prompt
+        // if no prompt, get a random one
+        if(!job.prompt||job.prompt.length===0) job.prompt=random.get('prompt')
+        // replace randomisers
+        job.prompt=random.parse(job.prompt)
+        // convert prompt weighting from auto1111 format to invoke/compel
+        job.prompt=auto2invoke(job.prompt)
+        // extract Loras in withLora(name,wieght) format into job.loras
+        //try{
+            let el = await extractLoras(job.prompt)
+            debugLog(el)
+            if(el.error){return {error:el.error}}
+            //job.prompt = el.stripped // Decided against stripping from prompt
+            job.loras = el.loras
+        //} catch(err){
+        //    return {error: err}
+        //}
+        // Set default model if not selected
+        if(!job.model){
+            //debugLog('Setting default model: '+config.default.model)
+            job.model=await modelnameToObject(config.default.model)
+        }
+        // Upgrade from model string to model object
+        if(!isObject(job.model)){
+            debugLog('Upgrade from model string to object')
+            job.model=await modelnameToObject(job.model)
+        }
+        // split into positive/negative prompts
+        const npromptregex = /\[(.*?)\]/g // match content of [square brackets]
+        const npromptmatches = job.prompt?.match(npromptregex)
+        if(npromptmatches?.length>0){
+            job.negative_prompt=npromptmatches.join(' ').replace('[','').replace(']','')
+        }else{
+            // default negative prompt
+            if(job.model?.base_model==='sdxl'){
+                job.negative_prompt=config.default.sdxlnegprompt||''
+            } else {
+                job.negative_prompt=config.default.negprompt||''
+            }
+            debugLog('negative prompt: '+job.negative_prompt)
+        }
+        job.positive_prompt=job.prompt?.replace(npromptregex,'')
+        // set defaults if not already set
+        if(!job.style){job.style=''}
+        if(!job.negstyle){job.negstyle=''}
+        if(!job.number){job.number=1}else if(job.number>1&&job.seed){delete job.seed} // cannot feed a seed into the iterator afaik
+        if(!job.seed&&job.number!==1||!Number.isInteger(job.seed)||job.seed<1||job.seed>4294967295){job.seed=random.seed()}
+        if(!job.steps){job.steps=config.default.steps??30}
+        if(!job.strength&&job.initimg){job.strength=config.default.strength||0.75}
+        if(job.steps>config.maximum.steps){return{error:'Steps `'+job.steps+'` is above the current maximum step count `'+config.maximum.steps+'`'}}
         if(job.model?.base_model==='sdxl'){
-            job.negative_prompt=config.default.sdxlnegprompt||''
+            if(!job.width){job.width=config.default.sdxlwidth??1024}
+            if(!job.height){job.height=config.default.sdxlheight??1024}
         } else {
-            job.negative_prompt=config.default.negprompt||''
+            if(!job.width){job.width=config.default.width??512}
+            if(!job.height){job.height=config.default.height??512}
         }
-        debugLog('negative prompt: '+job.negative_prompt)
-    }
-    job.positive_prompt=job.prompt?.replace(npromptregex,'')
-    // set defaults if not already set
-    if(!job.style){job.style=''}
-    if(!job.negstyle){job.negstyle=''}
-    if(!job.number){job.number=1}else if(job.number>1&&job.seed){delete job.seed} // cannot feed a seed into the iterator afaik
-    if(!job.seed&&job.number!==1||!Number.isInteger(job.seed)||job.seed<1||job.seed>4294967295){job.seed=random.seed()}
-    if(!job.steps){job.steps=config.defaultSteps? config.defaultSteps : 30}
-    if(!job.strength){job.strength=config.default.strength||0.75}
-    if(job.steps>config.maximum.steps){return{error:'Steps `'+job.steps+'` is above the current maximum step count `'+config.maximum.steps+'`'}}
-    if(job.model?.base_model==='sdxl'){
-        if(!job.width){job.width=config.default.sdxlwidth??1024}
-        if(!job.height){job.height=config.default.sdxlheight??1024}
-    } else {
-        if(!job.width){job.width=config.default.width??512}
-        if(!job.height){job.height=config.default.height??512}
-    }
-    job.height=getDiffusionResolution(job.height)
-    job.width=getDiffusionResolution(job.width)
-    if(config.maximum.pixels&&(job.width*job.height)>config.maximum.pixels){
-        let error = 'Width `'+job.width+'` x Height `'+job.height+'` = `'+tidyNumber(job.width*job.height)+'` , above the current maximum pixel count of `'+tidyNumber(config.maximum.pixels)+'`'
-        debugLog(error)
-        return {error:error}
-        //job.width=config.default.size?config.default.size:512
-        //job.height=config.default.size?config.default.size:512
-    }
-    if(!job.scale){job.scale=config.default.scale? config.default.scale : 0.7}
-    // scheduler must be one of these
-    let validSchedulers=config.schedulers||['ddim','ddpm','deis','lms','lms_k','pndm','heun','heun_k','euler','euler_k','euler_a','kdpm_2','kdpm_2_a','dpmpp_2s','dpmpp_2s_k','dpmpp_2m','dpmpp_2m_k','dpmpp_2m_sde','dpmpp_2m_sde_k','dpmpp_sde','dpmpp_sde_k','unipc']
-    if(!job.scheduler){job.scheduler=config.default.scheduler? config.default.scheduler.toLowerCase() : 'dpmpp_2m_sde_k'}
-     // lscale min 1 max 3 default 1
-    if(!job.lscale||job.lscale<1||job.lscale>3){job.lscale=1}
-    if(!job.clipskip){job.clipskip=0}
-    if(!job.upscale){job.upscale=0}
-    // set default init img mode
-    if(!job.control&&job.initimg){job.control=config.default.controlmode||'i2l'}
-    if(job.controlresize&&['just_resize','crop_resize','fill_resize'].includes(job.controlresize)===false){job.controlresize='just_resize'}else{job.controlresize='just_resize'}
-    if(job.controlmode&&['balanced','more_prompt','more_control','unbalanced'].includes(job.controlresize)===false){job.controlmode='balanced'}
-    if(job.hrf){
-        // set default res for hires fix based on base model and aspect ratio
-        let hrfpixellimit=604*604 // sd1
-        if(job.model?.base_model==='sdxl'){hrfpixellimit=1024*1024}
-        let curpixels=job.width*job.height
-        if(curpixels>hrfpixellimit){
-            //debugLog('res too big, calc aspect ratio for hi res fix')
-            let aspect = await aspectRatio.resToRatio(job.width,job.height)
-            let newres = await aspectRatio.ratioToRes(aspect,hrfpixellimit)
-            if(!job.hrfheight){job.hrfheight=getDiffusionResolution(newres.height)}
-            if(!job.hrfwidth){job.hrfwidth=getDiffusionResolution(newres.width)}
-        } else {
-            if(!job.hrfheight){job.hrfheight=getDiffusionResolution(job.height)}
-            if(!job.hrfwidth){job.hrfwidth=getDiffusionResolution(job.width)}
+        job.height=getDiffusionResolution(job.height)
+        job.width=getDiffusionResolution(job.width)
+        if(config.maximum.pixels&&(job.width*job.height)>config.maximum.pixels){
+            let error = 'Width `'+job.width+'` x Height `'+job.height+'` = `'+tidyNumber(job.width*job.height)+'` , above the current maximum pixel count of `'+tidyNumber(config.maximum.pixels)+'`'
+            debugLog(error)
+            return {error:error}
+            //job.width=config.default.size?config.default.size:512
+            //job.height=config.default.size?config.default.size:512
         }
-        // get 
-
+        if(!job.scale){job.scale=config.default.scale? config.default.scale : 0.7}
+        // scheduler must be one of these
+        let validSchedulers=config.schedulers||['ddim','ddpm','deis','lms','lms_k','pndm','heun','heun_k','euler','euler_k','euler_a','kdpm_2','kdpm_2_a','dpmpp_2s','dpmpp_2s_k','dpmpp_2m','dpmpp_2m_k','dpmpp_2m_sde','dpmpp_2m_sde_k','dpmpp_sde','dpmpp_sde_k','unipc','lcm']
+        if(!job.scheduler){job.scheduler=config.default.scheduler? config.default.scheduler.toLowerCase() : 'dpmpp_2m_sde_k'}
+        // lscale min 1 max 3 default 1
+        //if(!job.lscale||job.lscale<1||job.lscale>3){job.lscale=1}
+        if(!job.clipskip){job.clipskip=0}
+        if(!job.upscale){job.upscale=0}
+        // set default init img mode
+        // todo support multiple controlnet modes and images
+        if(job.initimg||job.images?.length>0){
+            // if no controlmode is set, set one from config default, same for controlresize and controlmode
+            if(!job.control){job.control=config.default.controlmode||'i2l'}
+            if(job.control!=='i2l'){
+                if(!job.controlresize||['just_resize','crop_resize','fill_resize'].includes(job.controlresize)===false){job.controlresize='just_resize'}//else{job.controlresize='just_resize'}
+                if(!job.controlmode||['balanced','more_prompt','more_control','unbalanced'].includes(job.controlmode)===false){job.controlmode='balanced'}
+                if(!job.controlweight){job.controlweight=1}
+                if(!job.controlstart){job.controlstart=0}
+                if(!job.controlend){job.controlend=1}
+            }
+        }
+        if(job.hrf){
+            // set default res for hires fix based on base model and aspect ratio
+            let hrfpixellimit=604*604 // sd1
+            if(job.model?.base_model==='sdxl'){hrfpixellimit=1024*1024}
+            let curpixels=job.width*job.height
+            if(curpixels>hrfpixellimit){
+                //debugLog('res too big, calc aspect ratio for hi res fix')
+                let aspect = await aspectRatio.resToRatio(job.width,job.height)
+                let newres = await aspectRatio.ratioToRes(aspect,hrfpixellimit)
+                if(!job.hrfheight){job.hrfheight=getDiffusionResolution(newres.height)}
+                if(!job.hrfwidth){job.hrfwidth=getDiffusionResolution(newres.width)}
+            } else {
+                if(!job.hrfheight){job.hrfheight=getDiffusionResolution(job.height)}
+                if(!job.hrfwidth){job.hrfwidth=getDiffusionResolution(job.width)}
+            }
+        }
+        return cast(job)
+    } catch(err){
+        if(err?.error){return {error: err.error}} else {return {error:err}}
     }
-    return cast(job)
 }
 
 const hostHasModel = async(host,model)=>{
@@ -1255,9 +1297,12 @@ const modelnameToObject = async(modelname)=>{
                 model_type: model.model_type,
                 description: model.description
             }
-        }else{ log('No model with name '+modelname+' on host '+host.name)}
+        }else{
+            log('No model with name '+modelname+' on host '+host.name)
+        }
     }
-    return {error:'Unable to find online host with model: `'+modelname+'`'}
+    debugLog('Unable to find online host with model: '+modelname)
+    throw({error:'Unable to find online host with model: `'+modelname+'`'})
 }
 
 const loranameToObject = async(loraname)=>{
@@ -1267,12 +1312,11 @@ const loranameToObject = async(loraname)=>{
     for (const h in availableHosts){
         let host=cluster[h]
         let lora=host.lora.find(m=>{return m.model_name===loraname})
-        debugLog(lora)
         if(isObject(lora)){
             return {model_name: lora.model_name,base_model: lora.base_model}
         }else{log('Error: No lora with name '+loraname+' on host '+host.name)}
     }
-    return {error:'Unable to find online host with lora: `'+loraname+'`'}
+    throw {error:'Unable to find online host with lora: `'+loraname+'`'}
 }
 
 const controlnetnameToObject = async(controlnetname) => {
@@ -1285,7 +1329,7 @@ const controlnetnameToObject = async(controlnetname) => {
         if(controlnet) {return {model_name: controlnet.model_name, base_model: controlnet.base_model,model_type: controlnet.model_type}
         } else {log(`Controlnet ${controlnetname} not found on host ${host.name}`)}
     }
-    throw `Unable to find online host with controlnet: ${controlnetname}`
+    throw {error:'Unable to find online host with controlnet: `'+controlnetname+'`'}
 }
 
 getHostById = (id)=>{return cluster.find(h=>{h.id===id})}
@@ -1319,6 +1363,12 @@ cast = async(job)=>{
         context.host=await findHost(context.job)
         if(context.job.initimg){
             // todo allow for multiple init images, upload them all, return array of objects
+            // loop through array of initimg's
+            // generate id for each
+            // upload to host
+            // get uploaded image id from host, save back into original id with hostname
+            // { url:url,buf:buf,uploads:[{hostname:hostname,id:id}]}
+            // 
             debugLog('Uploading initimg')
             initimgid = getUUID()
             context.job.initimgObject = await uploadInitImage(context.host,context.job.initimg,initimgid)
