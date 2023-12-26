@@ -153,9 +153,9 @@ const sendToStarGallery = async(msg,emoi,reactor)=>{ // Make a copy without butt
     const messageLink = `https://discord.com/channels/${guildId}/${originalChannelId}/${messageId}`
     const components = [{ type: 1, components: [{ type: 2, style: 5, label: "Original message", url: messageLink, disabled: false }]}]
     // this isnt working 
-    log(galleryChannel)
+    //log(galleryChannel)
     for (let i in galleryChannel.messages){
-        log(i)
+        //log(i)
         let m = galleryChannel.messages[i]
         //log(m)
         if(m.content===msg.content&&m.embeds===msg.embeds){alreadyInGallery=true;log('Already in star gallery')}
