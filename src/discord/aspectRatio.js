@@ -51,6 +51,7 @@ module.exports = {
     aspectRatio:{
         ratioToRes,
         resToRatio,
-        dialog
+        dialog,
+        ratios
     }
 }
