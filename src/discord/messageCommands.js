@@ -1,4 +1,4 @@
-const {config,log,debugLog,getRandomColorDec,shuffle,urlToBuffer,getUUID}=require('../utils')
+const {config,log,debugLog,getRandomColorDec,shuffle,urlToBuffer,getUUID,extractFilenameFromUrl,isURL}=require('../utils')
 const {exif}=require('../exif')
 const {invoke}=require('../invoke')
 const {bot}=require('./bot')
@@ -16,6 +16,13 @@ let commands = [
         prefix:'!',
         command: async (args,msg)=>{
             msg.addReaction('🫡') // salute emoji
+            /* todo update to accept multiple init images
+                let images = await extractImagesAndUrlsFromMessageOrReply(msg)
+                images will be an array in format [{url:'url here','img:'buffer here'}]
+                pass them through in place of img object and we deal with it elsewhere
+                do not save inputImageUrl meta tag here anymore
+                result = await invoke.jobFromDream(args,images,{type:'discord',msg:trackingmsg})
+            */
             let img,imgurl
             let imgres = await extractImageAndUrlFromMessageOrReply(msg)
             if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
@@ -276,13 +283,14 @@ let commands = [
         command: async (args,msg)=>{
             // todo import and use parseArgs to parse settings
             let userId=msg.user?.id||msg.member?.id||msg.author?.id
-            let options = parseArgs(args,{})
+            let options = parseArgs(args,{string:['row2']})
+            //let row2 = options['--'].join(' ')
             //let fonts = fonturls.list()
             let fonturl = null
             if(options.font){
                 // convert font name to font url
                 fonturl=fonturls.get(options.font)
-                debugLog(fonturl)
+                //debugLog(fonturl)
                 if(!fonturl){return {error:'Unable to find font name `'+options.font+'`'}}
             } else {
                 let f = fonturls.random()
@@ -297,7 +305,7 @@ let commands = [
                 local_font_path:'',
                 local_font:'',
                 image_width:options.width??1024,
-                image_height:options.height??512,
+                image_height:options.height??1024,
                 padding:options.padding??100,
                 row_gap:options.gap??50
             }
@@ -307,11 +315,11 @@ let commands = [
             let response = {
                 embeds:[
                     {description:':tada: textfontimage result for <@'+userId+'>\nText: `'+parsedOptions.text_input+'`, Width:`'+result.images[0].width+'` , Height: `'+result.images[0].height+'`, Font: `'+options.font+'`, Padding: `'+parsedOptions.padding+'`, Gap: `'+parsedOptions.row_gap+'`',color:getRandomColorDec()}
-                ],
+                ]/*,
                 components:[{type:1,components:[
                     {type: 2, style: 1, label: 'depth controlnet (clear)', custom_id: 'depthcontrol', emoji: { name: '🪄', id: null}, disabled: true },
                     {type: 2, style: 1, label: 'qrcode controlnet (subtle)', custom_id: 'qrcontrol', emoji: { name: '🪄', id: null}, disabled: true }
-                ]}]
+                ]}]*/
             }
             return {
                 messages:[response],
@@ -494,10 +502,9 @@ let commands = [
                 temp:options.temp??1.8,
                 top_k:options.top_k??40,
                 top_p:options.top_p??0.9,
-                repo_id:'cactusfriend/nightmare-promptgen-XL'
+                repo_id:'cactusfriend/nightmare-invokeai-prompts'
             }
             let response = await invoke.nightmarePromptGen(null,parsedOptions)
-            debugLog(response)
             let newMsg = {
                 content:':brain: **Generated prompts:**',
                 embeds:[
@@ -507,6 +514,34 @@ let commands = [
                 newMsg.embeds.push({description:response[answer].prompt,color:getRandomColorDec()})
             }
             return {messages:[newMsg],files:[]}
+        }
+    },
+    {
+        name:'load',
+        description:'Load a job template from an uploaded image',
+        permissionLevel:'all',
+        aliases:['load'],
+        prefix:'!',
+        command: async(args,msg)=>{
+            // get image metadata, show a frame similar to an image result with the controls
+            msg.addReaction('🫡') // salute emoji
+            let result
+            let imgres = await extractImageAndUrlFromMessageOrReply(msg)
+            if(!imgres||!imgres?.img){return {error:'No compatible image found'}}
+            let meta = await exif.load(imgres.img)
+            if(Object.keys(meta)?.length===0){
+                debugLog('Incompatible image found')
+                return {error:'Incompatible image found, missing metadata'}
+            }
+            result = {
+                images:[
+                    {
+                        buffer:imgres.img,
+                        name:extractFilenameFromUrl(imgres.url)
+                    }
+                ]
+            }
+            return returnMessageResult(msg,result)
         }
     }
 ]
@@ -702,22 +737,25 @@ extractImagesAndUrlsFromMessageOrReply = async(msg)=>{
     let imgs,urls = []
     if(messageHasImageAttachments(msg)){
         imgs = await extractImageBuffersFromMessage(msg)
-        urls = await extractImageUrlFromMessage(msg)
-        debugLog('Extracted image attachments from message:')
-        debugLog(urls)
+        urls = await extractImageUrlsFromMessage(msg)
+        //debugLog('Extracted image attachments from message:')
+        //debugLog(urls)
     } else if(msg.messageReference?.messageID) {
         let sourcemsg = await bot.getMessage(msg.channel.id, msg.messageReference.messageID)
         if(messageHasImageAttachments(sourcemsg)){
             imgs = await extractImageBuffersFromMessage(sourcemsg)
             urls = await extractImageUrlsFromMessage(sourcemsg)
-            debugLog('Extracted image attachments from message reply:')
-            debugLog(urls)
+            //debugLog('Extracted image attachments from message reply:')
+            //debugLog(urls)
         }
     } else {
         imgs=[]
         urls=[]
     }
-    return {imgs,urls}
+    const result = urls.map((url, index) => {
+        return { url: url, img: imgs[index] }
+    })
+    return result
 }
 
 getAvatarUrl = async(userId)=>{
@@ -728,7 +766,10 @@ getAvatarUrl = async(userId)=>{
 }
 
 imageResultMessage = (userid,img,result,meta)=>{
-    let p=result.job.prompt
+    //debugLog('debug imageresultmessage')
+    //debugLog(meta)
+    //debugLog(result)
+    let p=meta?.invoke?.prompt
     //if(result.job.negative_prompt){p=p+' ['+result.job.negative_prompt+']'}
     let t=''
     if(meta.invoke?.cost){t+=' :coin: '+meta.invoke.cost}
