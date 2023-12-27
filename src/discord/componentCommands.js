@@ -522,7 +522,7 @@ let commands = [
                 if(meta && meta.invoke && width && height){
                     let pixels = parseInt(height) * parseInt(width)
                     if(interaction.data.values){
-                        //try{if(!interaction.acknowledged){interaction?.acknowledge()}}catch(err){log(err)}
+                        try{if(!interaction.acknowledged){interaction?.acknowledge()}}catch(err){log(err)}
                         let res = await aspectRatio.ratioToRes(interaction.data.values[0],pixels)
                         // interaction.channel.createMessage does not work in DM
                         //let trackingmsg = await interaction.channel.createMessage({content:':saluting_face: '+res.description+' '+res.width+' x '+res.height+' selected',components:[],embeds:[]})
@@ -538,7 +538,7 @@ let commands = [
                         return messageCommands.returnMessageResult(newmsg,result)
                     } else {
                         let dialog = await aspectRatio.dialog(msgid,pixels)
-                        interaction.editParent(dialog) // bug here, occasional(?) crash with interaction already acknowledged, move the acknowledge code
+                        interaction?.editParent(dialog) // bug here, occasional(?) crash with interaction already acknowledged, move the acknowledge code
                     }
                 }
             }
