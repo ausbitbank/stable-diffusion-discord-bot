@@ -366,9 +366,11 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     let dataitems = [job.seed]
     while(dataitems.length<job.number){dataitems.push(random.seed())}
     data.push([
-        {node_path:lastid.noise,field_name:'seed',items:dataitems},
         {node_path:lastid.core_metadata,field_name:'seed',items:dataitems}
     ])
+    // Make sure the seed is changing for all noise generations, not just the most recent, when using iterator/multiples
+    let noiseIds = Object.values(graph.nodes).filter(i=>i.type==='noise').map(i=>i.id)
+    for (const id in noiseIds){data[0].push({node_path:noiseIds[id],field_name:'seed',items:dataitems})}
     // Tada! Graph built
     //debugLog(data)
     //debugLog(graph)
