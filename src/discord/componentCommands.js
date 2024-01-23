@@ -27,6 +27,7 @@ let commands = [
             let img=null
             let meta = await messageCommands.extractMetadataFromMessage(interaction.message)
             if(meta.invoke?.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
+            meta.invoke.seed = random.seed()
             let result = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
             if(meta.invoke?.inputImageUrl && !result.error && result.images?.length > 0){result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke.inputImageUrl)}
             let newmsg = interaction.message
@@ -218,7 +219,8 @@ let commands = [
             let channelid = interaction.channel.id
             let sourcemsg = await bot.getMessage(channelid,msgid)
             let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
-            let strength = meta.invoke.strength.toString()??config.default.strength
+            let strength = meta.invoke.strength??config.default.strength
+            strength = strength.toString()
             //let strength = config?.default?.strength?.toString()||'0.7'
             return interaction.createModal({
                 custom_id:'edit-'+sourcemsg.id,
@@ -522,7 +524,7 @@ let commands = [
                 if(meta && meta.invoke && width && height){
                     let pixels = parseInt(height) * parseInt(width)
                     if(interaction.data.values){
-                        try{if(!interaction.acknowledged){interaction?.acknowledge()}}catch(err){log(err)}
+                        if(interaction.acknowledged===false){interaction.acknowledge()}
                         let res = await aspectRatio.ratioToRes(interaction.data.values[0],pixels)
                         // interaction.channel.createMessage does not work in DM
                         //let trackingmsg = await interaction.channel.createMessage({content:':saluting_face: '+res.description+' '+res.width+' x '+res.height+' selected',components:[],embeds:[]})
@@ -536,9 +538,14 @@ let commands = [
                         let newmsg = msg
                         newmsg.member = interaction.member
                         return messageCommands.returnMessageResult(newmsg,result)
-                    } else {
+                    } else { //if (interaction)
+                        // Still fails randomly with DiscordRESTError Unknown Interaction and crashes bot despite the try/catch
                         let dialog = await aspectRatio.dialog(msgid,pixels)
-                        interaction?.editParent(dialog) // bug here, occasional(?) crash with interaction already acknowledged, move the acknowledge code
+                        try{
+                            interaction.editParent(dialog)
+                        } catch (err) {
+                            log(err)
+                        }
                     }
                 }
             }
