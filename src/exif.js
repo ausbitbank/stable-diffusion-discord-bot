@@ -65,6 +65,8 @@ load=async(buf)=>{
         let controlnets=meta?.controlnets
         let inputImageUrl=null
         let scheduler=meta?.scheduler
+        let seamlessx=meta.seamless_x
+        let seamlessy=meta.seamless_y
         // todo the entire graph was removed from metadata in invoke 3.1* update.. Need to find another way to calculate cost, pixelsteps, generation resolution (not final resolution)
         /*
         for (const i in graph?.nodes){
@@ -124,7 +126,9 @@ load=async(buf)=>{
             strength,
             hrf,
             hrfheight,
-            hrfwidth
+            hrfwidth,
+            seamlessx,
+            seamlessy
         }
     }
     return results
