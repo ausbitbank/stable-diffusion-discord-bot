@@ -171,6 +171,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         generation_mode:job.initimg?'img2img':'txt2img',
         cfg_scale:job.scale,
         clip_skip:job.clipskip,
+        //cfg_rescale_multiplier: 0,
         height:job.height,
         width:job.width,
         positive_prompt:job.positive_prompt,
@@ -195,9 +196,9 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         refiner_start:null,*/
         hrf_height:job.hrfheight??null,
         hrf_width:job.hrfwidth??null,
-        hrf_strength:job.hrf_strength??job.strength??null
-        //seamless_x:true/false,
-        //seamless_y:true/false
+        hrf_strength:job.hrf_strength??job.strength??null,
+        seamless_x:job.seamlessx===true?true:false,
+        seamless_y:job.seamlessy===true?true:false
     }
     // Reformat lora array for metadata object
     if(job.loras?.length>0){for (const l in job.loras){metaObject.loras.push({lora:{model_name:job.loras[l].model.model_name,base_model:job.loras[l].model.base_model},weight:job.loras[l].weight})}}
@@ -227,8 +228,8 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
 
     // Tamper with unet and vae if using seamless mode
     if(job.seamlessx===true||job.seamlessy===true){
-        node('seamless',{is_intermediate:true,use_cache:false,seamless_x:job.seamlessx===true?true:false,seamless_y:job.seamlessy===true?true:false},[pipe(lastid.unet,'SELF','unet','SELF'),pipe(lastid.vae,'SELF','vae','SELF')])
-        debugLog('Added seamless, partial graph is:');debugLog(graph)
+        node('seamless',{is_intermediate:false,use_cache:false,seamless_x:job.seamlessx===true?true:false,seamless_y:job.seamlessy===true?true:false},[pipe(lastid.unet,'unet','SELF','unet'),pipe(lastid.vae,'vae','SELF','vae')])
+        //debugLog('Added seamless, partial graph is:');debugLog(graph)
         // todo ^^ graph submit fails with no error when using seamless x or y or both ? revisit after sleep
     }
 
@@ -372,7 +373,8 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     let noiseIds = Object.values(graph.nodes).filter(i=>i.type==='noise').map(i=>i.id)
     for (const id in noiseIds){data[0].push({node_path:noiseIds[id],field_name:'seed',items:dataitems})}
     // Tada! Graph built
-    //debugLog(data)
+    debugLog('Built Graph')
+    debugLog(data)
     //debugLog(graph)
     return {
         batch:{
@@ -909,6 +911,9 @@ const jobFromMeta = async(meta,img=null,tracking=null)=>{
         if(meta.invoke?.hrfwidth)job.hrf=meta.invoke.hrfwidth
         if(meta.invoke?.hrfheight)job.hrf=meta.invoke.hrfheight
     }
+    if(meta.invoke?.seed){job.seed=meta.invoke.seed} // Bugfix, actually listen to seed from image and change seed within "refresh" functions
+    if(meta.invoke?.seamlessx){job.seamlessx=meta.invoke.seamlessx}
+    if(meta.invoke?.seamlessy){job.seamlessy=meta.invoke.seamlessy}
     job.steps = meta.invoke?.steps??config.default.steps
     // todo need to look at job.model.base_model and use sdxl width/height defaults if not already in meta.invoke
     job.width = meta.invoke?.width ? meta.invoke.width : config.default.width ?? config.default.size
@@ -1377,6 +1382,10 @@ cast = async(job)=>{
             if(!context.job.control){context.job.control=config.default.controlmode||'i2l'}
         }
         let graph = await buildGraphFromJob(context.job)
+        debugLog('Submitting graph:')
+        debugLog(graph)
+        debugLog(graph.batch?.graph?.nodes)
+        debugLog(graph.batch?.graph?.edges)
         context.batchId = await enqueueBatch(context.host,graph)
         if(!context.batchId||context.batchId?.error){return {error:'Error queuing job '}}
         // Trigger progress update reporting if enabled
