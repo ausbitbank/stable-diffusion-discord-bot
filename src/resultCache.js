@@ -34,7 +34,7 @@ const edit = (id,key,value)=>{
 
 const addResult = (id,result)=>{
     // push an image result to the cache for a specific id
-    resultCache[id].results.push(result)
+    resultCache[id]?.results?.push(result)
 }
 
 const remove = (id) =>{
