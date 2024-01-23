@@ -6,6 +6,7 @@ const {auth}=require('./auth')
 const {imageEdit}=require('../imageEdit')
 const parseArgs = require('minimist')
 const {fonturls} = require('../fonturls')
+const {aspectRatio}=require('./aspectRatio')
 // Process discord text message commands
 let commands = [
     {
@@ -76,6 +77,7 @@ let commands = [
             if(img){
                 let result = await invoke.processImage(img,null,'canny',{low_threshold:100,high_threshold:200})
                 if(result?.images?.length>0){
+                    debugLog(result.images[0])
                     let buf = result.images[0]?.buffer
                     buf = await exif.modify(buf,'arty','imageType','canny')
                     return {messages:[{embeds:[{description:'Converted to canny edge detection',color:getRandomColorDec()}]}],files:[{file:buf,name:result.images[0].name}]}
@@ -194,7 +196,7 @@ let commands = [
         name: 'esrgan',
         description: 'Return a 2x upscaled version of an input image',
         permissionLevel: 'all',
-        aliases: ['esrgan','upscale'],
+        aliases: ['esrgan','upscale','enhance'],
         prefix:'!',
         command: async(args,msg)=>{
             debugLog('esrgan triggered: '+args.join(' '))
@@ -209,7 +211,6 @@ let commands = [
             if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
             if(img){
                 msg.addReaction('🫡') // salute emoji
-                //let result = await invoke.esrgan(img,null,modelname)
                 let result = await invoke.processImage(img,null,'esrgan',{model_name:modelname})
                 if(result.error){return {error:result.error}}
                 let buf = result.images[0]?.buffer
@@ -351,10 +352,12 @@ let commands = [
                 return
             }
             let trackingmsg = await bot.createMessage(msg.channel.id,{content:':saluting_face: dreaming'})
+            //debugLog(parsedCmd)
             Object.keys(parsedCmd).forEach(k=>{
-                debugLog('Appending '+meta.invoke[k]+' : '+parsedCmd[k])
+                //debugLog('Appending '+meta.invoke[k]+' : '+parsedCmd[k])
                 if(k!=='_'){meta.invoke[k] = parsedCmd[k]}
             })
+            //debugLog(meta.invoke)
             if(meta.invoke?.inputImageUrl){img=urlToBuffer(meta.invoke.inputImageUrl)}
             result = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
             if(meta.invoke?.inputImageUrl && !result.error && result.images?.length > 0){
@@ -364,7 +367,7 @@ let commands = [
             return returnMessageResult(msg,result)
         }
     },
-    {
+    {   
         name: 'unregisterSlashCommands',
         description: 'forcibly remove all registered slash commands from the server',
         permissionLevel: 'admin',
@@ -542,6 +545,55 @@ let commands = [
                 ]
             }
             return returnMessageResult(msg,result)
+        }
+    },
+    {
+        name:'aspect',
+        description:'Turn a resolution into an aspect ratio',
+        permissionLevel:'all',
+        aliases:['aspect','ar'],
+        prefix:'!',
+        command: async(args,msg)=>{
+            if (args[0]){
+                let w = args[0].split('x')[0]
+                let h = args[0].split('x')[1]
+                let ar = await aspectRatio.resToRatio(w,h)
+                let newMsg = {
+                    content:'',
+                    embeds:[{description:':straight_ruler: Resolution of `'+w+'` x `'+h+'` has an aspect ratio of `'+ar+'`',color:getRandomColorDec()}
+                    ]
+                }
+                return {messages:[newMsg],files:[]}
+            } else {
+                let imgres = await extractImageAndUrlFromMessageOrReply(msg)
+                if(!imgres||!imgres?.img){return {error:'No compatible image found'}}
+                let res = await imageEdit.getResolution(imgres.img)
+                let w = res.width
+                let h = res.height
+                let ar = await aspectRatio.resToRatio(w,h)
+                let newMsg = {
+                    content:'',
+                    embeds:[{description:':straight_ruler: Resolution of `'+w+'` x `'+h+'` has an aspect ratio of `'+ar+'`',color:getRandomColorDec()}]
+                }
+                return {messages:[newMsg],files:[]}
+            }
+        }
+    },
+    {
+        name:'resolution',
+        description:'Show the resolution of an attached or replied image',
+        permissionLevel:'all',
+        aliases:['res','resolution'],
+        prefix:'!',
+        command: async(args,msg)=>{
+            let imgres = await extractImageAndUrlFromMessageOrReply(msg)
+            if(!imgres||!imgres?.img){return {error:'No compatible image found'}}
+            let res = await imageEdit.getResolution(imgres.img)
+            let newMsg = {
+                content:'',
+                embeds:[{description:'Image resolution is `'+res.width+'x'+res.height+'`',color:getRandomColorDec()}]
+            }
+            return {messages:[newMsg],files:[]}
         }
     }
 ]
@@ -798,6 +850,9 @@ imageResultMessage = (userid,img,result,meta)=>{
     if(meta.invoke?.hrf){t+=' :telescope: hrf'}
     if(meta.invoke?.hrfwidth){t+=' '+meta.invoke.hrfwidth+'x'}
     if(meta.invoke?.hrfheight){t+=meta.invoke.hrfheight}
+    if(meta.invoke?.seamlessx===true||meta.invoke?.seamlessy===true){t+=' :knot: '}
+    if(meta.invoke?.seamlessx===true){t+='x '}
+    if(meta.invoke?.seamlessy===true){t+='y '}
     let colordec=getRandomColorDec()
     let newmsg = {
         content:':brain: <@'+userid+'>',
@@ -827,7 +882,7 @@ imageResultMessage = (userid,img,result,meta)=>{
     // if controlnet is enabled, allow dropdown menu for controlweight changes
     let cnwos = [0,5,10,15,20,25,30,35,40,45,50,55,60,65,70,75,80,85,90,95,100]
     let cnwos2 = [...cnwos,125,150,175,200]
-    if(meta.invoke?.inputImageUrl&&meta.invoke?.control&&meta.invoke?.controlweight){
+    if(meta.invoke?.inputImageUrl&&meta.invoke?.control&&meta.invoke?.controlweight&&meta.invoke?.control!=='i2l'){
         let cnwo = []
         for (const i in cnwos2){
             let o = cnwos2[i]
@@ -837,7 +892,7 @@ imageResultMessage = (userid,img,result,meta)=>{
         newmsg.components.push({type:1,components:[{type: 3,custom_id:'edit-x-controlweight',placeholder:'Controlnet weight '+(parseFloat(meta.invoke.controlweight)*100).toFixed(0)+'%',min_values:1,max_values:1,options:cnwo}]})
     }
     // same for controlstart
-    if(meta.invoke?.inputImageUrl&&meta.invoke?.control&&meta.invoke?.controlstart){
+    if(meta.invoke?.inputImageUrl&&meta.invoke?.control&&meta.invoke?.controlstart&&meta.invoke?.control!=='i2l'){
         let cnwo = []
         for (const i in cnwos){
             let o = cnwos[i]
@@ -847,7 +902,7 @@ imageResultMessage = (userid,img,result,meta)=>{
         newmsg.components.push({type:1,components:[{type: 3,custom_id:'edit-x-controlstart',placeholder:'Controlnet start at '+(parseFloat(meta.invoke.controlstart)*100).toFixed(0)+'%',min_values:1,max_values:1,options:cnwo}]})
     }
     // same for controlend
-    if(meta.invoke?.inputImageUrl&&meta.invoke?.control&&meta.invoke?.controlend){
+    if(meta.invoke?.inputImageUrl&&meta.invoke?.control&&meta.invoke?.controlend&&meta.invoke?.control!=='i2l'){
         let cnwo = []
         for (const i in cnwos){
             let o = cnwos[i]
