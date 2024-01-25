@@ -1227,6 +1227,15 @@ const processImage = async(img,host,type,options) => {
                 graph = {nodes:{midas_depth_image_processor:{'id':'midas_depth_image_processor','type':'midas_depth_image_processor','a_mult':a_mult,'bg_th':bg_th,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
                 break
             }
+            case 'depthanything':{
+                // new default depth model, auto downloaded by invoke on first use in invokeai from v3.6.1 onwards
+                // https://github.com/LiheYoung/Depth-Anything
+                let resolution = 1024
+                let offload = false
+                let model_size = 'large' // small, medium, large 
+                graph = {nodes:{depth_anything_image_processor:{'id':'depth_anything_image_processor','type':'depth_anything_image_processor','resolution':resolution,'offload':offload,'model_size':model_size,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
+                break
+            }
             case 'lineart':{
                 let detect_resolution = options.detect_resolution||512
                 let image_resolution = options.image_resolution||512
