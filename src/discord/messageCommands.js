@@ -50,7 +50,8 @@ let commands = [
             if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
             if(img){
                 msg.addReaction('🫡') // salute emoji
-                let result = await invoke.processImage(img,null,'depthmap',{a_mult:2,bg_th:0.1})
+                //let result = await invoke.processImage(img,null,'depthmap',{a_mult:2,bg_th:0.1})
+                let result = await invoke.processImage(img,null,'depthanything',{})
                 if (result?.images?.length>0){
                     let buf = result.images[0]?.buffer
                     buf = await exif.modify(buf,'arty','imageType','depth')
