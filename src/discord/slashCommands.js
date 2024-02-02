@@ -1,9 +1,11 @@
-const {config,log,debugLog,urlToBuffer,getRandomColorDec}=require('../utils')
+const {config,log,debugLog,urlToBuffer,getRandomColorDec,getUUID}=require('../utils')
 const {bot}=require('./bot')
 const {invoke}=require('../invoke')
 const {messageCommands}=require('./messageCommands')
 const {exif}=require('../exif')
 const {auth}=require('./auth')
+const {removeBackground}=require('../removeBackground')
+const {llm}=require('../plugins/llm/llm')
 const Eris = require("eris")
 //const Constants = Eris.Constants
 const Collection = Eris.Collection
@@ -58,17 +60,18 @@ var slashCommands = [
       //debugLog(i)
       let job={}
       // todo integrate tracking message
-      /*
+      
       try {
-        let trackingmsg = await bot.createMessage(msg.channel.id,{content:':saluting_face: dreaming'})
+        //let trackingmsg = await bot.createMessage(msg.channel.id,{content:':saluting_face: dreaming'})
         debugLog('tracking msg')
         let trackingmsg = await i.createMessage({content:':saluting_face: dreaming'})
+        debugLog(trackingmsg)
         job.tracking = {type:'discord',msg:trackingmsg}
       } catch (err) {
         debugLog('Error creating tracking msg')
         debugLog(err)
       }
-      */
+      
       for (const arg in i.data.options){
         let a = i.data.options[arg]
         switch (a.name){
@@ -101,6 +104,31 @@ var slashCommands = [
           i.createMessage(message) // Send message, no attachment
         }
       })
+    }
+  },
+  {
+    name: 'background',
+    description:'Remove the background from an image with rembg',
+    cooldown:500,
+    options:[
+      {type: 11, name: 'image', description: 'image to remove background from', required: true}
+    ],
+    execute: async(i) => {
+      let userid=i.member?.id??i.user?.id
+      let username=i.member?.username??i.user?.username
+      if (i.data.resolved && i.data.resolved.attachments && i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))){
+        let attachmentOrig=i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))
+        let imgurl = attachmentOrig.url
+        let response = await removeBackground(imgurl)
+        reply = {
+            content:'<@'+userid+'> removed image background',
+            embeds:[{description:response.msg}]
+        }
+        i.createMessage(reply,{file:response.image,name:getUUID()+'.png'})
+      } else {
+        // Invalid or no image attachment, fail
+      }
+
     }
   },
   {
@@ -257,6 +285,111 @@ if(config.credits.enabled)
     execute: (i) => {var userid=i.member?i.member.id:i.user.id;balancePrompt(userid,i.channel.id)}
   })
   */
+}
+// if llm is enabled in config, add its /chat slash command to the mix
+if(config.llm?.enabled){
+  let llmpersonas = config.llm?.personas ?? []
+  let llmpersonasChoices = []
+  for (const llmpersona in llmpersonas){
+    llmpersonasChoices.push({name:llmpersonas[llmpersona].name,value:llmpersonas[llmpersona].name})
+  }
+  slashCommands.push({
+    name:'chat',
+    description:'Chat with an AI',
+    cooldown:2000,
+    options:[
+      {type: 3,name:'prompt',description:'What do you want to ask?',required:true,min_length:1,max_length:6000},
+      {type: 3, name:'persona',description:'Pick a personality type for the bot',required:false,value:'',choices:llmpersonasChoices},
+      {type: 3,name:'systemprompt',description:'Customise the system prompt to change how the bot behaves (advanced)',required:false,min_length:1,max_length:6000}
+    ],
+    execute:async(i)=>{
+      let userid=i.member?.id??i.user?.id
+      let username=i.member?.username??i.user?.username
+      log(username+' triggered chat command')
+      let options = {}
+      if(!i?.acknowledged){i.acknowledge()}
+      for (const arg in i.data.options){
+        let a = i.data.options[arg]
+        switch(a.name){
+          default:options[a.name]=a.value;break
+        }
+      }
+      log(options)
+      let newprompt = options.prompt
+      let systemprompt = options.systemprompt ?? undefined
+      if(options.persona){systemprompt = llmpersonas.find(persona=>persona.name===options.persona)?.prompt}
+      let newMessage
+      let color = getRandomColorDec()
+      let latestUpdate = null
+      let intervalId = null
+      let isUpdating = false
+      let done = false
+      let page = 0
+      let pages = 0
+      let maxlength = 4000
+      let initResponse = ':thought_balloon: `'+newprompt.substr(0,1000)+'`'
+      if(options.persona){initResponse+=' :brain: `'+options.persona+'`'}
+      let stream = await llm.chatStream(newprompt,systemprompt)
+      if(stream.error){return {error:stream.error}}
+
+      startEditing=()=>{
+          intervalId = setInterval(()=>{
+              if(!isUpdating&&latestUpdate){
+                  const update = latestUpdate
+                  latestUpdate=null
+                  isUpdating=true
+                  let fulltext = update.embeds[0].description
+                  let newpage = Math.floor(fulltext.length/maxlength)
+                  let pageContentStart = page * maxlength
+                  let pageContentEnd = pageContentStart + maxlength
+                  let pageContent = fulltext.substr(pageContentStart,pageContentEnd)
+                  update.embeds[0].description = pageContent
+                  if(page>pages){
+                    i.createFollowup(update)
+                      .then(async(newmsg)=>{
+                        pages++
+                        newMessage = newmsg
+                        isUpdating=false
+                      })
+                      .catch((err)=>{isUpdating=false;log(err)})
+                  } else {
+                    bot.editMessage(newMessage.channel?.id,newMessage.id,update)
+                        .then(()=>{
+                          isUpdating=false
+                          if(newpage>page){page++}
+                        })
+                        .catch((err)=>{log(err);isUpdating=false})
+                  }
+              }
+              if(!isUpdating&&done&&page===pages){clearInterval(intervalId)} // if we're done, shut down the timer
+          },1000) // check every 1s
+      }
+      let lastsnapshot = ''
+      let currentMessage = initResponse
+      stream.on('content', (delta,snapshot)=>{
+          if(snapshot.length>0&&lastsnapshot!==snapshot){
+            const newContent = currentMessage + snapshot
+            latestUpdate={content:initResponse, embeds:[{description:snapshot,color:color}]}
+            currentMessage = newContent
+            lastsnapshot = snapshot
+          }
+      })
+      stream.on('finalMessage',(finalmsg)=>{
+        done=true
+        log('Finished LLM response: '+finalmsg.content)
+      })
+      stream.on('error', (error)=>{
+          log('LLM Stream error:')
+          log(error)
+      })
+      i.createMessage(initResponse)
+          .then(async(newmsg)=>{
+            newMessage = newmsg
+            startEditing()
+          })
+          .catch((err)=>{log(err)})
+    }
+  })
 }
 init = async()=>{
   // todo looks like a good spot to:
