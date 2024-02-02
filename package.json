@@ -37,6 +37,7 @@
     "minimist": "^1.2.6",
     "moment": "^2.29.4",
     "node-cron": "^3.0.2",
+    "openai": "^4.26.0",
     "png-chunk-text": "^1.0.0",
     "png-chunks-encode": "^1.0.0",
     "png-chunks-extract": "^1.0.0",
