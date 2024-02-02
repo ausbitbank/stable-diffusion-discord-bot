@@ -7,6 +7,8 @@ const {imageEdit}=require('../imageEdit')
 const parseArgs = require('minimist')
 const {fonturls} = require('../fonturls')
 const {aspectRatio}=require('./aspectRatio')
+const {llm}=require('../plugins/llm/llm')
+
 // Process discord text message commands
 let commands = [
     {
@@ -596,6 +598,87 @@ let commands = [
             }
             return {messages:[newMsg],files:[]}
         }
+    },
+    {
+        name:'chat',
+        description:'Ask a local LLM for an answer to the given prompt',
+        permissionLevel:'all',
+        aliases:['chat','c'],
+        prefix:'!',
+        command: async(args,msg)=>{
+            if(!config.llm.enabled){return}
+            msg.addReaction('🫡')
+            let newprompt = args.join(' ')
+            let newMessage
+            let color = getRandomColorDec()
+            let latestUpdate = null
+            let intervalId = null
+            let isUpdating = false
+            let done = false
+            let page = 0
+            let pages = 0
+            let maxlength = 4000
+            let initResponse = ':thought_balloon: `'+newprompt.substr(0,1000)+'`'
+            let stream = await llm.chatStream(newprompt)
+            if(stream.error){return {error:stream.error}}
+            startEditing=()=>{
+                intervalId = setInterval(()=>{
+                    if(!isUpdating&&latestUpdate){
+                        const update = latestUpdate
+                        latestUpdate=null
+                        isUpdating=true
+                        let fulltext = update.embeds[0].description
+                        let newpage = Math.floor(fulltext.length/maxlength)
+                        let pageContentStart = page * maxlength
+                        let pageContentEnd = pageContentStart + maxlength
+                        let pageContent = fulltext.substr(pageContentStart,pageContentEnd)
+                        update.embeds[0].description = pageContent
+                        if(page>pages){
+                            bot.createMessage(msg.channel?.id,update)
+                            .then(async(newmsg)=>{
+                                pages++
+                                newMessage = newmsg
+                                isUpdating=false
+                            })
+                            .catch((err)=>{isUpdating=false;log(err)})
+                        } else {
+                            bot.editMessage(newMessage.channel?.id,newMessage.id,update)
+                                .then(()=>{
+                                isUpdating=false
+                                if(newpage>page){page++}
+                                })
+                                .catch((err)=>{log(err);isUpdating=false})
+                        }
+                    }
+                    if(!isUpdating&&done&&page===pages){clearInterval(intervalId)} // if we're done, shut down the timer
+                },1000) // check every 1s
+            }
+            let lastsnapshot = ''
+            let currentMessage = initResponse
+            stream.on('content', (delta,snapshot)=>{
+                if(snapshot.length>0&&lastsnapshot!==snapshot){
+                    const newContent = currentMessage + snapshot
+                    latestUpdate={content:initResponse, embeds:[{description:snapshot,color:color}]}
+                    currentMessage = newContent
+                    lastsnapshot = snapshot
+                }
+            })
+            stream.on('finalMessage',(finalmsg)=>{
+                done=true
+                log('Finished LLM response: '+finalmsg.content)
+            })
+            stream.on('error', (error)=>{
+                log('LLM Stream error:')
+                log(error)
+            })
+            bot.createMessage(msg.channel?.id,initResponse)
+                .then(async(newmsg)=>{
+                    newMessage = newmsg
+                    startEditing()
+                })
+                .catch((err)=>{log(err)})
+            return {messages:[],files:[]}
+        }
     }
 ]
 
@@ -830,7 +913,7 @@ imageResultMessage = (userid,img,result,meta)=>{
     //if(img.genWidth&&img.genHeight){t+=' :triangle_ruler: '+img.genWidth+'x'+img.genHeight}
     if(meta.invoke?.steps){t+=' :recycle: '+meta.invoke.steps}
     if(meta.invoke?.scheduler){t+=' :eye: '+meta.invoke.scheduler}
-    if(meta.invoke?.seed){t+=' :seedling: '+meta.invoke.seed}
+    if(meta.invoke?.seed){t+=' :game_die: '+meta.invoke.seed}
     if(meta.invoke?.scale){t+=' :scales: '+meta.invoke.scale}
     if(meta.invoke?.model){t+=' :floppy_disk: '+meta.invoke.model?.model_name}
     if(meta.invoke?.clipskip){t+=' :clipboard: '+meta.invoke.clipskip}
