@@ -401,12 +401,12 @@ let commands = [
 
         for (const category in categories) {
             const categoryOptions = categories[category]
-            let dropdownIndex = 0
+            let dropdownIndex = 1 // start from 1 for first dropdown
             for (let i = 0; i < categoryOptions.length; i++) {
                 options.push(categoryOptions[i])
                 optionsCount++
                 if (optionsCount === 25 || (i === categoryOptions.length - 1 && optionsCount > 0)) {
-                    const dropdownLabel = dropdownIndex === 0 ? `${category} models` : `${category} models ${dropdownIndex}`;
+                    const dropdownLabel = dropdownIndex === 1 ? `${category} models` : `${category} models ${dropdownIndex}`;
                     let menu = {
                         type: 1,
                         components: [{
