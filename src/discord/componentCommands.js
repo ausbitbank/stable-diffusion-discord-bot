@@ -310,93 +310,133 @@ let commands = [
             interaction.createMessage(tweakmsg)
         }
     },
-    {
-        name: 'chooseModel',
-        description: 'Select a model from a dialog and apply it to an image',
-        permissionLevel: 'all',
-        aliases: ['chooseModel'],
-        command: async (interaction)=>{
-            // todo make a general purpose function that pages data as needed = 5 dropdowns per page / 25 options per dropdown 
-            let msgid = interaction.data.custom_id.split('-')[1]
-            let models = await invoke.allUniqueModelsAvailable()
-            //debugLog(models) // todo remove after testing
-            if(interaction.data.values){
-                if(!interaction.acknowledged){interaction?.acknowledge()}
-                let newmodelname = interaction.data.values[0]
-                debugLog('Changing model to '+newmodelname)
-                let trackingmsg = await bot.createMessage(interaction.channel.id,{content:':saluting_face: Changing model to '+newmodelname,embeds:[],components:[]})
-                let channelid = interaction.channel.id
-                let sourcemsg = await bot.getMessage(channelid,msgid)
-                let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
-                // todo change resolution when switching between sd1/sdxl models, keep aspect ratio
-                // discover base model for old and new selections
-                let newmodel = models.find(m=>m.model_name===newmodelname) // undefined ?
-                if(meta.invoke?.model?.base_model!==newmodel?.base_model){
-                    let ar = await aspectRatio.resToRatio(meta.invoke?.width,meta.invoke?.height)
-                    let newpixels = newmodel?.base_model==='sdxl' ? 1048576 : 262144 // 1024x1024 for sdxl, 512x512 for sd1/2
-                    let newres = await aspectRatio.ratioToRes(ar,newpixels)
-                    if(meta.invoke && newmodel){
-                        meta.invoke.width = newres?.width
-                        meta.invoke.height = newres?.height
+{
+    name: 'chooseModel',
+    description: 'Select a model from a dialog and apply it to an image',
+    permissionLevel: 'all',
+    aliases: ['chooseModel'],
+    command: async (interaction) => {
+        // todo make a general purpose function that pages data as needed = 5 dropdowns per page / 25 options per dropdown 
+        let msgid = interaction.data.custom_id.split('-')[1]
+        let models = await invoke.allUniqueModelsAvailable()
+        if (interaction.data.values) {
+            if (!interaction.acknowledged) {
+                interaction?.acknowledge()
+            }
+            let newmodelname = interaction.data.values[0]
+            debugLog('Changing model to ' + newmodelname)
+            let trackingmsg = await bot.createMessage(interaction.channel.id, { content: ':saluting_face: Changing model to ' + newmodelname, embeds: [], components: [] })
+            let channelid = interaction.channel.id
+            let sourcemsg = await bot.getMessage(channelid, msgid)
+            let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
+            let newmodel = models.find(m => m.model_name === newmodelname) // undefined ?
+            if (meta.invoke?.model?.base_model !== newmodel?.base_model) {
+                let ar = await aspectRatio.resToRatio(meta.invoke?.width, meta.invoke?.height)
+                let newpixels = newmodel?.base_model === 'sdxl' ? 1048576 : 262144 // 1024x1024 for sdxl, 512x512 for sd1/2
+                let newres = await aspectRatio.ratioToRes(ar, newpixels)
+                if (meta.invoke && newmodel) {
+                    meta.invoke.width = newres?.width
+                    meta.invoke.height = newres?.height
+                }
+            }
+            if (meta.invoke) {
+                meta.invoke.model = newmodelname
+            }
+            let img = null
+            if (meta.invoke?.inputImageUrl) {
+                img = await urlToBuffer(meta.invoke.inputImageUrl)
+            }
+            let result = await invoke.jobFromMeta(meta, img, { type: 'discord', msg: trackingmsg })
+            if (meta.invoke?.inputImageUrl && !result.error && result.images?.length > 0) {
+                result.images[0].buffer = await exif.modify(result.images[0].buffer, 'arty', 'inputImageUrl', meta.invoke.inputImageUrl)
+            }
+            let newmsg = sourcemsg
+            newmsg.member = interaction.member
+            return messageCommands.returnMessageResult(newmsg, result)
+        }
+        let categories = {
+            'sd-1': [],
+            'sd-2': [],
+            'sdxl': []
+        }
+        for (const i in models) {
+            let m = models[i]
+            if (m.model_type === 'main') {
+                switch (m.base_model) {
+                    case 'sd-1': {
+                        categories['sd-1'].push({
+                            label: m.model_name?.substring(0, 50),
+                            value: m.model_name,
+                            description: m.description?.substring(0, 50),
+                            emoji: null
+                        })
+                        break
+                    }
+                    case 'sd-2': {
+                        categories['sd-2'].push({
+                            label: m.model_name?.substring(0, 50),
+                            value: m.model_name,
+                            description: m.description?.substring(0, 50),
+                            emoji: null
+                        })
+                        break
+                    }
+                    case 'sdxl': {
+                        categories['sdxl'].push({
+                            label: m.model_name?.substring(0, 50),
+                            value: m.model_name,
+                            description: m.description?.substring(0, 50),
+                            emoji: null
+                        })
+                        break
                     }
                 }
-                if(meta.invoke){meta.invoke.model = newmodelname}
-                let img = null
-                if(meta.invoke?.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
-                let result = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
-                if(meta.invoke?.inputImageUrl && !result.error && result.images?.length > 0){result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke.inputImageUrl)}
-                let newmsg = sourcemsg
-                newmsg.member = interaction.member
-                return messageCommands.returnMessageResult(newmsg,result)
             }
-            let categories=[],sd1=[],sd2=[],sdxl=[],components=[]
-            for (const i in models){
-                let m = models[i]
-                if(m.model_type==='main'){
-                    switch(m.base_model){
-                        case('sd-1'):{sd1.push(m);break}
-                        case('sd-2'):{sd2.push(m);break}
-                        case('sdxl'):{sdxl.push(m);break}
-                    }
+        }
+
+        let components = []
+        let dropdownCount = 0
+        let optionsCount = 0
+        let options = []
+
+        for (const category in categories) {
+            const categoryOptions = categories[category]
+            let dropdownIndex = 0
+            for (let i = 0; i < categoryOptions.length; i++) {
+                options.push(categoryOptions[i])
+                optionsCount++
+                if (optionsCount === 25 || (i === categoryOptions.length - 1 && optionsCount > 0)) {
+                    const dropdownLabel = dropdownIndex === 0 ? `${category} models` : `${category} models ${dropdownIndex}`;
+                    let menu = {
+                        type: 1,
+                        components: [{
+                            type: 3,
+                            custom_id: `chooseModel-${msgid}-${category}-${dropdownIndex}`,
+                            placeholder: dropdownLabel,
+                            min_values: 1,
+                            max_values: 1,
+                            options: options
+                        }]
+                    };
+                    components.push(menu);
+                    options = []
+                    optionsCount = 0
+                    dropdownCount++
+                    dropdownIndex++
                 }
             }
-            if(sd1.length>0){categories.push({label:'sd-1',items:sd1})}
-            if(sd2.length>0){categories.push({label:'sd-2',items:sd2})}
-            if(sdxl.length>0){categories.push({label:'sdxl',items:sdxl})}
-            // need a new menu for every 25 options in a category
-            let c=0
-            for (const i in categories){
-                let cat = categories[i]
-                let menu = {type:1,components:[{type: 3,custom_id:'chooseModel-'+msgid+'-'+c,placeholder:cat.label+' models',min_values:1,max_values:1,options:[]}]}
-                for (m in cat.items){
-                    let model = cat.items[m]
-                    menu.components[0].options.push({label:model.model_name?.substring(0,50),value:model.model_name,description:model.description?.substring(0,50),emoji:null})
-                    // if we hit the limit per dropdown, push the menu into component and ready for new menu
-                    if(menu.components[0].options.length===25){
-                        // todo fix : crashes if triggered by too many models
-                        // discord lib complaints about identical value
-                        debugLog('at limit, pushing menu')
-                        components.push(menu)
-                        menu.options=[]
-                    }
-                }
-                // If we have any options, push them into component and clear
-                if(menu.components[0].options.length>0){
-                    components.push(menu)
-                    c++
-                }
-            }
-            let dialog = {
-                content:':floppy_disk: **Model Menu**\nUse this menu to change the model/checkpoint being used, to give your image a specific style',
-                flags:64,
-                components:components
-            }
-            try{
-                interaction.editParent(dialog)
-            } catch(err) {
-                log(err)
-                return {error:err}
-            }
+        }
+        let dialog = {
+            content: ':floppy_disk: **Model Menu**\nUse this menu to change the model/checkpoint being used, to give your image a specific style',
+            flags: 64,
+            components: components.slice(0, 5) // Limit to 5 dropdown menus per message
+        }
+        try {
+            interaction.editParent(dialog)
+        } catch (err) {
+            log(err)
+            return { error: err }
+        }
         }
     },
     {
