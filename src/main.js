@@ -1,7 +1,4 @@
 /* Arty v2 */
-// requires invokeai 3.10
-// LORA : add_detail // https://civitai.com/api/download/models/87153?type=Model&format=SafeTensor
-// Embedding : neg-sketch-3
 
 // First, load utilities and config
 const {config,log,debugLog}=require('./utils')
@@ -22,9 +19,17 @@ const {discord}=require('./discord/discord')
 // Setup backend cluster, read available models and embeddings
 const {invoke}=require('./invoke')
 
+// Admin web interface
+//require('./web/init')
+
 // Check payments
 //const {hivePayments}=require('./hive/hivePayments')
 //hivePayments.poll()
+
+// Handle unhandled promise rejections instead of crashing app
+process.on('unhandledRejection', (reason, promise) => {log(`Unhandled Rejection at: Promise ${promise ? promise.toString() : '?'} reason:`, reason)})
+process.on('uncaughtException', (err) => {log('Uncaught exception:');log(err)})
+global.handleSynchronousException = err => {log('Unhandled synchronous exception:');log(err)}
 
 init=async()=>{
   discord.botInit() // Start discord listeners
