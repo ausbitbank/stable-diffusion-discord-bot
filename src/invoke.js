@@ -964,21 +964,23 @@ const extractLoras = async (inputString) => {
         inputString: inputString
     }
 }
+const allUniqueModelsAvailable = async () => {
+    // Return an object with all available main models, across all connected & online hosts with no repeats
+    let availableHosts = cluster.filter(h => h.online && !h.disabled)
+    let uniqueModels = new Set()
 
-const allUniqueModelsAvailable = async()=>{
-    // Return an object with all available main models, across all connected & online hosts //todo : no repeats
-    let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
-    let allModels=[]
-    for (const h in availableHosts){
-        let host=cluster[h]
-        for (const m in host.models){
-            let model = host.models[m]
-            allModels.push({model_name:model.model_name,base_model:model.base_model,model_type:model.model_type,description:model.description})
+    for (const host of availableHosts) {
+        for (const model of host.models) {
+            uniqueModels.add({
+                model_name: model.model_name,
+                base_model: model.base_model,
+                model_type: model.model_type,
+                description: model.description
+            })
         }
     }
-    return allModels
+    return Array.from(uniqueModels)
 }
-
 const allUniqueLorasAvailable = async()=>{
     // Return an object with all available lora models, across all connected & online hosts //todo : no repeats
     let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
