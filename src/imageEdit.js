@@ -1,7 +1,6 @@
 const sharp = require('sharp')
 const jimp = require('jimp')
 const {config,log,debugLog,getUUID, urlToBuffer}=require('./utils')
-const {removeBackground}=require('./removeBackground')
 
 const textOverlay = async(text='arty',img=null,gravity='south',color='white',blendmode='overlay',width=null,height=512,font='Arial',extendimage=false,extendcolor='black')=>{
     // either load the existing image, or create a new one to use as base
@@ -126,7 +125,6 @@ module.exports = {
     imageEdit:{
         textOverlay,
         textImage,
-        removeBackground,
         crop,
         convertToPng,
         getResolution
