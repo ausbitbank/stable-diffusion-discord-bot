@@ -196,6 +196,32 @@ let commands = [
         }
     },
     {
+        name: 'background',
+        description: 'Removes the background from an image',
+        permissionLevel: 'all',
+        aliases: ['bg','background'],
+        prefix:'!',
+        command: async(args,msg)=>{
+            debugLog('background removal triggered: '+args.join(' '))
+            let img,imgurl
+            let imgres = await extractImageAndUrlFromMessageOrReply(msg)
+            if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
+            if(img){
+                let result = await invoke.processImage(img,null,'removebg',{})
+                if(result?.images?.length>0){
+                    let buf = result.images[0]?.buffer
+                    buf = await exif.modify(buf,'arty','imageType','foreground')
+                    //let components = [{type:1,components:[{type: 2, style: 1, label: 'Use this pose', custom_id: 'usepose', emoji: { name: '🤸', id: null}, disabled: true }]}]
+                    return {messages:[{embeds:[{description:'Removed background',color:getRandomColorDec()}],components:[]}],files:[{file:buf,name:result.images[0].name}]}
+                }else{
+                    return {error:'Failed at background removal'}
+                }
+            } else {
+                return { error:'No image attached to remove background'}
+            }
+        }
+    },
+    {
         name: 'esrgan',
         description: 'Return a 2x upscaled version of an input image',
         permissionLevel: 'all',
@@ -618,7 +644,7 @@ let commands = [
             let page = 0
             let pages = 0
             let maxlength = 4000
-            let initResponse = ':thought_balloon: `'+newprompt.substr(0,1000)+'`'
+            let initResponse = ':thought_balloon: `'+newprompt.substr(0,1900)+'`'
             let stream = await llm.chatStream(newprompt)
             if(stream.error){return {error:stream.error}}
             startEditing=()=>{
@@ -644,8 +670,8 @@ let commands = [
                         } else {
                             bot.editMessage(newMessage.channel?.id,newMessage.id,update)
                                 .then(()=>{
-                                isUpdating=false
-                                if(newpage>page){page++}
+                                    isUpdating=false
+                                    if(newpage>page){page++}
                                 })
                                 .catch((err)=>{log(err);isUpdating=false})
                         }
@@ -656,7 +682,7 @@ let commands = [
             let lastsnapshot = ''
             let currentMessage = initResponse
             stream.on('content', (delta,snapshot)=>{
-                if(snapshot.length>0&&lastsnapshot!==snapshot){
+                if(snapshot.trim().length>0&&lastsnapshot!==snapshot){
                     const newContent = currentMessage + snapshot
                     latestUpdate={content:initResponse, embeds:[{description:snapshot,color:color}]}
                     currentMessage = newContent
