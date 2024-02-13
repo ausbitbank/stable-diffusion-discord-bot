@@ -3,7 +3,6 @@
     "topggKey":"",
     "tipccKey":"",
     "adminID":0,
-    "rembg":"http://rembg:5000/api/remove?url=",
     "cluster":[
         {"url":"http://127.0.0.1:9090","name":"primary","deleteAfterRender":false,"disabled":false,"online":true}
     ],
@@ -34,10 +33,7 @@
         "strength":0.7,
         "scheduler":"dpmpp_2m_sde_k",
         "controlmode":"depth",
-        "model":"swizz8-v3",
-        "refinerModel":"sdxl_refiner_1.0",
-        "inpaintModel":"deliberate-inpainting",
-        "inpaintPrompt":"amazing",
+        "model":"sdxl",
         "inpaintStrength":0.8
     },
     "maximum":{
@@ -85,6 +81,8 @@
         "systemprompt":"You are a helpful chatbot. Do not censor your responses",
         "temperature":0.7,
         "max_tokens":-1,
+        "model":"neuralbeagle",
+        "apiKey":"none",
         "personas":[
             {"name":"assistant","prompt":"You are a helpful AI assistant, respond to user requests to the best of your ability"},
             {"name":"sassy","prompt":"As an AI with a sassy personality, respond in a clever, snarky, playfully insulting and entertaining manner while remaining true to the context of the question or statement"},
