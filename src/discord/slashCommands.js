@@ -4,10 +4,8 @@ const {invoke}=require('../invoke')
 const {messageCommands}=require('./messageCommands')
 const {exif}=require('../exif')
 const {auth}=require('./auth')
-const {removeBackground}=require('../removeBackground')
 const {llm}=require('../plugins/llm/llm')
 const Eris = require("eris")
-//const Constants = Eris.Constants
 const Collection = Eris.Collection
 const {fonturls} = require('../fonturls')
 // Get samplers from config ready for /dream slash command
@@ -57,12 +55,8 @@ var slashCommands = [
         img = await urlToBuffer(imgurl)
       }
       log(username+' triggered dream command')
-      //debugLog(i)
       let job={}
-      // todo integrate tracking message
-      
       try {
-        //let trackingmsg = await bot.createMessage(msg.channel.id,{content:':saluting_face: dreaming'})
         debugLog('tracking msg')
         let trackingmsg = await i.createMessage({content:':saluting_face: dreaming'})
         debugLog(trackingmsg)
@@ -98,7 +92,6 @@ var slashCommands = [
         debugLog(message)
         if(files.length>0)file=files.shift() // grab the top file
         if(message&&file){
-          //log(message)
           i.createMessage(message,file) // Send message with attachment
         }else if(message){
           i.createMessage(message) // Send message, no attachment
@@ -119,16 +112,23 @@ var slashCommands = [
       if (i.data.resolved && i.data.resolved.attachments && i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))){
         let attachmentOrig=i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))
         let imgurl = attachmentOrig.url
-        let response = await removeBackground(imgurl)
-        reply = {
-            content:'<@'+userid+'> removed image background',
-            embeds:[{description:response.msg}]
+        //let response = await removeBackground(imgurl)
+        let img = await urlToBuffer(imgurl)
+        if (img){
+          let result = await invoke.processImage(img,null,'removebg',{})
+          if(result?.images?.length>0){
+            let buf = result.images[0]?.buffer
+            let reply = {
+                content:'',
+                embeds:[{description:'<@'+userid+'> removed image background',color:getRandomColorDec()}]
+            }
+            i.createMessage(reply,{file:buf,name:getUUID()+'.png'})
+          }
         }
-        i.createMessage(reply,{file:response.image,name:getUUID()+'.png'})
+        //i.createMessage(reply,{file:response.image,name:getUUID()+'.png'})
       } else {
         // Invalid or no image attachment, fail
       }
-
     }
   },
   {
@@ -269,9 +269,10 @@ var slashCommands = [
   }*/
 
 // If credits are active, add /recharge and /balance otherwise don't include them
+/*
 if(config.credits.enabled)
 {
-  /*
+
   slashCommands.push({
     name: 'recharge',
     description: 'Recharge your render credits with Hive, HBD or Bitcoin over lightning network',
@@ -284,8 +285,8 @@ if(config.credits.enabled)
     cooldown: 500,
     execute: (i) => {var userid=i.member?i.member.id:i.user.id;balancePrompt(userid,i.channel.id)}
   })
-  */
-}
+}*/
+
 // if llm is enabled in config, add its /chat slash command to the mix
 if(config.llm?.enabled){
   let llmpersonas = config.llm?.personas ?? []
@@ -314,7 +315,6 @@ if(config.llm?.enabled){
           default:options[a.name]=a.value;break
         }
       }
-      log(options)
       let newprompt = options.prompt
       let systemprompt = options.systemprompt ?? undefined
       if(options.persona){systemprompt = llmpersonas.find(persona=>persona.name===options.persona)?.prompt}
@@ -327,8 +327,11 @@ if(config.llm?.enabled){
       let page = 0
       let pages = 0
       let maxlength = 4000
+      // 4096 actual maximum per embed field (for 6k chars total across all embeds), maxlength 4k leaves 2k chars for content and 2k for another embed field
       let initResponse = ':thought_balloon: `'+newprompt.substr(0,1000)+'`'
       if(options.persona){initResponse+=' :brain: `'+options.persona+'`'}
+      if(options.systemprompt){initResponse+=' :face_in_clouds:'}
+      let modelname = null
       let stream = await llm.chatStream(newprompt,systemprompt)
       if(stream.error){return {error:stream.error}}
 
@@ -358,7 +361,12 @@ if(config.llm?.enabled){
                           isUpdating=false
                           if(newpage>page){page++}
                         })
-                        .catch((err)=>{log(err);isUpdating=false})
+                        .catch((err)=>{
+                          log('Failed to edit message, aborting LLM edit loop')
+                          clearInterval(intervalId)
+                          log(err)
+                          isUpdating=false
+                        })
                   }
               }
               if(!isUpdating&&done&&page===pages){clearInterval(intervalId)} // if we're done, shut down the timer
@@ -367,15 +375,23 @@ if(config.llm?.enabled){
       let lastsnapshot = ''
       let currentMessage = initResponse
       stream.on('content', (delta,snapshot)=>{
-          if(snapshot.length>0&&lastsnapshot!==snapshot){
+          if(snapshot.trim().length>0&&lastsnapshot!==snapshot){
             const newContent = currentMessage + snapshot
             latestUpdate={content:initResponse, embeds:[{description:snapshot,color:color}]}
+            if(modelname){
+              latestUpdate.embeds.push({description:':floppy_disk: '+modelname})
+            }
             currentMessage = newContent
             lastsnapshot = snapshot
           }
       })
       stream.on('finalMessage',(finalmsg)=>{
         done=true
+        debugLog(stream)
+        if(stream._chatCompletions[0]?.model){
+          let modelpath = stream._chatCompletions[0].model
+          modelname = modelpath.replace(/^.*[\\\/]\/+(.*?(?:\.[^.\/]*$))/, '$1')
+        }
         log('Finished LLM response: '+finalmsg.content)
       })
       stream.on('error', (error)=>{
