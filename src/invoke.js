@@ -211,7 +211,18 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         if(job.loras?.length>0){for (const l in job.loras) {node('lora_loader',{is_intermediate:true,lora:{base_model:job.loras[l].model.base_model,model_name:job.loras[l].model.model_name},weight:job.loras[l].weight},[pipe(lastid.clip,'clip','SELF','clip'),pipe(lastid.unet,'unet','SELF','unet')])}} // lora loader, chain multiple loras with clip and unet into each other
     } else {
         node('sdxl_model_loader',{model:job.model,is_intermediate:true},[])
-        if(job.loras?.length>0){for (const l in job.loras) {node('sdxl_lora_loader',{is_intermediate:true,lora:{base_model:job.loras[l].model.base_model,model_name:job.loras[l].model.model_name},weight:job.loras[l].weight},[pipe(lastid.clip,'clip','SELF','clip'),pipe(lastid.clip2,'clip2','SELF','clip2'),pipe(lastid.unet,'unet','SELF','unet')])}} // lora loader, chain multiple loras with clip and unet into each other
+        if(job.loras?.length>0){
+            debugLog('Before lora node, unet id is '+lastid.unet)
+            for (const l in job.loras) {
+                node('sdxl_lora_loader',{is_intermediate:true,lora:{base_model:job.loras[l].model.base_model,model_name:job.loras[l].model.model_name},weight:job.loras[l].weight},
+                [
+                    pipe(lastid.clip,'clip','SELF','clip'),
+                    pipe(lastid.clip2,'clip2','SELF','clip2'),
+                    pipe(lastid.unet,'unet','SELF','unet')
+                ])
+                debugLog('Added lora node, unet id is '+lastid.unet)
+            }
+            }
     }
     // Add freeu node https://stable-diffusion-art.com/freeu/
     // current default settings :
@@ -229,7 +240,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     // Tamper with unet and vae if using seamless mode
     if(job.seamlessx===true||job.seamlessy===true){
         node('seamless',{is_intermediate:false,use_cache:false,seamless_x:job.seamlessx===true?true:false,seamless_y:job.seamlessy===true?true:false},[pipe(lastid.unet,'unet','SELF','unet'),pipe(lastid.vae,'vae','SELF','vae')])
-        //debugLog('Added seamless, partial graph is:');debugLog(graph)
+        debugLog('Added seamless, partial graph is:');debugLog(graph)
         // todo ^^ graph submit fails with no error when using seamless x or y or both ? revisit after sleep
     }
 
@@ -252,7 +263,6 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
             node('i2l',{is_intermediate:false,fp32:fp32},[pipe(lastid.vae,'vae','SELF','vae'),pipe(lastid.image,'image','SELF','image')])
             node('create_denoise_mask',{is_intermediate:false,fp32:fp32,tiled:false},[pipe(lastid.image,'image','SELF','image'),pipe(lastid.mask,'mask','SELF','mask'),pipe(lastid.vae,'vae','SELF','vae')])
         } else if(job.control==='i2l'){
-            // default to image to latents
             node('i2l',{is_intermediate:false,fp32:fp32,image:{image_name:job.initimgObject.image_name}},[pipe(lastid.vae,'vae','SELF','vae')])
             // todo do we resize the image first instead of resizing latents ?
             node('lresize',{model:'bilinear',antialias:false,width:job.width,height:job.height},[pipe(lastid.latents,'latents','SELF','latents')])
@@ -448,6 +458,10 @@ const cancelBatch = async(batchid,host=null,name='arty')=>{
             let result = resultCache.get(batchid)
             // find host by hostname from cluster array
             host = cluster.find(h=>{return h.name===result?.hostname})
+            if(!host.url){
+                log('Unable to find active job to cancel')
+                return
+            }
         }
         const response = await axios.put(host.url+'/api/v1/queue/'+name+'/cancel_by_batch_ids',{batch_ids:[batchid]})
         if(response.status===200){
@@ -965,34 +979,42 @@ const extractLoras = async (inputString) => {
     }
 }
 const allUniqueModelsAvailable = async () => {
-    // Return an object with all available main models, across all connected & online hosts with no repeats
+    // Return an array with all available main models, across all connected & online hosts with no repeats
     let availableHosts = cluster.filter(h => h.online && !h.disabled)
-    let uniqueModels = new Set()
-
+    let uniqueModelsMap = new Map()
     for (const host of availableHosts) {
         for (const model of host.models) {
-            uniqueModels.add({
-                model_name: model.model_name,
-                base_model: model.base_model,
-                model_type: model.model_type,
-                description: model.description
-            })
+            const key = `${model.model_name}-${model.base_model}-${model.model_type}`
+            if (!uniqueModelsMap.has(key)) {
+                uniqueModelsMap.set(key, {
+                    model_name: model.model_name,
+                    base_model: model.base_model,
+                    model_type: model.model_type,
+                    description: model.description
+                })
+            }
         }
     }
-    return Array.from(uniqueModels)
+    return Array.from(uniqueModelsMap.values())
 }
-const allUniqueLorasAvailable = async()=>{
-    // Return an object with all available lora models, across all connected & online hosts //todo : no repeats
-    let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
-    let allModels=[]
-    for (const h in availableHosts){
-        let host=cluster[h]
-        for (const m in host.lora){
-            let model = host.lora[m]
-            allModels.push({model_name:model.model_name,base_model:model.base_model,model_type:model.model_type,description:model.description})
+const allUniqueLorasAvailable = async () => {
+    // Return an array with all available lora models, across all connected & online hosts with no repeats
+    let availableHosts = cluster.filter(h => h.online && !h.disabled)
+    let uniqueLorasMap = new Map()
+    for (const host of availableHosts) {
+        for (const model of host.lora) {
+            const key = `${model.model_name}-${model.base_model}-${model.model_type}`
+            if (!uniqueLorasMap.has(key)) {
+                uniqueLorasMap.set(key, {
+                    model_name: model.model_name,
+                    base_model: model.base_model,
+                    model_type: model.model_type,
+                    description: model.description
+                })
+            }
         }
     }
-    return allModels
+    return Array.from(uniqueLorasMap.values())
 }
 
 const allUniqueControlnetsAvailable = async()=>{
@@ -1254,6 +1276,12 @@ const processImage = async(img,host,type,options) => {
             case 'colormap':{
                 let tile_size = options.tile_size||64
                 graph = {nodes:{color_map_image_processor:{'id':'color_map_image_processor','type':'color_map_image_processor','color_map_tile_size':tile_size,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
+                break
+            }
+            case 'removebg':{
+                // uses custom invokeai node https://github.com/blessedcoolant/invoke_bria_rmbg
+                // to install go to invokeai\nodes and git clone https://github.com/blessedcoolant/invoke_bria_rmbg
+                graph = {nodes:{bria_bg_remove:{'id':'bria_bg_remove','type':'bria_bg_remove','is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
                 break
             }
         }
