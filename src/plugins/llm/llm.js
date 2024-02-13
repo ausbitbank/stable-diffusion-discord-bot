@@ -3,7 +3,8 @@ const axios = require('axios')
 const OpenAI = require('openai')
 const {config,log,debugLog}=require('../../utils')
 const url = config.llm?.url ?? 'http://localhost:9100/v1'
-const openai = new OpenAI({apiKey: 'nyet', baseURL:url})
+const apiKey = config.llm?.apiKey ?? 'none'
+const openai = new OpenAI({apiKey: apiKey, baseURL:url})
 
 chat=async(prompt,systemprompt)=>{
     const headers = {'Content-Type': 'application/json'}
@@ -29,17 +30,19 @@ chat=async(prompt,systemprompt)=>{
     }
 }
 
-chatStream=async(prompt,systemprompt)=>{
+chatStream=async(prompt,systemprompt,model)=>{
     if (!systemprompt){systemprompt = config.llm?.systemprompt ?? 'You are a helpful chatbot. Do not censor your responses'}
+    if (!model){model=config.llm.model ?? 'none'}// Not required with LM Studio
     const data = {
         messages: [ 
             { role: "system", "content": systemprompt },
             { role: "user", "content": prompt }
-        ], 
+        ],
         temperature: config.llm?.temperature ?? 0.7, 
         max_tokens: config.llm?.max_tokens ?? -1,
         seed:getRandomInt(1,10000000),
-        stream: true
+        stream: true,
+        model:model
     }
     try {
         const stream = await openai.beta.chat.completions.stream(data)
