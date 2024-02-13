@@ -6,7 +6,6 @@ const {auth}=require('./auth')
 const {bot}=require('./bot')
 const {random}=require('../random')
 const imageEdit = require('../imageEdit')
-const {removeBackground}=require('../removeBackground')
 const {aspectRatio}=require('./aspectRatio')
 
 let commands = [
@@ -516,36 +515,21 @@ let commands = [
             let msgid=interaction.data.custom_id.split('-')[1]
             let msg=await bot.getMessage(channelid,msgid)
             if(messageCommands.messageHasImageAttachments(msg)){
-                let url = await messageCommands.extractImageUrlFromMessage(msg)
-                let response = await removeBackground(url)
-                reply = {
-                    content:'<@'+userid+'> removed image background',
-                    embeds:[{description:response.msg}],
-                    components:[{type:1,components:[
-                        {type: 2, style: 1, label: 'Crop', custom_id: 'crop-'+msgid, emoji: { name: '✂️', id: null}, disabled: true }
-                    ]}
-                    ]
+                //let url = await messageCommands.extractImageUrlFromMessage(msg)
+                //let response = await removeBackground(url)
+                let img = await messageCommands.extractImageBufferFromMessage(msg)
+                if(img){
+                    let result = await invoke.processImage(img,null,'removebg',{})
+                    if(result?.images?.length>0){
+                        let buf = result.images[0]?.buffer
+                        reply = {
+                            content:'',
+                            embeds:[{description:'<@'+userid+'> removed image background',color:getRandomColorDec()}],
+                            components:[]
+                        }
+                        interaction.createMessage(reply,{file:buf,name:getUUID()+'.png'})
+                    }
                 }
-                interaction.createMessage(reply,{file:response.image,name:getUUID()+'.png'})
-                //log(response)
-            }
-        }
-    },
-    {
-        name: 'crop',
-        description: 'Automatically crop the image using jimp',
-        permissionLevel: ['all'],
-        aliases: ['crop'],
-        command: async (interaction)=>{
-            if(!interaction.acknowledged){interaction?.acknowledge()}
-            let userid = interaction.member?.id||interaction.author?.id||interaction.user?.id
-            let msgid=interaction.data.custom_id.split('-')[1]
-            let msg=await bot.getMessage(interaction.channel.id,msgid)
-            if(messageCommands.messageHasImageAttachments(msg)){
-                let url = await messageCommands.extractImageUrlFromMessage(msg)
-                let response = await removeBackground(url)
-                reply = {content:'<@'+userid+'> cropped image (buggy, WIP)',}
-                interaction.createMessage(reply,{file:response.image,name:getUUID()+'.png'})
             }
         }
     },
@@ -701,7 +685,12 @@ parseCommand = async(interaction)=>{
                         }
                         //log(interaction)
                         log(c.name+' triggered by '+username+' in '+interaction.channel?.name||channelid+' ('+interaction.member?.guild?.name||'DM'+')')
-                        let result = await c.command(interaction)
+                        let result
+                        try{
+                            result = await c.command(interaction)
+                        } catch(err){
+                            log(err)
+                        }
                         let messages = result?.messages
                         let files = result?.files
                         let error = result?.error
