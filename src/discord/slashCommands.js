@@ -57,9 +57,7 @@ var slashCommands = [
       log(username+' triggered dream command')
       let job={}
       try {
-        debugLog('tracking msg')
         let trackingmsg = await i.createMessage({content:':saluting_face: dreaming'})
-        debugLog(trackingmsg)
         job.tracking = {type:'discord',msg:trackingmsg}
       } catch (err) {
         debugLog('Error creating tracking msg')
@@ -76,7 +74,11 @@ var slashCommands = [
         }
       }
       if(img){job.initimg=img}
-      let dreamresult = await invoke.validateJob(job)
+      job = await invoke.validateJob(job)
+      job.creator=await getCreatorInfoFromInteraction(i)
+      job = await messageCommands.checkUserForJob(job)
+      if(job.error){return job}
+      let dreamresult = await invoke.cast(job)
       if(imgurl && !dreamresult.error && dreamresult.images?.length > 0){dreamresult.images[0].buffer = await exif.modify(dreamresult.images[0].buffer,'arty','inputImageUrl',imgurl)}
       let fakemsg = {member:{id:userid}}
       let result = await returnMessageResult(fakemsg,dreamresult)
@@ -309,6 +311,8 @@ if(config.llm?.enabled){
       log(username+' triggered chat command')
       let options = {}
       if(!i?.acknowledged){i.acknowledge()}
+      let allowed = await auth.userAllowedFeature({discordid:userid,username:username},'llm')
+      if(!allowed){return {error:'llm is for members only'}}
       for (const arg in i.data.options){
         let a = i.data.options[arg]
         switch(a.name){
@@ -444,6 +448,15 @@ parseCommand = async(interaction)=>{
         log(err)
         await interaction.createMessage({content:'There was an error while executing this command!', flags: 64}).catch((e) => {log(e)})
       }
+}
+
+getCreatorInfoFromInteraction = async(interaction)=>{
+    let userid = interaction.member?.id||interaction.author?.id||interaction.user?.id
+    let username = interaction.user?.username||interaction.member?.username||interaction.author?.username
+    let channelid = interaction.channel.id
+    let guildid = interaction.guildID||'DM'
+    log(userid)
+    return {discordid:userid,username:username,channelid:channelid,guildid:guildid}
 }
 
 module.exports = {
