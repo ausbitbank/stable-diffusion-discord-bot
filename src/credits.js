@@ -53,6 +53,7 @@ module.exports = {
         balance,
         decrement,
         increment,
-        freeRecharge
+        freeRecharge,
+        transfer
     }
 }
