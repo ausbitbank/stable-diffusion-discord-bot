@@ -1,4 +1,4 @@
-// Base functions for connecting to OpenAI compatible api server like LMStudio
+// Base functions for connecting to OpenAI compatible api server like LMStudio or ollama
 const axios = require('axios')
 const OpenAI = require('openai')
 const {config,log,debugLog}=require('../../utils')
@@ -42,7 +42,8 @@ chatStream=async(prompt,systemprompt,model)=>{
         max_tokens: config.llm?.max_tokens ?? -1,
         seed:getRandomInt(1,10000000),
         stream: true,
-        model:model
+        model:model,
+        keep_alive:'0s' // not working in ollama windows, supposed to unload model after use
     }
     try {
         const stream = await openai.beta.chat.completions.stream(data)
@@ -53,10 +54,18 @@ chatStream=async(prompt,systemprompt,model)=>{
     }
 }
 
-function getRandomInt(min, max) {
-  min = Math.ceil(min)
-  max = Math.floor(max)
-  return Math.floor(Math.random() * (max - min + 1)) + min
+getRandomInt=(min, max)=>{
+    min = Math.ceil(min)
+    max = Math.floor(max)
+    return Math.floor(Math.random() * (max - min + 1)) + min
+}
+
+getModels=async(url)=>{
+    // only works with ollama backend
+    url=url.strip('/v1')
+    let models = await axios.get(url+'/api/tags')
+    log(models)
+    return models
 }
 
 module.exports = {
