@@ -13,11 +13,26 @@ const {auth}=require('./auth')
 const {emojiCommands} = require("./emojiCommands")
 const {status} = require('./status')
 const { isFunction } = require("lodash")
+const {db,Image} = require("../db")
 
 chat=async(channel,msg,file=null)=>{
   if(msg!==null&&msg!==''){
     try{
-      if(file){bot.createMessage(channel,msg,file).then().catch(e=>{chatFail(e,channel,msg,file)})
+      if(file){
+        bot.createMessage(channel,msg,file)
+          .then(async r=>{
+            // log uploaded images to db
+            Image.create({url:r.attachments[0]?.proxy_url,data:file.file})
+              .then((ul)=>{
+                //debugLog('Image uploaded to db: '+r.attachments[0]?.proxy_url);
+                //debugLog(ul)
+              })
+              .catch((err)=>{
+                debugLog('Unable to upload image to db:')
+                debugLog(err)
+              })
+          })
+          .catch(e=>{chatFail(e,channel,msg,file)})
       }else{bot.createMessage(channel,msg).then().catch(e=>{chatFail(e,channel,msg)})}
     }catch(err){
       debugLog('Error posting to discord')
@@ -93,7 +108,12 @@ async function botInit(){
   bot.connect()
   bot.on('error', async(err)=>{log('discord error:'.bgRed);log(err)})
   bot.on("disconnect", () => {log('disconnected'.bgRed)})
-  bot.on("guildCreate", (guild) => {var m='joined new guild: '+guild.name;log(m.bgRed);debugLog(guild);chatDM(config.adminID,m)})
+  bot.on("guildCreate", (guild) => {
+    var m='joined new guild: '+guild.name
+    log(m.bgRed)
+    debugLog(guild)
+    chatDM(config.adminID,m)
+  })
   bot.on("guildDelete", (guild) => {var m='left guild: '+guild.name;log(m.bgRed);debugLog(guild);chatDM(config.adminID,m)})
   bot.on('ready', async () => {
     log('Connected to '.bgGreen.black+' discord'.bgGreen+' in '+bot.guilds.size+' guilds')
