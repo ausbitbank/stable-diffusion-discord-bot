@@ -8,6 +8,8 @@ const parseArgs = require('minimist')
 const {fonturls} = require('../fonturls')
 const {aspectRatio}=require('./aspectRatio')
 const {llm}=require('../plugins/llm/llm')
+const {credits}=require('../credits')
+const {membership}=require('../membership')
 
 // Process discord text message commands
 let commands = [
@@ -15,7 +17,7 @@ let commands = [
         name: 'dream',
         description: 'Text to image',
         permissionLevel: 'all',
-        aliases: ['dream','drm','imagine','magin','drm3'],
+        aliases: ['dream','drm','imagine','magin','drm3','d'],
         prefix:'!',
         command: async (args,msg)=>{
             msg.addReaction('🫡') // salute emoji
@@ -30,7 +32,11 @@ let commands = [
             let imgres = await extractImageAndUrlFromMessageOrReply(msg)
             if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
             let trackingmsg = await bot.createMessage(msg.channel.id,{content:':saluting_face: dreaming'})
-            result = await invoke.jobFromDream(args,img,{type:'discord',msg:trackingmsg})
+            let job = await invoke.jobFromDream(args,img,{type:'discord',msg:trackingmsg})
+            job.creator=getCreatorInfoFromMsg(msg)
+            job = await checkUserForJob(job)
+            if(job.error){return job}
+            let result = await invoke.cast(job)
             // inject the original template image url
             if(imgurl && !result.error && result.images?.length > 0){
                 debugLog('Attaching input image url to png metadata: '+imgurl)
@@ -181,7 +187,7 @@ let commands = [
             let imgres = await extractImageAndUrlFromMessageOrReply(msg)
             if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
             if(img){
-                let result = await invoke.processImage(img,null,'openpose',{detect_resolution:512,hand_and_face:true,image_resolution:512})
+                let result = await invoke.processImage(img,null,'openpose',{image_resolution:512,draw_hands:true,draw_body:true,draw_face:true})
                 if(result?.images?.length>0){
                     let buf = result.images[0]?.buffer
                     buf = await exif.modify(buf,'arty','imageType','openpose')
@@ -221,6 +227,33 @@ let commands = [
             }
         }
     },
+    {
+        name: 'handfix',
+        description: 'Fix hands using MeshGraphormer',
+        permissionLevel: 'all',
+        aliases: ['handfix'],
+        prefix:'!',
+        command: async(args,msg)=>{
+            debugLog('handfix triggered: '+args.join(' '))
+            let img,imgurl
+            let imgres = await extractImageAndUrlFromMessageOrReply(msg)
+            if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
+            if(img){
+                let result = await invoke.processImage(img,null,'handfix',{resolution:512,mask_padding:30,offload:false})
+                if(result?.images?.length>0){
+                    let buf = result.images[0]?.buffer
+                    let buf2 = result.images[1]?.buffer
+                    //let components = [{type:1,components:[{type: 2, style: 1, label: 'Use this pose', custom_id: 'usepose', emoji: { name: '🤸', id: null}, disabled: true }]}]
+                    return {messages:[{embeds:[{description:'Hand fix - depth map and mask',color:getRandomColorDec()}],components:[]}],files:[{file:buf,name:result.images[0].name},{file:buf2,name:result.images[1].name}]}
+                }else{
+                    return {error:'Hand fix failed'}
+                }
+            } else {
+                return { error:'No image attached to fix hands'}
+            }
+        }
+    },
+
     {
         name: 'esrgan',
         description: 'Return a 2x upscaled version of an input image',
@@ -381,14 +414,15 @@ let commands = [
                 return
             }
             let trackingmsg = await bot.createMessage(msg.channel.id,{content:':saluting_face: dreaming'})
-            //debugLog(parsedCmd)
             Object.keys(parsedCmd).forEach(k=>{
-                //debugLog('Appending '+meta.invoke[k]+' : '+parsedCmd[k])
                 if(k!=='_'){meta.invoke[k] = parsedCmd[k]}
             })
-            //debugLog(meta.invoke)
             if(meta.invoke?.inputImageUrl){img=urlToBuffer(meta.invoke.inputImageUrl)}
-            result = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
+            let job = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
+            job.creator=getCreatorInfoFromMsg(msg)
+            job = await checkUserForJob(job)
+            if(job.error){return job}
+            result = await invoke.cast(job)
             if(meta.invoke?.inputImageUrl && !result.error && result.images?.length > 0){
                 debugLog('Attaching input image url to png metadata: '+meta.invoke?.inputImageUrl)
                 result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke?.inputImageUrl)
@@ -633,6 +667,9 @@ let commands = [
         prefix:'!',
         command: async(args,msg)=>{
             if(!config.llm.enabled){return}
+            let creator = getCreatorInfoFromMsg(msg)
+            let allowed = await auth.userAllowedFeature(creator,'llm')
+            if(!allowed){return {error:'ai chat is for members only'}}
             msg.addReaction('🫡')
             let newprompt = args.join(' ')
             let newMessage
@@ -705,7 +742,94 @@ let commands = [
                 .catch((err)=>{log(err)})
             return {messages:[],files:[]}
         }
-    }
+    },
+    {
+        name:'tier1',
+        description:'Set users to tier 1 membership',
+        permissionLevel:'admin',
+        aliases:['tier1'],
+        prefix:'!!!',
+        command: async(args,msg)=>{
+            // extract all the referened users from the message
+            let userids = msg.mentions.map(o=>o.id)
+            let r = ''
+            for (id in userids){
+                await membership.setTier(userids[id],1)
+                r+='<@'+userids[id]+'> is now tier 1 \n'
+            }
+            let newMsg = {
+                content:r,
+                //embeds:[{description:'Enabled tier1 membership for ',color:getRandomColorDec()}]
+            }
+            return {messages:[newMsg],files:[]}
+        }
+    },
+    {
+        name:'tier0',
+        description:'Set users to tier 0 membership',
+        permissionLevel:'admin',
+        aliases:['tier0'],
+        prefix:'!!!',
+        command: async(args,msg)=>{
+            // extract all the referened users from the message
+            let userids = msg.mentions.map(o=>o.id)
+            let r = ''
+            for (id in userids){
+                await membership.setTier(userids[id],0)
+                r+='<@'+userids[id]+'> is now tier 0 \n'
+            }
+            let newMsg = {
+                content:r,
+                //embeds:[{description:'Enabled tier1 membership for ',color:getRandomColorDec()}]
+            }
+            return {messages:[newMsg],files:[]}
+        }
+    },
+    {
+        name:'test',
+        description:'Generic admin test command',
+        permissionLevel:'admin',
+        aliases:['test'],
+        prefix:'!!!',
+        command: async(args,msg)=>{
+            // extract all the referened users from the message
+            credits.freeRecharge()
+            let newMsg = {
+                content:'test',
+                //embeds:[{description:'Enabled tier1 membership for ',color:getRandomColorDec()}]
+            }
+            return {messages:[newMsg],files:[]}
+        }
+    },
+    {
+        name:'addcredit',
+        description:'Manually add credit to the named accounts',
+        permissionLevel:'admin',
+        aliases:['addcredit'],
+        prefix:'!!!',
+        command: async(args,msg)=>{
+            // extract all the referened users from the message
+            let userids = msg.mentions.map(o=>o.id)
+            let r = ''
+            let amount = 0
+            if(args[0]){
+                amount=parseInt(args[0])
+            } else {
+                return {error:amount+' is not a valid amount'}
+            }
+            for (id in userids){
+                debugLog('Adding '+amount+' to userid '+userids[id])
+                await credits.increment(parseInt(userids[id]),amount)
+                let balance = await credits.balance(userids[id])
+                r+='<@'+userids[id]+'> balance is now :coin: '+balance+' \n'
+            }
+            let newMsg = {
+                content:r,
+                //embeds:[{description:'Enabled tier1 membership for ',color:getRandomColorDec()}]
+            }
+            return {messages:[newMsg],files:[]}
+        }
+    },
 ]
 
 // generate simple lookup array of all command aliases with prefixes
@@ -781,7 +905,7 @@ returnMessageResult = async(msg,result)=>{
         for (const i in result.images){
             let image=result.images[i]
             let meta=await exif.load(image.buffer)
-            message = imageResultMessage(msg.member?.id||msg.author?.id,image,result,meta)
+            message = await imageResultMessage(msg.member?.id||msg.author?.id,image,result,meta)
             if(msg.id){
                 //debugLog(msg)
                 message.messageReference={message_id:msg.id}
@@ -927,14 +1051,14 @@ getAvatarUrl = async(userId)=>{
     return avatarUrl
 }
 
-imageResultMessage = (userid,img,result,meta)=>{
+imageResultMessage = async(userid,img,result,meta)=>{
     //debugLog('debug imageresultmessage')
     //debugLog(meta)
     //debugLog(result)
     let p=meta?.invoke?.prompt
+    let cost = meta.invoke?.cost??null
     //if(result.job.negative_prompt){p=p+' ['+result.job.negative_prompt+']'}
     let t=''
-    if(meta.invoke?.cost){t+=' :coin: '+meta.invoke.cost}
     if(img.width&&img.height){t+=' :straight_ruler: '+img.width+'x'+img.height}
     //if(img.genWidth&&img.genHeight){t+=' :triangle_ruler: '+img.genWidth+'x'+img.genHeight}
     if(meta.invoke?.steps){t+=' :recycle: '+meta.invoke.steps}
@@ -963,9 +1087,18 @@ imageResultMessage = (userid,img,result,meta)=>{
     if(meta.invoke?.seamlessx===true||meta.invoke?.seamlessy===true){t+=' :knot: '}
     if(meta.invoke?.seamlessx===true){t+='x '}
     if(meta.invoke?.seamlessy===true){t+='y '}
+    //if(cost){t+=' :coin: '+meta.invoke.cost}
     let colordec=getRandomColorDec()
+    let content = ':brain: <@'+userid+'>'
+    if(config.credits?.enabled&&cost){
+        // Charge user, display remaining balance
+        //let balance = await credits.decrement(userid,cost)
+        let balance = await credits.balance(userid)
+        //log(balance)
+        content+=' :coin: '+balance+'(-'+cost+')'
+    }
     let newmsg = {
-        content:':brain: <@'+userid+'>',
+        content:content,
         embeds:[
             {
                 color: colordec,
@@ -1042,6 +1175,23 @@ imageResultMessage = (userid,img,result,meta)=>{
     return newmsg
 }
 
+const checkUserForJob=async(job)=>{
+    log('Check user for job')
+    log(job.creator)
+    // is job errored already
+    if(job.error){return job}
+    // do they have the funds
+    let balance = await credits.balance(job.creator.discordid)
+    if(balance<job.cost){job.error = 'Insufficient :coin:'; return job}
+    // check model type allowed
+    let modelAllowed = await auth.userAllowedFeature(job.creator,job.model.base_model)
+    if(modelAllowed){return job}else{job.error=job.model.base_model+' is for members only';return job}
+}
+
+const getCreatorInfoFromMsg=(msg)=>{
+    return {discordid:msg.member?.id||msg.author?.id,username:msg.user?.username||msg.member?.username||msg.author?.username,channelid:msg.channel?.id,guildid:msg.guildID||'DM'}
+}
+
 help=()=>{
   var helpTitles=['let\'s get wierd','help me help you','help!','wait, what ?']
   shuffle(helpTitles)
@@ -1079,6 +1229,7 @@ module.exports = {
         extractImageUrlFromMessage,
         extractImageUrlsFromMessage,
         messageHasImageAttachments,
-        returnMessageResult
+        returnMessageResult,
+        checkUserForJob
     }
 }
