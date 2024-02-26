@@ -33,7 +33,7 @@
         "strength":0.7,
         "scheduler":"dpmpp_2m_sde_k",
         "controlmode":"depth",
-        "model":"sdxl",
+        "model":"stable-diffusion-v1-5",
         "inpaintStrength":0.8
     },
     "maximum":{
@@ -67,6 +67,7 @@
         }
     },
     "freeRecharge":{
+        "enabled":true,
         "minBalance":10,
         "amount":10
     },
