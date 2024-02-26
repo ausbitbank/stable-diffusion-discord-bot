@@ -14,6 +14,7 @@ const {imageEdit} = require('./imageEdit')
 const {progress}=require('./discord/progress')
 const {resultCache}=require('./resultCache')
 const {aspectRatio}=require('./discord/aspectRatio')
+const {credits}=require('./credits')
 var cluster=config.cluster
 //let resultCache=[]
 //const getResultCache = ()=>{return resultCache}
@@ -62,10 +63,11 @@ const initHost=async(host)=>{
 
 buildWorkflowFromJob = (job)=>{
     let essentials = {}
+    //job.cost = getJobCost(job)
     let keys = Object.keys(job)
     for (const i in keys){
         let key = keys[i]
-        if(['prompt','strength','control','controlstart','controlend','controlweight','ipamodel','facemask','lscale','invert','width','height','hrf','hrfwidth','hrfheight'].includes(key)){essentials[key] = job[key]}
+        if(['prompt','strength','control','controlstart','controlend','controlweight','ipamodel','facemask','lscale','invert','width','height','hrf','hrfwidth','hrfheight','cost'].includes(key)){essentials[key] = job[key]}
     }
     /*
     let workflow = {
@@ -383,9 +385,6 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     let noiseIds = Object.values(graph.nodes).filter(i=>i.type==='noise').map(i=>i.id)
     for (const id in noiseIds){data[0].push({node_path:noiseIds[id],field_name:'seed',items:dataitems})}
     // Tada! Graph built
-    debugLog('Built Graph')
-    debugLog(data)
-    //debugLog(graph)
     return {
         batch:{
             data:data,
@@ -396,15 +395,34 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     }
 }
 
+const getJobCost = (job) =>{
+    // calculate and return a cost float based on job properties
+    let cost = 1
+    let pixelStepsBase = 7864320 // based on 512x512x30 default sd-1 render
+    let width = job.width??512
+    let height = job.height??512
+    let steps = job.steps??30
+    let pixelSteps = width*height*steps
+    let number = job.number??1
+    cost=(pixelSteps/pixelStepsBase)*cost
+    cost=cost*number
+    if(job.control==='i2l'&&job.strength){cost=cost*job.strength} // account for reduced steps with img2img
+    if(job.hrf&&job.hrfwidth&&job.hrfheight&&job.strength){
+        cost=cost*(job.hrfwidth*job.hrfheight*(steps*job.strength))/pixelStepsBase
+    }
+    //if(job.hrf&&job.strength){cost=cost*(2*job.strength)} // hi res fix
+    debugLog('cost: '+cost)
+    return parseFloat(cost.toFixed(2))
+}
+
 const enqueueBatch = async (host, graph, name='arty') => {
     // new in invoke 3.2.0rc1
     try {
         const response = await axios.post(host.url + '/api/v1/queue/'+name+'/enqueue_batch',graph)
-        //debugLog('enqueue response:');debugLog(response)
         return response.data.batch.batch_id
     } catch (err) {
         console.error('Error queueing batch',err.data)
-        throw('Error queueing batch',+err.code)
+        return{error:'Error queueing batch '+err.code}
     }
 }
 
@@ -474,31 +492,50 @@ const cancelBatch = async(batchid,host=null,name='arty')=>{
     }
 }
 
+const isLoraMatch = (lora,loras)=>{return loras.some(jobLora => jobLora.name === lora.model_name)}
+function findHostsWithJobLoras(hosts, job) {
+  // Filter the hosts array based on the loras
+    return hosts.filter(host => {
+    // Check if host.loras and job.loras are defined and not empty
+        if (host.lora && host.lora.length > 0) {
+            // Check if all of the job's loras are present in the host's loras
+            return job.loras.every(jobLora => host.lora.some(lora => isLoraMatch(lora, [jobLora])))
+        } else {
+            return false
+        }
+    })
+}
+
 const findHost = async(job=null)=>{
     // find host with the required models, embeds, etc that isn't currently busy
     let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
-    //if(job?.host){return cluster[job.host]}
     if(job===null&&availableHosts.length>0){
         debugLog('No job info supplied, returning random available host')
-        return availableHosts[0]
+        return availableHosts[Math.floor(Math.random() * availableHosts.length)]
     }
     if(isString(job?.model)){
-        debugLog('Job.model is a string, convert to model object')
-        try{
-            job.model=await modelnameToObject(job.model)
-        }catch(err){
-            log('error in findHost model search')
-            log(err)
-            throw(err)
-        }
+        try{job.model=await modelnameToObject(job.model)
+        }catch(err){throw(err)}
     }
+    // filter available hosts : check correct model is installed
     let filteredHosts = availableHosts.filter(host => {return host.models.some(model => model.name === job.model.name)})
-    // todo sort online hosts by priority value
-    if(filteredHosts.length > 0) {
-        return filteredHosts[Math.floor(Math.random() * filteredHosts.length)]
-    } else {
-        throw('No host with required model found') 
+    // todo more host qualifications if needed for job (loras,controlnets,ipa etc)
+    if(filteredHosts.length===0){throw('No host with required model found')}
+    // filter for hosts with the required loras
+    if(job.loras.length>0){
+        filteredHosts = findHostsWithJobLoras(filteredHosts,job)
+        if(filteredHosts.length===0){throw('No host with required loras found')}
     }
+    // get qualified hosts that are idle right now (if any, based on result cache)
+    let rc = resultCache.get()
+    let filteredHostsIdle = filteredHosts.filter(h=>{return !rc.some(job=>job.hostname===h.name)})
+    // return a random idle qualified host if available
+    if(filteredHostsIdle.length>0){return filteredHostsIdle[Math.floor(Math.random() * filteredHostsIdle.length)]}
+    // otherwise, find the least busy host
+    let hostCounts = {}
+    rc.forEach(job=>{if(hostCounts[job.hostname]===undefined){hostCounts[job.hostname] = 1}else{hostCounts[job.hostname]++}})
+    let sortedHosts = Object.keys(hostCounts).sort((a,b)=>{return hostCounts[a] - hostCounts[b]})
+    return sortedHosts[0]
 }
 
 async function checkOfflineHosts() {
@@ -526,8 +563,6 @@ const subscribeQueue = async(host,name='arty')=>{
         socket.on('batch_enqueued', msg => {
             // queue_id str, batch_id str, enqueued int, timestamp
             debugLog(host.name+' batch enqueued: '+msg.batch_id.dim)
-            //debugLog(msg)
-            // todo this should be moved to resultcache file
             resultCache.set(msg.batch_id, {
                 batch_id:msg.batch_id,
                 status:'pending',
@@ -836,7 +871,7 @@ const getImages = async(host)=>{
 const getImageBuffer = async(host,name)=>{
     try {
         let u = host.url+'/api/v1/images/i/'+name+'/full'
-        let buf = urlToBuffer(u)
+        let buf = urlToBuffer(u,true)
         return buf
     } catch (err) {
         host.online = false
@@ -880,8 +915,9 @@ const auto2invoke = (text)=>{
 const jobFromDream = async(cmd,images=null,tracking=null)=>{
     // input oldschool !dream format, output job object
     debugLog('jobfromdream - cmd:'+cmd)
-    var job = parseArgs(cmd,{boolean:['facemask','invert','hrf','seamlessx','seamlessy']})//string: ['sampler','text_mask'],boolean: ['seamless','hires_fix']}) // parse arguments //
+    var job = parseArgs(cmd,{boolean:['facemask','invert','hrf','seamlessx','seamlessy','seamless']})//string: ['sampler','text_mask'],boolean: ['seamless','hires_fix']}) // parse arguments //
     // set argument aliases
+    if(job.seamless){job.seamlessy=true;job.seamlessx=true}
     if(job.s){job.steps=job.s;delete job.s}
     if(job.S){job.seed=job.S;delete job.S}
     if(job.W){job.width=job.W;delete job.W}
@@ -1164,7 +1200,9 @@ const validateJob = async(job)=>{
                 if(!job.hrfwidth){job.hrfwidth=getDiffusionResolution(job.width)}
             }
         }
-        return cast(job)
+        job.cost = getJobCost(job)
+        return job
+        //return cast(job)
     } catch(err){
         if(err?.error){return {error: err.error}} else {return {error:err}}
     }
@@ -1233,10 +1271,11 @@ const processImage = async(img,host,type,options) => {
                 break
             }
             case 'openpose':{
-                let detect_resolution = options.detect_resolution||512
-                let hand_and_face = options.hand_and_face||true
+                let draw_body = options.draw_body||true
+                let draw_face = options.draw_face||true
+                let draw_hands = options.draw_hands||true
                 let image_resolution = options.image_resolution||512
-                graph = {nodes:{openpose_image_processor:{'id':'openpose_image_processor','type':'openpose_image_processor','detect_resolution':detect_resolution,'hand_and_face':hand_and_face,'image_resolution':image_resolution,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
+                graph = {nodes:{dw_openpose_image_processor:{'id':'dw_openpose_image_processor','type':'dw_openpose_image_processor','image_resolution':image_resolution,'draw_body':draw_body,'draw_face':draw_face,'draw_hands':draw_hands,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
                 break
             }
             case 'canny':{
@@ -1282,6 +1321,33 @@ const processImage = async(img,host,type,options) => {
                 // uses custom invokeai node https://github.com/blessedcoolant/invoke_bria_rmbg
                 // to install go to invokeai\nodes and git clone https://github.com/blessedcoolant/invoke_bria_rmbg
                 graph = {nodes:{bria_bg_remove:{'id':'bria_bg_remove','type':'bria_bg_remove','is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
+                break
+            }
+            case 'handfix':{
+                // uses custom invokeai node https://github.com/blessedcoolant/invoke_meshgraphormer
+                // to install go to invokeai\nodes and git clone https://github.com/blessedcoolant/invoke_meshgraphormer
+                // you may have to manually install extra dependancies inside your invokeai venv
+                // pip install trimesh rtree yacs
+                // input - 1 image with crap hands
+                // output - 2 images : a corrected depth map of the hands, and an image mask
+                let resolution = options.resolution||512
+                let mask_padding = options.mask_padding||30
+                let offload = options.offload||false
+                graph = {
+                    nodes:{
+                        hand_depth_mesh_graphormer_image_processor:{
+                            'id':'hand_depth_mesh_graphormer_image_processor',
+                            'type':'hand_depth_mesh_graphormer_image_processor',
+                            'resolution':resolution,
+                            'mask_padding':mask_padding,
+                            'offload':offload,
+                            'is_intermediate':false,
+                            'image':{
+                                'image_name':initimg.image_name
+                            }
+                        }
+                    }
+                }
                 break
             }
         }
@@ -1421,10 +1487,6 @@ cast = async(job)=>{
             if(!context.job.control){context.job.control=config.default.controlmode||'i2l'}
         }
         let graph = await buildGraphFromJob(context.job)
-        debugLog('Submitting graph:')
-        debugLog(graph)
-        debugLog(graph.batch?.graph?.nodes)
-        debugLog(graph.batch?.graph?.edges)
         context.batchId = await enqueueBatch(context.host,graph)
         if(!context.batchId||context.batchId?.error){return {error:'Error queuing job '}}
         // Trigger progress update reporting if enabled
@@ -1434,6 +1496,23 @@ cast = async(job)=>{
         context.images = await batchToImages(context.host,context.batchId)
         resultCache.remove(context.batchId)
         if(context.images?.error){return {error:context.images?.error}}
+        // Charge user here
+        if(config.credits.enabled&&job.cost&&job.cost>0&&context.job.creator.discordid&&context.host.ownerid){
+            let creatorid=parseInt(context.job.creator.discordid)
+            let backendid=parseInt(context.host.ownerid)
+            if(creatorid===backendid){
+                // user rendering on own backend, no charge
+            } else {
+                // charge the creator, credit the backend provider
+                debugLog(creatorid)
+                debugLog(backendid)
+                await credits.transfer(creatorid,backendid,job.cost)
+                //await credits.decrement(creatorid,job.cost)
+                //await credits.increment(backendid,job.cost)
+            }
+        } else {
+            debugLog('No charge')
+        }
         if(context.job.initimgObject)deleteImage(context.host,context.job.initimgObject.image_name) // remove uploaded image after use
         let result = {
             job:context.job,
