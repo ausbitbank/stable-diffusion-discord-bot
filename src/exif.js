@@ -26,7 +26,7 @@ load=async(buf)=>{
         let model = meta?.model
         let clipskip = meta?.clip_skip
         let loras=meta?.loras
-        let control, controlweight, controlstart, controlend, ipamodel, facemask, strength, lscale, invert, hrf, hrfwidth, hrfheight, prompt = null
+        let control, controlweight, controlstart, controlend, ipamodel, facemask, strength, lscale, invert, hrf, hrfwidth, hrfheight, prompt, cost = null
         try{
             //debugLog(exif.invokeai_metadata.value)
             let workflow = JSON.parse(meta.arty)
@@ -45,16 +45,13 @@ load=async(buf)=>{
             hrf = workflow?.hrf
             hrfwidth = workflow?.hrfwidth
             hrfheight = workflow?.hrfheight
-            //width = workflow?.notes?.width
-            //height = workflow?.notes?.height
+            cost=workflow?.cost
         } catch(err){
             debugLog('Error parsing invokeai_workflow metadata')
-            //debugLog(err)
+            debugLog(err)
         }
         let positive_prompt=meta?.positive_prompt
         let negative_prompt=meta?.negative_prompt
-        //let prompt = positive_prompt
-        //if(negative_prompt){prompt=prompt+' ['+negative_prompt+']'}
         let style=meta?.positive_style_prompt
         let negstyle=meta?.negative_style_prompt
         let scale=meta?.cfg_scale
@@ -89,12 +86,10 @@ load=async(buf)=>{
             }
         }
         */
-        let cost=(pixelSteps/7864320) // 1 normal 30 step 512x512 render to 1 coin
         if(exif.arty){
             let arty = JSON.parse(exif.arty.value)
             inputImageUrl=arty.inputImageUrl
         }
-        cost = Math.round((cost + Number.EPSILON) * 1000) / 1000 // max 3 decimals, if needed
         results.invoke={
             positive_prompt,
             negative_prompt,
