@@ -5,6 +5,35 @@ const {resultCache}=require('../resultCache')
 update = async(msg,batchid)=>{
     // Call once, repetitively update message with results of get(batchid)
     let error=false,done=false,statusmsg=null,cached=null,result=null,interval=500,fails=0
+    /*
+    const intervalId = setInterval(async () => {
+        try {
+        result = resultCache.get(batchid)
+        statusmsg = returnProgressMessage(batchid)
+        if (!statusmsg) {
+            fails++
+            if (fails > 3) {
+            await msg.delete()
+            clearInterval(intervalId) // Stop the interval
+            return
+            }
+            return
+        }
+        if (statusmsg && statusmsg !== cached) {
+            cached = statusmsg // update cache
+            await msg.edit(statusmsg.msg, statusmsg.file) // edit progress message
+        }
+        if (['completed', 'failed', 'cancelled'].includes(result.status)) {
+            await msg.delete()
+            clearInterval(intervalId) // Stop the interval
+            return
+        }
+        } catch (err) {
+            debugLog(err)
+            error = true
+        }
+    }, interval)
+    */
     while(!error&&!done){
         try {
             await sleep(interval)
@@ -38,7 +67,6 @@ returnProgressMessage = (batchid) =>{
         let content= ''//+batchid
         file=null
         if(r){
-            //debugLog(batchid+' - '+r.status)
             switch(r.status){
                 case('in_progress'):content=':green_circle: In progress';break
                 case('pending'):content=':orange_circle: Pending';break
@@ -65,13 +93,8 @@ returnProgressMessage = (batchid) =>{
         let components = [{type:1,components:[{type:2,style:4,label:'Cancel',custom_id:'cancelBatch-'+batchid,emoji:{name:'🗑️',id:null},disabled:false}]}]
         let msg = {embeds: [{description:content}],components:components}
         return {msg:msg}//,file}
-        //return msg
-        } else {
-            return null
-        }
-    } catch (err) {
-        throw(err)
-    }
+        } else {return null}
+    } catch (err) {throw(err)}
 }
 
 
