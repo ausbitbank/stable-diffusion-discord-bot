@@ -13,7 +13,7 @@ decrement=async(user,amount=1)=>{
     let usr = await User.findOrCreate({where:{discordID:user},defaults:{credits:defaultCredits}})
     let newcredits = parseFloat((usr[0].credits - amount).toFixed(2))
     if(newcredits<0){newcredits=0}
-    await usr.update({credits:newcredits})
+    await User.update({credits:newcredits},{where:{discordID:user}})
     debugLog('Credit removed: -'+amount+' from '+user+' , Balance: '+newcredits)
     return newcredits
 }
@@ -21,22 +21,31 @@ decrement=async(user,amount=1)=>{
 increment=async(user,amount=1)=>{
     let usr = await User.findOrCreate({where:{discordID:user},defaults:{credits:defaultCredits}})
     let newcredits = parseFloat((usr[0].credits + amount).toFixed(2))
-    await usr.update({credits:newcredits})
+    await User.update({credits:newcredits},{where:{discordID:user}})
     debugLog('Credit added: +'+amount+' to '+user+' , Balance: '+newcredits)
     return newcredits
 }
 
 transfer=async(from,to,amount=1)=>{
+    await increment(to,amount)
+    let bal = await decrement(from,amount)
+    /*
     let usrFrom = await User.findOrCreate({where:{discordID:from},defaults:{credits:defaultCredits}})
     let usrTo = await User.findOrCreate({where:{discordID:to},defaults:{credits:defaultCredits}})
+    debugLog(usrFrom.credits)
+    debugLog(usrTo.credits)
     let newcreditsTo = parseFloat((usrTo.credits + amount).toFixed(2))
-    let newcreditsFrom = parseFloat((usrFrom.credits + amount).toFixed(2))
+    let newcreditsFrom = parseFloat((usrFrom.credits - amount).toFixed(2))
+    debugLog(newcreditsFrom)
+    debugLog(newcreditsTo)
     //await usrTo.update({credits:newcreditsTo})
     await User.update({credits:newcreditsTo},{where:{discordID:to}})
     await User.update({credits:newcreditsFrom},{where:{discordID:from}})
     //await usrFrom.update({credits:newcreditsFrom})
     debugLog('Credit added: +'+amount+' to '+to+' from '+from)
-    return newcreditsTo
+    */
+    debugLog('Credit added: +'+amount+' to '+to+' from '+from)
+    return bal
 }
 
 freeRecharge=async()=>{
