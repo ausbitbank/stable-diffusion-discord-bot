@@ -7,6 +7,7 @@ const {bot}=require('./bot')
 const {random}=require('../random')
 const imageEdit = require('../imageEdit')
 const {aspectRatio}=require('./aspectRatio')
+const { intersection } = require('lodash')
 
 let commands = [
     {
@@ -27,7 +28,11 @@ let commands = [
             let meta = await messageCommands.extractMetadataFromMessage(interaction.message)
             if(meta.invoke?.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
             meta.invoke.seed = random.seed()
-            let result = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
+            let job = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
+            job.creator = await getCreatorInfoFromInteraction(interaction)
+            job = await messageCommands.checkUserForJob(job)
+            if(job.error){return job}
+            let result = await invoke.cast(job)
             if(meta.invoke?.inputImageUrl && !result.error && result.images?.length > 0){result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke.inputImageUrl)}
             let newmsg = interaction.message
             newmsg.member = interaction.member
@@ -47,7 +52,7 @@ let commands = [
             let key = interaction.data.custom_id.split('-')[2]??interaction.data.components[0].components[0].custom_id
             let value = interaction.data.custom_id.split('-')[2]?interaction.data.values[0]:interaction.data.components[0].components[0].value
             let trackingmsg = null
-            trackingmsg = await bot.createMessage(channelid,{content:':saluting_face: refreshing with **'+key+'** of `'+value+'`'})
+            trackingmsg = await bot.createMessage(channelid,{content:':saluting_face: refreshing with **'+key+'** of `'+value.substring(0,1000)+'`'})
             switch(key){
                 case 'scale':{value=parseFloat(value);break}
                 case 'steps':{value=parseInt(value);break}
@@ -58,7 +63,14 @@ let commands = [
             debugLog(interaction.member?.username||interaction.author?.username||interaction.user?.username+' edit '+key+' to: '+value)
             if(meta.invoke){meta.invoke[key] = value}
             if(meta.invoke?.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
-            let result = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
+            //let result = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
+            let job = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
+            job.creator = await getCreatorInfoFromInteraction(interaction)
+            job = await messageCommands.checkUserForJob(job)
+            if(job.error){
+                log('job error in edit componentCommand',job.error)
+                return job}
+            let result = await invoke.cast(job)
             if(meta.invoke?.inputImageUrl && !result.error && result.images?.length > 0){result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke.inputImageUrl)}
             let newmsg = sourcemsg
             newmsg.member = interaction.member
@@ -77,7 +89,7 @@ let commands = [
             let key = interaction.data.components[0].components[0].custom_id
             let value = interaction.data.components[0].components[0].value
             let trackingmsg = null
-            trackingmsg = await bot.createMessage(channelid,{content:':saluting_face: refreshing with **'+key+'** of `'+value+'`'})
+            trackingmsg = await bot.createMessage(channelid,{content:':saluting_face: refreshing with **'+key+'** of `'+value.substring(0,1000)+'`'})
             let sourcemsg = await bot.getMessage(channelid, msgid)
             let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
             debugLog(interaction.member?.username||interaction.author?.username||interaction.user?.username+' edit '+key+' to: '+value)
@@ -88,7 +100,12 @@ let commands = [
                 meta.invoke.height = h
             }
             if(meta.invoke?.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
-            let result = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
+            //let result = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
+            let job = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
+            job.creator = await getCreatorInfoFromInteraction(interaction)
+            job = await messageCommands.checkUserForJob(job)
+            if(job.error){return job}
+            let result = await invoke.cast(job)
             if(meta.invoke?.inputImageUrl && !result.error && result.images?.length > 0){result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke.inputImageUrl)}
             let newmsg = sourcemsg
             newmsg.member = interaction.member
@@ -345,7 +362,12 @@ let commands = [
             if (meta.invoke?.inputImageUrl) {
                 img = await urlToBuffer(meta.invoke.inputImageUrl)
             }
-            let result = await invoke.jobFromMeta(meta, img, { type: 'discord', msg: trackingmsg })
+            //let result = await invoke.jobFromMeta(meta, img, { type: 'discord', msg: trackingmsg })
+            let job = await invoke.jobFromMeta(meta, img, { type: 'discord', msg: trackingmsg })
+            job.creator = await getCreatorInfoFromInteraction(interaction)
+            job = await messageCommands.checkUserForJob(job)
+            if(job.error){return job}
+            let result = await invoke.cast(job)
             if (meta.invoke?.inputImageUrl && !result.error && result.images?.length > 0) {
                 result.images[0].buffer = await exif.modify(result.images[0].buffer, 'arty', 'inputImageUrl', meta.invoke.inputImageUrl)
             }
@@ -557,7 +579,12 @@ let commands = [
                         meta.invoke.height = res.height
                         let img = null
                         if(meta.invoke?.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
-                        let result = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
+                        //let result = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
+                        let job = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
+                        job.creator = await getCreatorInfoFromInteraction(interaction)
+                        job = await messageCommands.checkUserForJob(job)
+                        if(job.error){return job}
+                        let result = await invoke.cast(job)
                         if(meta.invoke?.inputImageUrl && !result.error && result.images?.length > 0){result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke.inputImageUrl)}
                         let newmsg = msg
                         newmsg.member = interaction.member
@@ -592,7 +619,12 @@ let commands = [
                 let img = null
                 meta.invoke.scheduler = interaction.data.values[0]
                 if(meta.invoke.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
-                let result = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
+                //let result = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
+                let job = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
+                job.creator = await getCreatorInfoFromInteraction(interaction)
+                job = await messageCommands.checkUserForJob(job)
+                if(job.error){return job}
+                let result = await invoke.cast(job)
                 if(meta.invoke.inputImageUrl && !result.error && result.images?.length > 0){result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke.inputImageUrl)}
                 let newmsg = interaction.message
                 newmsg.member = interaction.member
@@ -654,14 +686,18 @@ let commands = [
 let prefixes=[]
 commands.forEach(c=>{c.aliases.forEach(a=>{prefixes.push(a)})})
 
-parseCommand = async(interaction)=>{
-    //debugLog(interaction)
-    // normalise values between responses in channel and DM
-    let userid = interaction.member?.id||interaction.author?.id||interaction.user?.id
-    let username = interaction.user?.username||interaction.member?.username||interaction.author?.username
+getCreatorInfoFromInteraction = async(interaction)=>{
+    let discordid = interaction.member?.id??interaction.author?.id??interaction.user?.id
+    log(userid)
+    let username = interaction.user?.username??interaction.member?.username??interaction.author?.username
     let channelid = interaction.channel.id
-    let guildid = interaction.guildID||'DM'
-    if(!auth.check(userid,guildid,channelid)){return} // if not authorised, ignore
+    let guildid = interaction.guildID??'DM'
+    return {discordid:discordid,username:username,channelid:channelid,guildid:guildid}
+}
+
+parseCommand = async(interaction)=>{
+    let creator = await getCreatorInfoFromInteraction(interaction)
+    if(!auth.check(creator.discordid,creator.guildid,creator.channelid)){return}
     let command = interaction.data.custom_id.split('-')[0]
     if(prefixes.includes(command)){
         commands.forEach(c=>{
@@ -672,8 +708,8 @@ parseCommand = async(interaction)=>{
                         switch(c.permissionLevel){
                             case 'all':{break} // k fine
                             case 'admin':{
-                                if(parseInt(userid)!==config.adminID){
-                                    log('Denied admin command for '+username)
+                                if(parseInt(creator.discordid)!==config.adminID){
+                                    log('Denied admin command for '+creator.username)
                                     return
                                 }
                                 break
@@ -684,7 +720,7 @@ parseCommand = async(interaction)=>{
                             }
                         }
                         //log(interaction)
-                        log(c.name+' triggered by '+username+' in '+interaction.channel?.name||channelid+' ('+interaction.member?.guild?.name||'DM'+')')
+                        log(c.name+' triggered by '+creator.username+' in '+creator.channelid+' ('+creator.guildid||'DM'+')')
                         let result
                         try{
                             result = await c.command(interaction)
@@ -708,9 +744,9 @@ parseCommand = async(interaction)=>{
                         messages.forEach(message=>{
                             if(files.length>0)file=files.shift() // grab the top file
                             if(message&&file){
-                                chat(channelid,message,file) // Send message with attachment
+                                chat(creator.channelid,message,file) // Send message with attachment
                             }else if(message){
-                                chat(channelid,message) // Send message, no attachment
+                                chat(creator.channelid,message) // Send message, no attachment
                             }
                         })
                     }catch(e){log('error in componentCommands\\parseCmd');log(e)}
