@@ -31,10 +31,12 @@ transfer=async(from,to,amount=1)=>{
     let usrTo = await User.findOrCreate({where:{discordID:to},defaults:{credits:defaultCredits}})
     let newcreditsTo = parseFloat((usrTo.credits + amount).toFixed(2))
     let newcreditsFrom = parseFloat((usrFrom.credits + amount).toFixed(2))
-    await usrTo.update({credits:newcreditsTo})
-    await usrFrom.update({credits:newcreditsFrom})
-    debugLog('Credit added: +'+amount+' to '+user+' , Balance: '+newcredits)
-    return newcredits
+    //await usrTo.update({credits:newcreditsTo})
+    await User.update({credits:newcreditsTo},{where:{discordID:to}})
+    await User.update({credits:newcreditsFrom},{where:{discordID:from}})
+    //await usrFrom.update({credits:newcreditsFrom})
+    debugLog('Credit added: +'+amount+' to '+to+' from '+from)
+    return newcreditsTo
 }
 
 freeRecharge=async()=>{
