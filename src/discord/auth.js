@@ -1,4 +1,7 @@
-const {config:config,log:log,debugLog:debugLog,getUUID:getUUID,validateUUID:validateUUID,urlToBuffer:urlToBuffer}=require('../utils.js')
+const {config,log,debugLog}=require('../utils.js')
+const {db,User}=require('../db.js')
+const {credit}=require('../credits.js')
+
 // true/false for if a user,guild,channel is authorised
 let allowedUsers=config.authentication.allowed.users
 let bannedUsers=config.authentication.banned.users
@@ -6,8 +9,6 @@ let allowedGuilds=config.authentication.allowed.guilds
 let bannedGuilds=config.authentication.banned.guilds
 let allowedChannels=config.authentication.allowed.channels
 let bannedChannels=config.authentication.banned.channels
-
-// todo TEST MORE
 
 userAllowed=(user)=>{
     if(allowedUsers.length>0&&allowedUsers.includes(user)===false){
@@ -38,13 +39,40 @@ channelAllowed=(channel)=>{
         return false} // deny banned channel
     return true // else allow
 }
-check=(userid,guildid,channelid)=>{
+check=(userid,guildid,channelid,username)=>{
     if(guildid!=='DM'){guildid=parseInt(guildid)}
-    if(userAllowed(parseInt(userid))&&guildAllowed(guildid)&&channelAllowed(parseInt(channelid))){
-        return true
+    if(userAllowed(parseInt(userid))&&
+        guildAllowed(guildid)&&
+        channelAllowed(parseInt(channelid))
+        ){ return true
     }else{
         debugLog('auth fail for userid '+userid+' in channelid '+channelid+' and guildid '+guildid)
         return false
+    }
+}
+userHasCredit=async(user)=>{
+    // Check if a user exists in database, create new user if it doesnt, return true/false if the user has credit > 0
+    if(user===config.adminID){return true} // always allow admin
+    if(config.credits.enabled){
+        let balance = await credit.balance(user)
+        if(balance>0){
+            return true
+        } else { return false }
+    } else {
+        // return true if credits are disabled
+        return true
+    }
+}
+userAllowedFeature=async(user,feature)=>{
+    let [usr,created] = await User.findOrCreate({where:{discordID: user.discordid},defaults:{username:user.username,credits:config.credits?.default??100}})
+    if(!created&&!usr.username){usr.username=user.username}
+    switch(feature) {
+        case 'sd-1':// always allow sd1
+            return true
+        case 'sd-2':// sd2 is members only
+        case 'sdxl':// sdxl is members only
+        case 'llm':// llm is members only
+            return usr.tier >= 1
     }
 }
 
@@ -53,6 +81,7 @@ module.exports = {
         user:userAllowed,
         guild:guildAllowed,
         channel:channelAllowed,
-        check:check
+        check,
+        userAllowedFeature
     }
 }
