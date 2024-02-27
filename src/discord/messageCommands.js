@@ -1,6 +1,6 @@
-const {config,log,debugLog,getRandomColorDec,shuffle,urlToBuffer,getUUID,extractFilenameFromUrl,isURL}=require('../utils')
+const {config,log,debugLog,getRandomColorDec,shuffle,urlToBuffer,getUUID,extractFilenameFromUrl,isURL,axios}=require('../utils')
 const {exif}=require('../exif')
-const {invoke}=require('../invoke')
+const {invoke,cluster}=require('../invoke')
 const {bot}=require('./bot')
 const {auth}=require('./auth')
 const {imageEdit}=require('../imageEdit')
@@ -681,6 +681,13 @@ let commands = [
             let page = 0
             let pages = 0
             let maxlength = 4000
+            let txtObject = await extractTextFileFromMessageOrReply(msg)
+            debugLog(txtObject)
+            if(txtObject&&txtObject.txt){
+                debugLog(txtObject)
+                debugLog('attaching file to prompt')
+                newprompt+='\nFile attachment '+txtObject.filename+' :\n```'+txtObject.txt+'\n```'
+            }
             let initResponse = ':thought_balloon: `'+newprompt.substr(0,1900)+'`'
             let stream = await llm.chatStream(newprompt)
             if(stream.error){return {error:stream.error}}
@@ -830,6 +837,42 @@ let commands = [
             return {messages:[newMsg],files:[]}
         }
     },
+    {
+        name:'reinit',
+        description:'Trigger a rescan/reinitialization of all invoke hosts status,models,controlnets,etc',
+        permissionLevel:'admin',
+        aliases:['reinit'],
+        prefix:'!!!',
+        command: async(args,msg)=>{
+            // manually trigger rescan/reinitialize of all hosts using invoke.init()
+            // for the truly impatient, scheduler already runs this every 5 minutes
+            invoke.init()
+            return {messages:[{content:'',embeds:[{description:':information_source: Scanning all invoke backends for model changes',color:getRandomColorDec()}]}],files:[]}
+        }
+    },
+    {
+        name:'hosts',
+        description:'View current invokeai backends status',
+        permissionLevel:'admin',
+        aliases:['hosts'],
+        prefix:'!!!',
+        command: async(args,msg)=>{
+            // Get status of all invoke hosts
+            let newMsg = {
+                content:'',
+                embeds:[{description:'',color:getRandomColorDec()}]
+            }
+            let hoststxt=':information_source: **backend status**\n'
+            for (h in cluster){
+                let host = cluster[h]
+                debugLog(host)
+                hoststxt+='`'+host.name+'` is '
+                if(host.online===true){hoststxt+=' :green_circle: online\n'}else{hoststxt+=' :red_circle: offline\n'}
+            }
+            newMsg.embeds[0].description=hoststxt
+            return {messages:[newMsg],files:[]}
+        }
+    }
 ]
 
 // generate simple lookup array of all command aliases with prefixes
@@ -995,6 +1038,61 @@ messageHasImageAttachments = (msg)=>{
         }
         return false
     }else{return false}
+}
+
+messageHasTextFileAttachments = (msg)=>{
+    // return true or false
+    if(msg.attachments?.length>0){
+        for (const a of msg.attachments){
+            debugLog('Checking mimetype for txt attachment : '+a.content_type)
+            let validMimetypes=['text/plain','text/html','application/json','application/json; charset=utf-8','text/csv','application/xml','text/xml','text/css','application/javascript','application/javascript; charset=utf-8','text/javascript','text/markdown','text/sql','text/x-python','text/x-csrc','text/x-shellscript']
+            if(validMimetypes.includes(a.content_type)){return true}
+        }
+        return false
+    }else{return false}
+}
+
+extractTextFromMessageAttachments = async (msg) =>{
+    let txt = ''
+    let filename = ''
+    let size = 0
+    for (const a of msg.attachments){
+        let validMimetypes=['text/plain','text/html','application/json','application/json; charset=utf-8','text/csv','application/xml','text/xml','text/css','application/javascript','application/javascript; charset=utf-8','text/javascript','text/markdown','text/sql','text/x-python','text/x-csrc','text/x-shellscript']
+        if(validMimetypes.includes(a.content_type)){
+            filename=a.filename
+            size=size+a.size
+            let res = await axios.get(a.url)
+            if(Object.prototype.toString.call(res.data) === '[object Object]'){
+                //txt=JSON.stringify(res.data)
+                txt=res.data.toString()
+            } else { txt=res.data }
+        }
+    }
+    return {txt,size,filename}
+}
+
+extractTextFileFromMessageOrReply = async(msg)=>{
+    // extract a single text based file from a message or reply
+    let txtObject
+    debugLog(msg)
+    if(messageHasTextFileAttachments(msg)){
+        //txt = await extractTextFromMessageAttachments(msg)
+        txtObject = await extractTextFromMessageAttachments(msg)
+        debugLog('Extracted txt attachment from message '+url)
+    } else if(msg.messageReference?.messageID) {
+        debugLog('getting message reply to check for txt attachments')
+        let sourcemsg = await bot.getMessage(msg.channel.id, msg.messageReference.messageID)
+        if(messageHasTextFileAttachments(sourcemsg)){
+            txtObject = await extractTextFromMessageAttachments(sourcemsg)
+            debugLog('Extracted txt attachment from message reply')
+        } else {
+            debugLog('no txt attachment in reply')
+        }
+    } else {
+        debugLog('unable to extract txt attachment from message or reply')
+        txt=''
+    }
+    return txtObject
 }
 
 extractImageAndUrlFromMessageOrReply = async(msg)=>{
@@ -1228,6 +1326,7 @@ module.exports = {
         extractMetadataFromMessage,
         extractImageUrlFromMessage,
         extractImageUrlsFromMessage,
+        extractTextFileFromMessageOrReply,
         messageHasImageAttachments,
         returnMessageResult,
         checkUserForJob
