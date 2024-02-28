@@ -72,9 +72,9 @@ const initHost=async(host)=>{
         }
         host.lastInit = now
         queueStatus(host) // connect, prune old jobs from queue
-        if(host.socket.connected===false){ subscribeQueue(host,'arty')}
+        if(host.socket.connected===false){subscribeQueue(host,'arty')}
     } catch (err) {
-        if(host.online===true){
+        if(host.online===true||!host.lastFail){
             log('Failed to init host '.bgRed.black+host.name.bgRed+' : '+err.code)
         }
         host.lastFail = Date.now()
@@ -497,7 +497,7 @@ const findHost = async(job=null)=>{
     }
     // filter available hosts : check correct model is installed
     let filteredHosts = availableHosts.filter(host => {return host.models.some(model => model.name === job.model.name)})
-    // todo more host qualifications if needed for job (loras,controlnets,ipa etc)
+    // todo more host qualifications if needed for job (controlnets,ipa etc)
     if(filteredHosts.length===0){throw('No host with required model found')}
     // filter for hosts with the required loras
     if(job.loras.length>0){
@@ -1097,10 +1097,7 @@ const validateJob = async(job)=>{
             job.model=await modelnameToObject(config.default.model)
         }
         // Upgrade from model string to model object
-        if(!isObject(job.model)){
-            debugLog('Upgrade from model string to object')
-            job.model=await modelnameToObject(job.model)
-        }
+        if(!isObject(job.model)){job.model=await modelnameToObject(job.model)}
         // split into positive/negative prompts
         const npromptregex = /\[(.*?)\]/g // match content of [square brackets]
         const npromptmatches = job.prompt?.match(npromptregex)
@@ -1481,11 +1478,7 @@ cast = async(job)=>{
                 // user rendering on own backend, no charge
             } else {
                 // charge the creator, credit the backend provider
-                debugLog(creatorid)
-                debugLog(backendid)
                 await credits.transfer(creatorid,backendid,job.cost)
-                //await credits.decrement(creatorid,job.cost)
-                //await credits.increment(backendid,job.cost)
             }
         } else {
             debugLog('No charge')
