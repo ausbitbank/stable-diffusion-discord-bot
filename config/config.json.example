@@ -4,7 +4,7 @@
     "tipccKey":"",
     "adminID":0,
     "cluster":[
-        {"url":"http://127.0.0.1:9090","name":"primary","deleteAfterRender":false,"disabled":false,"online":true}
+        {"url":"http://127.0.0.1:9090","name":"primary","deleteAfterRender":false,"disabled":false,"online":true,"ownerid":1234567890}
     ],
     "branding":{
         "botOwner":"ausbitbank",
