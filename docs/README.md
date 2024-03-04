@@ -44,6 +44,8 @@ It's currently compatible with `invokeai 3.6.3`.
 - `git clone https://github.com/gogurtenjoyer/nightmare-promptgen`
 - `git clone https://github.com/blessedcoolant/invoke_bria_rmbg`
 - `git clone https://github.com/mickr777/textfontimage`
+- `git clone https://github.com/helix4u/interrogate_node`
+- Enter the "invokeai developers console" or enter the python venv for invoke and `pip install clip-interrogator`
 
 **Launch natively:**
 - `npm install`
