@@ -10,36 +10,31 @@ balance=async(user)=>{
     // accept both job.creator object and plain id
     let userid,username
     if(isObject(user)){userid=user.discordid;username=user.username}else{userid=user;username=null}
+    debugLog('balance check for userid '+userid+' , username '+username)
     let [usr,created] = await User.findOrCreate({where:{discordID: userid},defaults:{credits:defaultCredits,username:username}})
     if(created){debugLog('Created new account '+username+' '+userid)}
     return parseFloat((usr.credits).toFixed(2))
 }
 
 decrement=async(user,amount=1)=>{
-    let usr = await User.findOrCreate({where:{discordID:user.discordid},defaults:{credits:defaultCredits,username:user.username}})
-    let newcredits = parseFloat((usr[0].credits - amount).toFixed(2))
-    if(newcredits<0){newcredits=0}
-    await User.update({credits:newcredits},{where:{discordID:user.discordid}})
-    debugLog('Credit removed: -'+amount+' from '+user.discordid+' , Balance: '+newcredits)
-    return newcredits
+    let usr = await User.findOne({where:{discordID:user}})
+    await usr.decrement('credits',{by:amount})
+    debugLog('Credit removed: -'+amount+' from '+user)
+    return true
 }
 
 increment=async(user,amount=1)=>{
-    let usr = await User.findOrCreate({where:{discordID:user},defaults:{credits:defaultCredits}})
-    let newcredits = parseFloat((usr[0].credits + amount).toFixed(2))
-    await User.update({credits:newcredits},{where:{discordID:user}})
-    debugLog('Credit added: +'+amount+' to '+user+' , Balance: '+newcredits)
-    return newcredits
+    let usr = await User.findOne({where:{discordID:user}})
+    await usr.increment('credits',{by:amount})
+    debugLog('Credit added: +'+amount+' to '+user)
+    return true
 }
 
 transfer=async(from,to,amount=1)=>{
-    // from is a job.creator object, to is just id
-    let response = await increment(to,amount)
-    debugLog(response)
-    let bal = await decrement(from,amount)
-    debugLog(bal)
+    await increment(to,amount)
+    await decrement(from,amount)
     debugLog('Credit transferred: +'+amount+' to '+to+' from '+from)
-    return bal
+    return true
 }
 
 freeRecharge=async()=>{
