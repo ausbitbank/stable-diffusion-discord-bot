@@ -73,5 +73,6 @@ module.exports = {
     debounce,
     tidyNumber,
     extractFilenameFromUrl,
-    isURL
+    isURL,
+    axios
 }
