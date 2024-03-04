@@ -190,6 +190,26 @@ var slashCommands = [
         i.createMessage(response,{file:result.images[0].buffer,name:result.images[0].name})
       }
     }
+  },
+  {
+    name:'describe',
+    description:'Describe an image',
+    cooldown:500,
+    options:[{type: 11, name: 'image', description: 'image to describe', required: true}],
+    execute: async(i)=>{
+      if (i.data.resolved && i.data.resolved.attachments && i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))){
+        let attachmentOrig=i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))
+        let imgurl = attachmentOrig.url
+        let img = await urlToBuffer(imgurl)
+        let result = await invoke.interrogate(img)
+        let options = result.options
+        let newMsg = {
+            content:':eyes: Image scanned with `'+options.clip_model+'`, captioned by `'+options.caption_model+'`:',
+            embeds:[{description:result.result,color:getRandomColorDec()}]
+        }
+        i.createMessage(newMsg)
+      }
+    }
   }
 ]
 /*,
