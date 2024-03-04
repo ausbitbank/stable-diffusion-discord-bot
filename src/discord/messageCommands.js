@@ -827,7 +827,7 @@ let commands = [
             for (id in userids){
                 debugLog('Adding '+amount+' to userid '+userids[id])
                 let balance = await credits.balance(userids[id])
-                await credits.increment(parseInt(userids[id]),amount)
+                await credits.increment(userids[id],amount)
                 balance=balance+amount
                 r+='<@'+userids[id]+'> balance is now :coin: '+balance+' \n'
             }
@@ -863,7 +863,7 @@ let commands = [
             let hoststxt=':information_source: **backend status**\n'
             for (h in cluster){
                 let host = cluster[h]
-                hoststxt+='`'+host.name+'` is '
+                hoststxt+='`'+host.name+'` by <@'+host.ownerid+'> is '
                 if(host.online===true){hoststxt+=' :green_circle: online\n'}else{hoststxt+=' :red_circle: offline\n'}
             }
             newMsg.embeds[0].description=hoststxt
