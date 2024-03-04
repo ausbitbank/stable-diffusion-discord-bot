@@ -38,6 +38,7 @@ const init=async()=>{
 const initHost=async(host)=>{
     try{
         // on connect, get all the backend info we can in parallel
+        host.online=false // temporary while syncing
         const [version, models, lora, ti, vae, controlnet, ip_adapter, t2i_adapter, cfg] = await Promise.all(
             [
                 getVersion(host),
@@ -67,8 +68,6 @@ const initHost=async(host)=>{
         host.online = true
         if(now-360000>host.lastInit||!host.lastInit){ // if its been 6+ minutes since we were last online
             log('Connected to '.bgGreen.black+host.name.bgGreen+' with InvokeAI Version: '+host.version+'\nModels: '+host.models.length+', Loras: '+host.lora.length+', Embeddings: '+host.ti.length+', Vaes: '+host.vae.length+', Controlnets: '+host.controlnet.length+', Ip Adapters: '+host.ip_adapter.length+', T2i Adapters: '+host.t2i_adapter.length)
-        }else{
-            debugLog('now: '+now+' , host.lastinit: '+host.lastInit)
         }
         host.lastInit = now
         queueStatus(host) // connect, prune old jobs from queue
@@ -79,6 +78,7 @@ const initHost=async(host)=>{
         }
         host.lastFail = Date.now()
         host.online = false
+        //host.disabled = true // disable after failing?
     }
 }
 
@@ -534,7 +534,7 @@ const subscribeQueue = async(host,name='arty')=>{
     let socket = host.socket
     try{
         socket.on('connect',()=>{
-            debugLog('subscribe to queue '+name+' on host '+host.name+' ('+host.url+')')
+            //debugLog('subscribe to queue '+name+' on host '+host.name+' ('+host.url+')')
             socket.emit('subscribe_queue',{"queue_id":name})
         })
         socket.on('batch_enqueued', msg => {
@@ -1344,6 +1344,42 @@ const processImage = async(img,host,type,options) => {
     }
 }
 
+const interrogate = async(img,host,options={best_max_flavors:32,mode:'fast',clip_model:'ViT-L-14/openai',caption_model:'blip-large',low_vram:true})=>{
+    // uses custom invokeai node https://github.com/helix4u/interrogate_node
+    // to install go to invokeai\nodes and git clone https://github.com/helix4u/interrogate_node
+    // enter invoke developer console / python venv and pip install clip-interrogator
+    // clip models: ViT-L-14/openai , ViT-H-14/laion2b_s32b_b79k , ViT-bigG-14/laion2b_s39b_b160k
+    // caption models: blip-base , blip-large, blip2-2.7b , blip2-flan-t5-xl , git-large-coco
+    let imgid = getUUID()
+    if(!host){host=await findHost()}
+    let initimg = await uploadInitImage(host,img,imgid)
+    let graph = {
+        id:getUUID(),
+        nodes:{
+            "bab744b4-26c3-4e4f-8c5b-b3a9822032b0":{
+                type:'clip_interrogator_node',
+                id:'bab744b4-26c3-4e4f-8c5b-b3a9822032b0',
+                best_max_flavors:options.best_max_flavors,
+                mode:options.mode,
+                clip_model:options.clip_model,
+                caption_model:options.caption_model,
+                low_vram:options.low_vram,
+                image:{
+                    image_name:initimg.image_name
+                },
+                is_intermediate:false,
+                use_cache:true
+            }
+        },
+        edges:[]
+    }
+    let batch = {prepend:false,batch:{graph:graph,runs:1}}
+    let batchId = await enqueueBatch(host,batch)
+    let results = await batchToResult(host,batchId)
+    await deleteImage(host,initimg.image_name)
+    return {result:results[0].value,options:options}
+}
+
 const nightmarePromptGen = async(host,options={temp:1.8,top_k:40,top_p:0.9,repo_id:'cactusfriend/nightmare-invokeai-prompts',prompt:'arty'})=>{
     if(!host) host=await findHost()
     let graph = {
@@ -1478,7 +1514,7 @@ cast = async(job)=>{
                 // user rendering on own backend, no charge
             } else {
                 // charge the creator, credit the backend provider
-                await credits.transfer(creatorid,backendid,job.cost)
+                await credits.transfer(job.creator,backendid,job.cost)
             }
         } else {
             debugLog('No charge')
@@ -1516,6 +1552,7 @@ module.exports = {
         jobStats:getJobStats,
         textFontImage,
         cancelBatch,
-        nightmarePromptGen
+        nightmarePromptGen,
+        interrogate
     }
 }
