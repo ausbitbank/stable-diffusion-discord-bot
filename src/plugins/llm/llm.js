@@ -43,7 +43,8 @@ chatStream=async(prompt,systemprompt,model)=>{
         seed:getRandomInt(1,10000000),
         stream: true,
         model:model,
-        keep_alive:'0s' // not working in ollama windows, supposed to unload model after use
+        keep_alive:'0s', // not working in ollama windows, supposed to unload model after use
+        choices: [{finish_reason: 'stop',index: 0}] // Get a warning in log from openrouter.ai api, failing to suppress it with this 
     }
     try {
         const stream = await openai.beta.chat.completions.stream(data)
