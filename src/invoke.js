@@ -16,8 +16,6 @@ const {resultCache}=require('./resultCache')
 const {aspectRatio}=require('./discord/aspectRatio')
 const {credits}=require('./credits')
 var cluster=config.cluster
-//let resultCache=[]
-//const getResultCache = ()=>{return resultCache}
 
 const init=async()=>{
     // Setup cluster of invoke ai backends starting with primary
@@ -67,7 +65,7 @@ const initHost=async(host)=>{
         let now = Date.now()
         host.online = true
         if(now-360000>host.lastInit||!host.lastInit){ // if its been 6+ minutes since we were last online
-            log('Connected to '.bgGreen.black+host.name.bgGreen+' with InvokeAI Version: '+host.version+'\nModels: '+host.models.length+', Loras: '+host.lora.length+', Embeddings: '+host.ti.length+', Vaes: '+host.vae.length+', Controlnets: '+host.controlnet.length+', Ip Adapters: '+host.ip_adapter.length+', T2i Adapters: '+host.t2i_adapter.length)
+            log('Connected to '.bgGreen.black+host.name.bgGreen+' with InvokeAI Version: '+host.version+'\nModels: '+host.models.length+', Loras: '+host.lora.length+', Embeddings: '+host.ti.length+', Vaes: '+host.vae.length+', Controlnets: '+host.controlnet.length+', Ip Adapters: '+host.ip_adapter.length+', T2i Adapters: '+host.t2i_adapter.length+' , OwnerId:'+host.ownerid)
         }
         host.lastInit = now
         queueStatus(host) // connect, prune old jobs from queue
@@ -497,6 +495,7 @@ const findHost = async(job=null)=>{
     }
     // filter available hosts : check correct model is installed
     let filteredHosts = availableHosts.filter(host => {return host.models.some(model => model.name === job.model.name)})
+    //debugLog(filteredHosts)
     // todo more host qualifications if needed for job (controlnets,ipa etc)
     if(filteredHosts.length===0){throw('No host with required model found')}
     // filter for hosts with the required loras
@@ -1508,13 +1507,13 @@ cast = async(job)=>{
         if(context.images?.error){return {error:context.images?.error}}
         // Charge user here
         if(config.credits.enabled&&job.cost&&job.cost>0&&context.job.creator.discordid&&context.host.ownerid){
-            let creatorid=parseInt(context.job.creator.discordid)
-            let backendid=parseInt(context.host.ownerid)
+            let creatorid=context.job.creator.discordid
+            let backendid=context.host.ownerid
             if(creatorid===backendid){
                 // user rendering on own backend, no charge
             } else {
                 // charge the creator, credit the backend provider
-                await credits.transfer(job.creator,backendid,job.cost)
+                await credits.transfer(creatorid,backendid,job.cost)
             }
         } else {
             debugLog('No charge')
