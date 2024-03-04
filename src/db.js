@@ -23,10 +23,12 @@ const User = db.define('User', {
     email: {
         type: DataTypes.STRING,
         allowNull: true,
+        unique: true
     },
     discordID: {
         type: DataTypes.INTEGER,
         allowNull: true,
+        unique: true,
     },
     stripeID: {
         type: DataTypes.STRING,
@@ -172,7 +174,7 @@ Job.belongsTo(Channel)
 const initializeDatabase = async()=>{
     try{
         await db.sync() // Sync all defined model to DB
-        await imgdb.sync()
+        await imgdb.sync() // add {force:true} into the sync calls if db schema changes
     } catch (err) {
         console.log('Failed to init db')
         console.log(err)
