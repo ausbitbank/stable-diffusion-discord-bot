@@ -826,8 +826,9 @@ let commands = [
             }
             for (id in userids){
                 debugLog('Adding '+amount+' to userid '+userids[id])
-                await credits.increment(parseInt(userids[id]),amount)
                 let balance = await credits.balance(userids[id])
+                await credits.increment(parseInt(userids[id]),amount)
+                balance=balance+amount
                 r+='<@'+userids[id]+'> balance is now :coin: '+balance+' \n'
             }
             let newMsg = {
@@ -858,19 +859,34 @@ let commands = [
         prefix:'!!!',
         command: async(args,msg)=>{
             // Get status of all invoke hosts
-            let newMsg = {
-                content:'',
-                embeds:[{description:'',color:getRandomColorDec()}]
-            }
+            let newMsg = {content:'',embeds:[{description:'',color:getRandomColorDec()}]}
             let hoststxt=':information_source: **backend status**\n'
             for (h in cluster){
                 let host = cluster[h]
-                debugLog(host)
                 hoststxt+='`'+host.name+'` is '
                 if(host.online===true){hoststxt+=' :green_circle: online\n'}else{hoststxt+=' :red_circle: offline\n'}
             }
             newMsg.embeds[0].description=hoststxt
             return {messages:[newMsg],files:[]}
+        }
+    },
+    {
+        name:'describe',
+        description:'Describe an image',
+        permissionLevel:'all',
+        aliases:['describe'],
+        prefix:'!',
+        command: async(args,msg)=>{
+            let imgres = await extractImageAndUrlFromMessageOrReply(msg)
+            if(!imgres||!imgres?.img){return {error:'No compatible image found'}}
+            let result = await invoke.interrogate(imgres.img)
+            let options = result.options
+            let newMsg = {
+                content:':eyes: Image scanned with `'+options.clip_model+'`, captioned by `'+options.caption_model+'`:',
+                embeds:[{description:result.result,color:getRandomColorDec()}]
+            }
+            return {messages:[newMsg],files:[]}
+
         }
     }
 ]
@@ -1279,7 +1295,8 @@ const checkUserForJob=async(job)=>{
     // is job errored already
     if(job.error){return job}
     // do they have the funds
-    let balance = await credits.balance(job.creator.discordid)
+    //let balance = await credits.balance(job.creator.discordid)
+    let balance = await credits.balance(job.creator)
     if(balance<job.cost){job.error = 'Insufficient :coin:'; return job}
     // check model type allowed
     let modelAllowed = await auth.userAllowedFeature(job.creator,job.model.base_model)
