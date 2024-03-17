@@ -59,6 +59,11 @@ const isURL=(string)=>{
   return urlPattern.test(string)
 }
 
+const timestamp=()=>{ // returns relative timestamp in discord format as string
+  let currentTimestamp = Math.floor(Date.now() / 1000)
+  return `<t:${currentTimestamp}:R>`
+}
+
 module.exports = {
     config,
     log,
@@ -74,5 +79,6 @@ module.exports = {
     tidyNumber,
     extractFilenameFromUrl,
     isURL,
-    axios
+    axios,
+    timestamp
 }
