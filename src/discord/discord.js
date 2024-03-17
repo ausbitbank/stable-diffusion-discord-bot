@@ -23,14 +23,8 @@ chat=async(channel,msg,file=null)=>{
           .then(async r=>{
             // log uploaded images to db
             Image.create({url:r.attachments[0]?.proxy_url,data:file.file})
-              .then((ul)=>{
-                //debugLog('Image uploaded to db: '+r.attachments[0]?.proxy_url);
-                //debugLog(ul)
-              })
-              .catch((err)=>{
-                debugLog('Unable to upload image to db:')
-                debugLog(err)
-              })
+              .then((ul)=>{debugLog('Image uploaded to db: '+r.attachments[0]?.proxy_url)})
+              .catch((err)=>{debugLog('Unable to upload image to db:');debugLog(err)})
           })
           .catch(e=>{chatFail(e,channel,msg,file)})
       }else{bot.createMessage(channel,msg).then().catch(e=>{chatFail(e,channel,msg)})}
