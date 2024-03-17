@@ -1,7 +1,8 @@
 const { Sequelize, DataTypes, Op } = require('sequelize')
 const db = new Sequelize({
     dialect: 'sqlite',
-    storage: './config/database.sqlite'
+    storage: './config/database.sqlite',
+    logging:false
 })
 const imgdb = new Sequelize({
     dialect: 'sqlite',
