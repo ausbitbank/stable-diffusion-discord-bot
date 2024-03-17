@@ -236,8 +236,6 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     // Tamper with unet and vae if using seamless mode
     if(job.seamlessx===true||job.seamlessy===true){
         node('seamless',{is_intermediate:false,use_cache:false,seamless_x:job.seamlessx===true?true:false,seamless_y:job.seamlessy===true?true:false},[pipe(lastid.unet,'unet','SELF','unet'),pipe(lastid.vae,'vae','SELF','vae')])
-        debugLog('Added seamless, partial graph is:');debugLog(graph)
-        // todo ^^ graph submit fails with no error when using seamless x or y or both ? revisit after sleep
     }
 
     if(job.initimgObject){
@@ -388,6 +386,9 @@ const getJobCost = (job) =>{
     if(job.hrf&&job.hrfwidth&&job.hrfheight&&job.strength){
         cost=cost*(job.hrfwidth*job.hrfheight*(steps*job.strength))/pixelStepsBase
     }
+    if(job.model.base_model==='sdxl'){cost+1} // increased vram use, load time (higher base res already included earlier)
+    if(job.loras&&job.loras.length>0){cost=cost+(job.loras.length*0.25)}
+    // todo charge for loras, ipa, controlnet
     return parseFloat(cost.toFixed(2))
 }
 
@@ -855,22 +856,19 @@ const getImageBuffer = async(host,name)=>{
     }
 }
 
-getHeaders=(form)=>{
-    form.getLength((err, length) => {
-        if(err){throw(err)}
-        let headers=Object.assign({'Content-Length': length}, form.getHeaders())
-        return headers
-    })
+const getHeaders = async (form) => {
+    const length = await new Promise((resolve, reject) => {form.getLength((err, length) => {if (err) {reject(err)} else {resolve(length)}})})
+    return Object.assign({ 'Content-Length': length }, form.getHeaders())
 }
 
 uploadInitImage=async(host,buf,id)=>{
     try{
-        debugLog('Uploading init img to '+host.name+' with id '+id)
+        let url=host.url+'/api/v1/images/upload?image_category=user&is_intermediate=false'
         let form = new FormData()
         form.append('data',JSON.stringify({kind:'init'}))
         form.append('file',buf,{contentType:'image/png',filename:id+'.png'})
         let headers = await getHeaders(form)
-        let url=host.url+'/api/v1/images/upload?image_category=user&is_intermediate=false'
+        debugLog('Uploading init img to '+host.name+' with id '+id)
         let response = await axios.post(url,form,{headers:headers})
         return response.data
     } catch (err) {
@@ -880,12 +878,11 @@ uploadInitImage=async(host,buf,id)=>{
 }
 
 const auto2invoke = (text)=>{
-  // convert auto1111 weight syntax to invokeai
-  // todo convert lora syntax eg <lora:add_detail:1> to withLora(add_detail,1)
-  const regex = /\(([^)]+):([^)]+)\)/g
-  return text.replaceAll(regex, function(match, $1, $2) {
-    return '('+$1+')' + $2
-  })
+    // convert lora syntax eg <lora:add_detail:1> to withLora(add_detail,1)
+    text = text.replaceAll(/<lora:([^:]+):([^>]+)>/g, 'withLora($1,$2)')
+    // convert weight syntax
+    text = text.replaceAll(/\(([^)]+):([^)]+)\)/g, '($1)$2')
+    return text
 }
 
 const jobFromDream = async(cmd,images=null,tracking=null)=>{
@@ -1080,19 +1077,13 @@ const validateJob = async(job)=>{
         job.prompt=random.parse(job.prompt)
         // convert prompt weighting from auto1111 format to invoke/compel
         job.prompt=auto2invoke(job.prompt)
-        // extract Loras in withLora(name,wieght) format into job.loras
-        //try{
-            let el = await extractLoras(job.prompt)
-            debugLog(el)
-            if(el.error){return {error:el.error}}
-            //job.prompt = el.stripped // Decided against stripping from prompt
-            job.loras = el.loras
-        //} catch(err){
-        //    return {error: err}
-        //}
+        // extract Loras in withLora(name,weight) format into job.loras
+        let el = await extractLoras(job.prompt)
+        if(el.error){return {error:el.error}}
+        job.loras = el.loras
         // Set default model if not selected
         if(!job.model){
-            //debugLog('Setting default model: '+config.default.model)
+            // todo maybe set default model based on member tier or saved settings ?
             job.model=await modelnameToObject(config.default.model)
         }
         // Upgrade from model string to model object
@@ -1155,6 +1146,9 @@ const validateJob = async(job)=>{
                 if(!job.controlweight){job.controlweight=1}
                 if(!job.controlstart){job.controlstart=0}
                 if(!job.controlend){job.controlend=1}
+            }
+            if(job.control==='ipa'&&!job.ipamodel){
+                job.ipamodel=(job.model.base_model==='sdxl')?'ip_adapter_sdxl':'ip_adapter_sd15'
             }
         }
         if(job.hrf){
@@ -1224,7 +1218,7 @@ const textFontImage = async(options,host) => {
     }
 }
 
-const processImage = async(img,host,type,options) => {
+const processImage = async(img,host,type,options,tracking) => {
     try {
         // todo this should check availability of the chosen preprocessor type on the host
         if(!host) host=await findHost()
@@ -1296,31 +1290,8 @@ const processImage = async(img,host,type,options) => {
                 graph = {nodes:{bria_bg_remove:{'id':'bria_bg_remove','type':'bria_bg_remove','is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
                 break
             }
-            case 'handfix':{
-                // uses custom invokeai node https://github.com/blessedcoolant/invoke_meshgraphormer
-                // to install go to invokeai\nodes and git clone https://github.com/blessedcoolant/invoke_meshgraphormer
-                // you may have to manually install extra dependancies inside your invokeai venv
-                // pip install trimesh rtree yacs
-                // input - 1 image with crap hands
-                // output - 2 images : a corrected depth map of the hands, and an image mask
-                let resolution = options.resolution||512
-                let mask_padding = options.mask_padding||30
-                let offload = options.offload||false
-                graph = {
-                    nodes:{
-                        hand_depth_mesh_graphormer_image_processor:{
-                            'id':'hand_depth_mesh_graphormer_image_processor',
-                            'type':'hand_depth_mesh_graphormer_image_processor',
-                            'resolution':resolution,
-                            'mask_padding':mask_padding,
-                            'offload':offload,
-                            'is_intermediate':false,
-                            'image':{
-                                'image_name':initimg.image_name
-                            }
-                        }
-                    }
-                }
+            case 'face':{
+                graph = {nodes:{'faceoff':{'id':'faceoff','type':'face_off','face_id':0,'minimum_confidence':0.5,'x_offset':0,'y_offset':0,'padding':0,'chunk':false,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
                 break
             }
         }
@@ -1333,6 +1304,7 @@ const processImage = async(img,host,type,options) => {
             }
         }
         let batchId = await enqueueBatch(host,batch)
+        if(tracking?.type==='discord'){progress.update(tracking.msg,batchId)}
         let images = await batchToImages(host,batchId)
         await deleteImage(host,initimg.image_name)
         if(images.error){return {error:images.error}}
@@ -1341,6 +1313,126 @@ const processImage = async(img,host,type,options) => {
         log(err)
         return {error: err}
     }
+}
+
+const faceCrop = async(img,host,options={face_id:0,minimum_confidence:0.5,x_offset:0,y_offset:0,padding:0,chunk:false},tracking)=>{
+    if(!host){host=await findHost()}
+    let imgid = getUUID()
+    let initimg = await uploadInitImage(host,img,imgid)
+    let graph = {nodes:{'faceoff':{'id':'faceoff','type':'face_off','face_id':options.face_id,'minimum_confidence':options.minimum_confidence,'x_offset':options.x_offset,'y_offset':options.y_offset,'padding':options.padding,'chunk':options.chunk,'is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
+    let batch = {prepend:false,batch:{data:[],graph:graph,runs:1}}
+    let batchId = await enqueueBatch(host,batch)
+    if(tracking?.type==='discord'){progress.update(tracking.msg,batchId)}
+    let res = await batchToResult(host,batchId)
+    let buf = await getImageBuffer(host,res[0].image.image_name)
+    let images =[{name:res[0].image.image_name,file:buf}]
+    //images[0].file=await getImageBuffer(host,res.image[0].image_name)
+    await deleteImage(host,initimg.image_name)
+    if(images.error){return {error:images.error}}
+    return {images:images,options:options,width:res[0].width,height:res[0].height,x:res[0].x,y:res[0].y}
+}
+
+const handfix = async(img,host,options={resolution:512,mask_padding:30,offload:true,steps:50,scale:7,numtiles:1,model:null,scheduler:'euler_k'},tracking)=>{
+    // uses custom invokeai node https://github.com/blessedcoolant/invoke_meshgraphormer
+    // to install go to invokeai\nodes and git clone https://github.com/blessedcoolant/invoke_meshgraphormer
+    // you may have to manually install extra dependancies inside your invokeai venv
+    // pip install trimesh rtree yacs
+    // input - 1 image with crap hands
+    // output - 2 images : a corrected depth map of the hands, and an image mask
+    if(!host){host=await findHost()}
+    let imgid = getUUID()
+    let initimg = await uploadInitImage(host,img,imgid)
+    if(!options.model){options.model=await modelnameToObject(config.default.model)}
+    // todo extract prompt and settings from metadata ourselves to inject prompts and bypass some extra invoke custom nodes
+    let batch={
+        prepend:false,
+        batch:{
+            data:[],
+            runs:1,
+            graph:{
+                id:"handfix",
+                nodes:{
+                        "numtiles":{"type":"integer","id":"numtiles","value":options.numtiles,"use_cache":true,"is_intermediate":true},
+                        "maskimg":{"type":"image","id":"maskimg","use_cache":true,"is_intermediate":false},
+                        "metatostring":{"type":"metadata_to_string","id":"metatostring","label":"negative_prompt","custom_label":"","default_value":"","use_cache":true,"is_intermediate":true},
+                        "negativeprompt":{"type":"compel","id":"negativeprompt","use_cache":true,"is_intermediate":true},
+                        "latentstoimage":{"type":"l2i","id":"latentstoimage","tiled":false,"fp32":false,"use_cache":true,"is_intermediate":true},
+                        "denoise":{"type":"denoise_latents","id":"denoise","steps":options.steps,"cfg_scale":options.scale,"denoising_start":0.25,"denoising_end":1,"scheduler":options.scheduler,"cfg_rescale_multiplier":0,"use_cache":true,"is_intermediate":true},
+                        "positivepromptclip":{"type":"main_model_loader","id":"positivepromptclip","model":{"model_name":options.model.model_name,"base_model":options.model.base_model,"model_type":"main"},"use_cache":true,"is_intermediate":true},
+                        "positiveprompt":{"type":"compel","id":"positiveprompt","use_cache":true,"is_intermediate":true},
+                        "depthcontrolnet":{"type":"controlnet","id":"depthcontrolnet","control_model":{"model_name":"depth","base_model":"sd-1"},"control_weight":1,"begin_step_percent":0,"end_step_percent":1,"control_mode":"balanced","resize_mode":"just_resize","use_cache":true,"is_intermediate":true},
+                        "createdenoisemask":{"type":"create_denoise_mask","id":"createdenoisemask","tiled":false,"fp32":false,"use_cache":true,"is_intermediate":true},
+                        "meshgraphormer":{"type":"hand_depth_mesh_graphormer_image_processor","id":"meshgraphormer","resolution":options.resolution,"mask_padding":options.mask_padding,"offload":options.offload,"use_cache":true,"is_intermediate":true},
+                        "inputimg":{"type":"image","id":"inputimg","image":{"image_name":initimg.image_name},"use_cache":true,"is_intermediate":true},
+                        "metafromimg":{"type":"metadata_from_image","id":"metafromimg","use_cache":true,"is_intermediate":true},
+                        "metatostring2":{"type":"metadata_to_string","id":"metatostring2","label":"positive_prompt","custom_label":"","default_value":"","use_cache":true,"is_intermediate":true},
+                        "noise":{"type":"noise","id":"noise","seed":random.seed(),"use_cpu":true,"use_cache":true,"is_intermediate":true},
+                        "imagetolatents":{"type":"i2l","id":"imagetolatents","tiled":false,"fp32":true,"use_cache":true,"is_intermediate":true},
+                        "iterator":{"type":"iterate","id":"iterator","use_cache":true,"is_intermediate":true},
+                        "tiletoprops":{"type":"tile_to_properties","id":"tiletoprops","use_cache":true,"is_intermediate":true},
+                        "imgcropper":{"type":"img_crop","id":"imgcropper","use_cache":true,"is_intermediate":true},
+                        "pairtiledimages":{"type":"pair_tile_image","id":"pairtiledimages","use_cache":true,"is_intermediate":true},
+                        "collector":{"type":"collect","id":"collector","use_cache":true,"is_intermediate":true},
+                        "mergetiles":{"type":"merge_tiles_to_image","id":"mergetiles","blend_mode":"Seam","blend_amount":32,"use_cache":true,"is_intermediate":true},
+                        "saveimg":{"type":"save_image","id":"saveimg","use_cache":false,"is_intermediate":false},
+                        "calculatetilesplit":{"type":"calculate_image_tiles_even_split","id":"calculatetilesplit","use_cache":true,"is_intermediate":true},
+                        "tileoverlap":{"type":"integer","id":"tileoverlap","value":128,"use_cache":true,"is_intermediate":true}
+                    },
+                    edges:[
+                        {"source":{"node_id":"positivepromptclip","field":"clip"},"destination":{"node_id":"positiveprompt","field":"clip"}},
+                        {"source":{"node_id":"positiveprompt","field":"conditioning"},"destination":{"node_id":"denoise","field":"positive_conditioning"}},
+                        {"source":{"node_id":"positivepromptclip","field":"unet"},"destination":{"node_id":"denoise","field":"unet"}},
+                        {"source":{"node_id":"depthcontrolnet","field":"control"},"destination":{"node_id":"denoise","field":"control"}},
+                        {"source":{"node_id":"createdenoisemask","field":"denoise_mask"},"destination":{"node_id":"denoise","field":"denoise_mask"}},
+                        {"source":{"node_id":"denoise","field":"latents"},"destination":{"node_id":"latentstoimage","field":"latents"}},
+                        {"source":{"node_id":"positivepromptclip","field":"vae"},"destination":{"node_id":"latentstoimage","field":"vae"}},
+                        {"source":{"node_id":"positivepromptclip","field":"vae"},"destination":{"node_id":"createdenoisemask","field":"vae"}},
+                        {"source":{"node_id":"meshgraphormer","field":"mask"},"destination":{"node_id":"createdenoisemask","field":"mask"}},
+                        {"source":{"node_id":"meshgraphormer","field":"image"},"destination":{"node_id":"depthcontrolnet","field":"image"}},
+                        {"source":{"node_id":"positivepromptclip","field":"clip"},"destination":{"node_id":"negativeprompt","field":"clip"}},
+                        {"source":{"node_id":"negativeprompt","field":"conditioning"},"destination":{"node_id":"denoise","field":"negative_conditioning"}},
+                        {"source":{"node_id":"inputimg","field":"image"},"destination":{"node_id":"metafromimg","field":"image"}},
+                        {"source":{"node_id":"metafromimg","field":"metadata"},"destination":{"node_id":"metatostring2","field":"metadata"}},
+                        {"source":{"node_id":"metatostring2","field":"value"},"destination":{"node_id":"positiveprompt","field":"prompt"}},
+                        {"source":{"node_id":"metatostring","field":"value"},"destination":{"node_id":"negativeprompt","field":"prompt"}},
+                        {"source":{"node_id":"metafromimg","field":"metadata"},"destination":{"node_id":"metatostring","field":"metadata"}},
+                        {"source":{"node_id":"noise","field":"noise"},"destination":{"node_id":"denoise","field":"noise"}},
+                        {"source":{"node_id":"positivepromptclip","field":"vae"},"destination":{"node_id":"imagetolatents","field":"vae"}},
+                        {"source":{"node_id":"imagetolatents","field":"latents"},"destination":{"node_id":"denoise","field":"latents"}},
+                        {"source":{"node_id":"maskimg","field":"image"},"destination":{"node_id":"createdenoisemask","field":"image"}},
+                        {"source":{"node_id":"maskimg","field":"image"},"destination":{"node_id":"meshgraphormer","field":"image"}},
+                        {"source":{"node_id":"maskimg","field":"width"},"destination":{"node_id":"noise","field":"width"}},
+                        {"source":{"node_id":"maskimg","field":"height"},"destination":{"node_id":"noise","field":"height"}},
+                        {"source":{"node_id":"maskimg","field":"image"},"destination":{"node_id":"imagetolatents","field":"image"}},
+                        {"source":{"node_id":"iterator","field":"item"},"destination":{"node_id":"tiletoprops","field":"tile"}},
+                        {"source":{"node_id":"tiletoprops","field":"coords_left"},"destination":{"node_id":"imgcropper","field":"x"}},
+                        {"source":{"node_id":"tiletoprops","field":"coords_top"},"destination":{"node_id":"imgcropper","field":"y"}},
+                        {"source":{"node_id":"tiletoprops","field":"width"},"destination":{"node_id":"imgcropper","field":"width"}},
+                        {"source":{"node_id":"tiletoprops","field":"height"},"destination":{"node_id":"imgcropper","field":"height"}},
+                        {"source":{"node_id":"imgcropper","field":"image"},"destination":{"node_id":"maskimg","field":"image"}},
+                        {"source":{"node_id":"inputimg","field":"image"},"destination":{"node_id":"imgcropper","field":"image"}},
+                        {"source":{"node_id":"latentstoimage","field":"image"},"destination":{"node_id":"pairtiledimages","field":"image"}},
+                        {"source":{"node_id":"iterator","field":"item"},"destination":{"node_id":"pairtiledimages","field":"tile"}},
+                        {"source":{"node_id":"pairtiledimages","field":"tile_with_image"},"destination":{"node_id":"collector","field":"item"}},
+                        {"source":{"node_id":"collector","field":"collection"},"destination":{"node_id":"mergetiles","field":"tiles_with_images"}},
+                        {"source":{"node_id":"mergetiles","field":"image"},"destination":{"node_id":"saveimg","field":"image"}},
+                        {"source":{"node_id":"metafromimg","field":"metadata"},"destination":{"node_id":"saveimg","field":"metadata"}},
+                        {"source":{"node_id":"inputimg","field":"width"},"destination":{"node_id":"calculatetilesplit","field":"image_width"}},
+                        {"source":{"node_id":"inputimg","field":"height"},"destination":{"node_id":"calculatetilesplit","field":"image_height"}},
+                        {"source":{"node_id":"calculatetilesplit","field":"tiles"},"destination":{"node_id":"iterator","field":"collection"}},
+                        {"source":{"node_id":"numtiles","field":"value"},"destination":{"node_id":"calculatetilesplit","field":"num_tiles_x"}},
+                        {"source":{"node_id":"tileoverlap","field":"value"},"destination":{"node_id":"calculatetilesplit","field":"overlap"}},
+                        {"source":{"node_id":"numtiles","field":"value"},"destination":{"node_id":"calculatetilesplit","field":"num_tiles_y"}}
+                    ]
+                }
+            }
+        }
+    let batchId = await enqueueBatch(host,batch)
+    if(tracking?.type==='discord'){progress.update(tracking.msg,batchId)}
+    let images = await batchToImages(host,batchId)
+    await deleteImage(host,initimg.image_name)
+    if(images.error){return {error:images.error}}
+    return {images:images}
 }
 
 const interrogate = async(img,host,options={best_max_flavors:32,mode:'fast',clip_model:'ViT-L-14/openai',caption_model:'blip-large',low_vram:true})=>{
@@ -1379,24 +1471,14 @@ const interrogate = async(img,host,options={best_max_flavors:32,mode:'fast',clip
     return {result:results[0].value,options:options}
 }
 
-const nightmarePromptGen = async(host,options={temp:1.8,top_k:40,top_p:0.9,repo_id:'cactusfriend/nightmare-invokeai-prompts',prompt:'arty'})=>{
+const nightmarePromptGen = async(host,options={temp:1.8,top_k:40,top_p:0.9,repo_id:'cactusfriend/nightmare-invokeai-prompts',prompt:'arty',split_prompt:false,typical_p:1,instruct_mode:false,max_new_tokens:300,min_new_tokens:30,max_time:10,repetition_penalty:1},tracking)=>{
     if(!host) host=await findHost()
-    let graph = {
-        nodes:{
-            nightmare_promptgen:{'id':'nightmare_promptgen','is_intermediate':false,'prompt':options.prompt,'repo_id':options.repo_id,'temp':options.temp,'top_k':options.top_k,'top_p':options.top_p,'type':'nightmare_promptgen','use_cache':false}
-        }
-    }
-    let batch = {
-        prepend:false,
-        batch:{
-            data:[],
-            graph:graph,
-            runs:3
-        }
-    }
+    let graph = {nodes:{nightmare_promptgen:{'id':'nightmare_promptgen','is_intermediate':false,'prompt':options.prompt,'repo_id':options.repo_id,'temp':options.temp,'top_k':options.top_k,'top_p':options.top_p,type:'nightmare_promptgen',use_cache:false,typical_p:options.typical_p,instruct_mode:options.instruct_mode,max_new_tokens:options.max_new_tokens,min_new_tokens:options.min_new_tokens,max_time:options.max_time,repetition_penalty:options.repetition_penalty}}}
+    let batch = {prepend:false,batch:{data:[],graph:graph,runs:3}}
     try {
         let batchId = await enqueueBatch(host,batch)
         let result = await batchToResult(host,batchId)
+        if(tracking?.type==='discord'){progress.update(tracking.msg,batchId)}
         return result
     } catch(err) {
         debugLog('Nightmare prompt generator failed to execute');debugLog(err)
@@ -1552,6 +1634,8 @@ module.exports = {
         textFontImage,
         cancelBatch,
         nightmarePromptGen,
-        interrogate
+        interrogate,
+        handfix,
+        faceCrop
     }
 }
