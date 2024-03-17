@@ -44,10 +44,30 @@ freeRecharge=async()=>{
     let minimumBalance = config.freeRecharge.minBalance??10
     let rechargeAmount = config.freeRecharge.amount??20
     let result = await User.update({credits:rechargeAmount},{where:{credits:{[Op.lt]:minimumBalance},banned:false}})
-    debugLog('Free recharge completed')
-    debugLog(result)
-    return result
+    debugLog('Free recharge completed for '+result[0]+' users')
+    return result[0]
 }
+
+memberRecharge=async()=>{
+    // Prelim attempt at a recurring fee membership system that releases credits regularly based on tier
+    // To be triggered on a schedule twice a day
+    // Free recharge system already assures a min balance of 20 every 12 hrs
+    // tier1 = 50, tier2 = 100
+    if(!config.freeRecharge.enabled){return}
+    log('Recharging credits for members')
+    // todo export config options
+    let tier1 = 50
+    let tier2 = 100
+    try{
+        let [tier1charges,tier2charges] = await Promise.all([User.update({credits:tier1},{where:{credits:{[Op.lt]:tier1},banned:false,tier:1}}),User.update({credits:tier2},{where:{credits:{[Op.lt]:tier2},banned:false,tier:2}})])
+        let result = {tier1:tier1charges[0],tier2:tier2charges[0]}
+        log('Members recharged: '+result.tier1+' tier 1, '+result.tier2+' tier 2')
+        return result
+    } catch (err) {
+        return {error:'Membership recharge failed'}
+    }
+}
+
 
 module.exports = {
     credits: {
@@ -55,6 +75,7 @@ module.exports = {
         decrement,
         increment,
         freeRecharge,
-        transfer
+        transfer,
+        memberRecharge
     }
 }
