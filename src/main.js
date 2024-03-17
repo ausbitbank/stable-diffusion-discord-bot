@@ -7,14 +7,11 @@ const {config,log,debugLog}=require('./utils')
 let signals = {'SIGHUP': 1,'SIGINT': 2,'SIGTERM': 15}
 for (const signal in Object.keys(signals)){process.on(signal, () =>{log('Bye! ('+signal+' '+signals[signal]+')');process.exit(128+signals[signal])})}
 
-// Setup database connection
-//const {db}=require('./src/db')
-
 // Setup discord, connect and handle commands
 const {discord}=require('./discord/discord')
 
 // Setup scheduler
-//const {cron}=require('./src/schedule.js')
+const {cron}=require('./schedule')
 
 // Setup backend cluster, read available models and embeddings
 const {invoke}=require('./invoke')
