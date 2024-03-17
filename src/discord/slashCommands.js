@@ -1,4 +1,4 @@
-const {config,log,debugLog,urlToBuffer,getRandomColorDec,getUUID}=require('../utils')
+const {config,log,debugLog,urlToBuffer,getRandomColorDec,getUUID,timestamp,shuffle}=require('../utils')
 const {bot}=require('./bot')
 const {invoke}=require('../invoke')
 const {messageCommands}=require('./messageCommands')
@@ -38,7 +38,7 @@ var slashCommands = [
       {type: 10, name: 'strength', description: 'how much noise to add to your input image (0.1-0.9)', required: false, min_value:0.01, max_value:0.99},
       {type: 10, name: 'scale', description: 'how important is the prompt (cfg_scale)', required: false, min_value:1, max_value:30},
       {type: 4, name: 'number', description: 'how many would you like', required: false, min_value: 1, max_value: config.maximum.iterations??10},
-      {type: 3, name: 'model', description: 'Change the model/checkpoint - see /models for more info', required: false,   min_length: 3, max_length:40},
+      {type: 3, name: 'model', description: 'Change the model/checkpoint - see !models for more info', required: false,   min_length: 3, max_length:40},
       {type: 3, name: 'sampler', description: 'which sampler to use (default is '+defaultSampler+')', required: false, choices: samplersSlash},
       {type: 4, name: 'clipskip', description: 'clip skip (0-10)', required: false},
       {type: 11, name: 'attachment', description: 'use template image', required: false},
@@ -57,7 +57,7 @@ var slashCommands = [
       log(username+' triggered dream command')
       let job={}
       try {
-        let trackingmsg = await i.createMessage({content:':saluting_face: dreaming'})
+        let trackingmsg = await i.createMessage({content:':saluting_face: dreaming '+timestamp()})
         job.tracking = {type:'discord',msg:trackingmsg}
       } catch (err) {
         debugLog('Error creating tracking msg')
@@ -103,7 +103,7 @@ var slashCommands = [
   },
   {
     name: 'background',
-    description:'Remove the background from an image with rembg',
+    description:'Remove the background from an image',
     cooldown:500,
     options:[
       {type: 11, name: 'image', description: 'image to remove background from', required: true}
@@ -195,32 +195,78 @@ var slashCommands = [
     name:'describe',
     description:'Describe an image',
     cooldown:500,
-    options:[{type: 11, name: 'image', description: 'image to describe', required: true}],
+    options:[
+      {type: 11, name: 'image', description: 'image to describe', required: true},
+      //{type: 3, name: 'clip', description: 'clip model to use', required: false,choices:[{name:'ViT-L-14/openai',value:'ViT-L-14/openai'},{name:'ViT-H-14/laion2b_s32b_b79k',value:'ViT-H-14/laion2b_s32b_b79k'},{name:'ViT-bigG-14/laion2b_s39b_b160k',value:'ViT-bigG-14/laion2b_s39b_b160k'}]},
+      //{type: 3, name: 'caption', description: 'caption model to use', required: false,choices:[{name:'blip-base',value:'blip-base'},{name:'blip-large',value:'blip-large'},{name:'blip2-2.7b',value:'blip2-2.7b'},{name:'blip2-flan-t5-xl',value:'blip2-flan-t5-xl'},{name:'git-large-coco',value:'git-large-coco'}]}
+    ],
     execute: async(i)=>{
       if (i.data.resolved && i.data.resolved.attachments && i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))){
         let attachmentOrig=i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))
         let imgurl = attachmentOrig.url
         let img = await urlToBuffer(imgurl)
-        let result = await invoke.interrogate(img)
+        let interrogateOptions={best_max_flavors:32,mode:'fast',clip_model:'ViT-L-14/openai',caption_model:'blip-large',low_vram:true}
+        /* Removed options, larger models use too much vram for most consumer cards
+        for (const arg in i.data.options){
+          let a = i.data.options[arg]
+          switch (a.name){
+            case('clip'):interrogateOptions.clip_model=a.value;break
+            case('caption'):interrogateOptions.caption_model=a.value;break
+            case('flavors'):interrogateOptions.best_max_flavors=a.value;break
+            case('mode'):interrogateOptions.mode=a.value;break
+            case('lowvram'):interrogateOptions.low_vram=a.value;break
+          }
+        }
+        */
+        let result = await invoke.interrogate(img,undefined,interrogateOptions)
         let options = result.options
         let newMsg = {
             content:':eyes: Image scanned with `'+options.clip_model+'`, captioned by `'+options.caption_model+'`:',
-            embeds:[{description:result.result,color:getRandomColorDec()}]
+            embeds:[{description:result.result,color:getRandomColorDec(),thumbnail:{url:imgurl}}]
         }
         i.createMessage(newMsg)
       }
     }
-  }
-]
-/*,
+  },
   {
     name: 'help',
     description: 'Learn how to use this bot',
     cooldown: 500,
     execute: (i) => {
-      help(i.channel.id)
+      let helpTitles=['let\'s get wierd','help me help you','help!','wait, what ?']
+      shuffle(helpTitles)
+      let m='```diff\n'
+      for (const c in slashCommands){
+          let cmd=slashCommands[c]
+          m+='-| /'+cmd.name+': '
+          m+='\n+| '+cmd.description+'\n\n'
+      }
+      m+='```\n```yaml\nSee these link buttons below for more commands and info. !help for more advanced options```'
+      var helpMsgObject={
+          content: '',
+          embeds: [
+              {
+                  type:'rich',
+                  title:helpTitles[0],
+                  description:m,
+                  color:getRandomColorDec()
+              }
+          ],
+          components: [
+              {type: 1, components:[
+                  {type: 2, style: 5, label: "Intro Post", url:'https://peakd.com/@ausbitbank/our-new-stable-diffusion-discord-bot', emoji: { name: 'hive', id: '1110123056501887007'}, disabled: false },
+                  {type: 2, style: 5, label: "Github", url:'https://github.com/ausbitbank/stable-diffusion-discord-bot', emoji: { name: 'Github', id: '1110915942856282112'}, disabled: false },
+                  {type: 2, style: 5, label: "Commands", url:'https://github.com/ausbitbank/stable-diffusion-discord-bot/blob/main/commands.md', emoji: { name: 'Book_Accessibility', id: '1110916595863269447'}, disabled: false },
+                  {type: 2, style: 5, label: "Privacy Policy", url:'https://gist.github.com/ausbitbank/cd8ba9ea6aa09253fcdcdfad36b9bcdd', emoji: { name: '📜', id: null}, disabled: false },
+              ]}
+          ]
+      }
+      i.createMessage(helpMsgObject)
     }
   },
+
+]
+/*,
   {
     name: 'models',
     description: 'See what models are currently available',
@@ -432,7 +478,6 @@ if(config.llm?.enabled){
   })
 }
 init = async()=>{
-  // todo looks like a good spot to:
   // check status of command registration
   // register any commands that aren't already registered
   // update any commands that are registered, but modified
@@ -459,11 +504,9 @@ parseCommand = async(interaction)=>{
       // check if its already been registered, send message only visible to user if it's not valid
       if (!bot.commands?.has(interaction.data.name)){return interaction.createMessage({content:'Command does not exist', flags:64})}
       try{
-        // acknowledge the interacton
-        await interaction.acknowledge()
+        await interaction.acknowledge()// acknowledge the interacton
         if(!auth.check(interaction.user?.id,interaction.guild?.id??'DM',interaction.channel?.id)){return} // if not authorised, ignore
-        // run the stored slash command
-        bot.commands.get(interaction.data.name).execute(interaction)
+        bot.commands.get(interaction.data.name).execute(interaction)// run the stored slash command
       }catch(err){
         log(err)
         await interaction.createMessage({content:'There was an error while executing this command!', flags: 64}).catch((e) => {log(e)})
