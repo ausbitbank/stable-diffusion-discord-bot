@@ -1,6 +1,6 @@
 // Load font list from fonturls.json, parse and return object
 const fsPromises = require('fs').promises
-const {log,debugLog}=require('./utils')
+const {log,debugLog,axios}=require('./utils')
 let fonturlsjson = null
 let fonts = null
 
@@ -24,6 +24,24 @@ get = (name)=>{
 random = ()=>{
     let randomfont = fonts[Math.floor(Math.random()*fonts.length)]
     return randomfont
+}
+
+test = async() =>{
+    let newfonts = []
+    log('Starting with '+fonts.length)
+    for(const f in fonts){
+        let font = fonts[f]
+        try {
+            await axios.head(font.url)
+            log(font.name+' works')
+            newfonts.push(font)
+        } catch (error){
+            log(font.name+' is INVALID, removed from list')
+        }
+    }
+    log('Finish with '+newfonts.length)
+    const jsonresult = JSON.stringify(newfonts,null,2)
+    await fsPromises.writeFile('./src/fonturls.json',jsonresult,'utf-8')
 }
 
 init()
