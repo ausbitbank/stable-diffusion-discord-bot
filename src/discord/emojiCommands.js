@@ -10,11 +10,7 @@ var commands = [
         permissionLevel: 'all',
         aliases: ['⭐','❤️'],
         command: async (msg,emoji,reactor)=>{
-            try{
-                sendToStarGallery(msg,emoji,reactor)
-            } catch (err) {
-                log(err)
-            }
+            sendToStarGallery(msg,emoji,reactor)
         }
     },
     {
@@ -32,7 +28,13 @@ var commands = [
         permissionLevel: 'all',
         aliases: ['✉️'],
         command: async (msg,emoji,reactor)=>{
-            log(msg);log(emoji);log(reactor)
+            msg = await bot.getMessage(msg.channel.id,msg.id)
+            let buf,file
+            let dmchannel = await bot.getDMChannel(reactor.user.id)
+            if(messageCommands.messageHasImageAttachments(msg)){buf = await messageCommands.extractImageBufferFromMessage(msg)}
+            if(buf){file={file:buf,name:getUUID()+'.png'}}
+            if(file){ await dmchannel.createMessage({content:msg.content,embeds:msg.embeds,components:msg.components,allowed_mentions:{}},file)
+            } else { await dmchannel.createMessage({content:msg.content,embeds:msg.embeds,components:msg.components,allowed_mentions:{}})}
         }
     },
     {
@@ -42,7 +44,6 @@ var commands = [
         aliases: ['👎','⚠️','❌','💩','🗑️'],
         command: async (msg,emoji,reactor)=>{
             try{
-                // todo admin votes should still be double confirmed
                 let reactedmsg = await bot.getMessage(msg.channel.id,msg.id)
                 // only care about messages created by the bot or people reacting to their own messages
                 if(
@@ -97,91 +98,36 @@ parse = async(msg,emoji,reactor)=>{
             }catch(err){log('Error parsing emoji command');log(err)}
         }
     }
-    /* Move all of this to either the command or an abstracted function if needed multiple places
-    // if we already have msg.author (the msg was already internally cached by eris) we're good to continue
-    if (msg?.author){
-        targetUserId=reactor?.user?.id
-    } else {
-        // Otherwise, get it
-        try{
-            msg=await bot.getMessage(msg.channel.id,msg.id)
-            targetUserId=reactor.id // todo investigate: I forget why its a different reference
-        }catch(err){log('Discord error fetching message');debugLog(err)}
-    }
-    // Only process reactions on our own creations
-    if(msg?.author?.id!==bot.application.id) return
-    let reactorid = reactor.id ? reactor.id : reactor.user.id
-    switch(emoji.name){
-        case '😂':
-        case '👍':
-        case '⭐':
-        case '❤️': try{sendToGalleryChannel(msg.channel.guild.id, msg.channel.id, msg.id, { content: msg.content, embeds: embeds })}catch(err){};break
-        case '✉️': directMessageUser(targetUserId,{content: msg.content, embeds: embeds});break
-        case '🙈': if(msg.content.includes(reactorid)||reactorid===config.adminID){try{moveToNSFWChannel(msg.channel.guild.id, msg.channel.id, msg.id, { content: msg.content, embeds: embeds, attachments: msg.attachments, components: msg.components });msg.delete().catch(() => {})}catch(err){log(err)}};break
-        case '👎':
-        case '⚠️':
-        case '❌':
-        case '💩': {
-        log('Negative emojis'.red+emoji.name.red)
-        try{if(msg.content.includes(reactorid)||reactorid===config.adminID){msg.delete().catch(() => {})}}catch(err){log(err)}
-        break
-        }
-    }
-    */
 }
 
+const starGalleryEntries = new Set() // Keep in memory set of message id's to stop duplicates, lost on restart
 const sendToStarGallery = async(msg,emoi,reactor)=>{ // Make a copy without buttons for the gallery
-    // todo need to take server id, lookup guild object, find star-gallery if it exists
     // need to explore guild, check for star-gallery channel and send simplified result there with no buttons
-    // also needs to make sure this hasn't already happened
     let guildId = msg.guildID
     let originalChannelId = msg.channel?.id
     let messageId = msg.id
-    let alreadyInGallery = false
     let guild = bot.guilds.get(guildId)
     if(!guild){debugLog('Unable to find guild, DM?');return}
     let galleryChannel = guild.channels.find(channel => {return channel.name === 'star-gallery'})
-    if(!galleryChannel){debugLog('No star-gallery channel in guild');return}
+    if(!galleryChannel) return
     if (originalChannelId===galleryChannel.id) return
+    if(starGalleryEntries.has(messageId)) return
     // Make sure we have the full message object now instead of the shortform thing we get when eris doesn't have the message cached yet
     msg = await bot.getMessage(msg.channel.id,msg.id)
-    if(msg.author?.id!==bot.application.id){return} // only care about our own results
-    if(galleryChannel.messages.length<50){ // if theres less then 50 in the channel message cache, fetch 100
-        debugLog('fetching gallery message history')
-        await galleryChannel.getMessages({limit: 100})
-    }
+    if(msg.author?.id!==bot.application.id) return // only care about our own results
     const messageLink = `https://discord.com/channels/${guildId}/${originalChannelId}/${messageId}`
     const components = [{ type: 1, components: [{ type: 2, style: 5, label: "Original message", url: messageLink, disabled: false }]}]
-    // this isnt working 
-    //log(galleryChannel)
-    for (let i in galleryChannel.messages){
-        //log(i)
-        let m = galleryChannel.messages[i]
-        //log(m)
-        if(m.content===msg.content&&m.embeds===msg.embeds){alreadyInGallery=true;log('Already in star gallery')}
+    let buf,file
+    if(messageCommands.messageHasImageAttachments(msg)){buf = await messageCommands.extractImageBufferFromMessage(msg)}
+    if(buf){file={file:buf,name:getUUID()+'.png'}}
+    // todo extract original creator from content or allowed_mentions array, new message reference original creator + reactor
+    if(file){
+        await galleryChannel.createMessage({content:msg.content,embeds:msg.embeds,components:components,allowed_mentions:{}},file)
+    } else {
+        await galleryChannel.createMessage({content:msg.content,embeds:msg.embeds,components:components,allowed_mentions:{}})
     }
-    // // todo refactor away from forEach
-    /*
-    galleryChannel.messages.forEach(message=>{
-        if(message.content===msg.content && message.embeds === msg.embeds){
-            alreadyInGallery=true
-            debugLog('found in gallery')
-        }
-    })*/ // look through eris message cache for channel for matching msg
-    if (!alreadyInGallery){
-        let buf,file
-        if(messageCommands.messageHasImageAttachments(msg)){buf = await messageCommands.extractImageBufferFromMessage(msg)}
-        if(buf){file={file:buf,name:getUUID()+'.png'}}
-        let content = msg.content
-        // todo need to extract original creator from content or allowed_mentions array, new message reference original creator + reactor
-        if(file){
-            await galleryChannel.createMessage({content:msg.content,embeds:msg.embeds,components:components,allowed_mentions:{}},file)
-        } else {
-            await galleryChannel.createMessage({content:msg.content,embeds:msg.embeds,components:components,allowed_mentions:{}})
-        }
-    } else {debugLog('Found identical existing star gallery message')}
-  }
-  
+    starGalleryEntries.add(messageId)
+}
 
 module.exports = {
     emojiCommands:{
