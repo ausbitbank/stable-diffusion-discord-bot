@@ -1,5 +1,5 @@
 const ExifReader = require('exifreader')
-const sharp = require('sharp')
+//const sharp = require('sharp')
 const {log,debugLog} = require('./utils.js')
 const pngextract = require('png-chunks-extract')
 const pngencode = require('png-chunks-encode')
