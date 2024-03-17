@@ -1,4 +1,4 @@
-const {config,log,debugLog,getRandomColorDec,shuffle,urlToBuffer, getUUID}=require('../utils')
+const {config,log,debugLog,getRandomColorDec,timestamp,urlToBuffer, getUUID}=require('../utils')
 const {messageCommands}=require('./messageCommands')
 const {exif}=require('../exif')
 const {invoke}=require('../invoke')
@@ -20,7 +20,7 @@ let commands = [
             try{
                 if(!interaction?.acknowledged){interaction?.acknowledge()}
                 //interaction.message.addReaction('🎲')
-                trackingmsg = await bot.createMessage(interaction.channel.id,{content:':saluting_face: refreshing'})
+                trackingmsg = await bot.createMessage(interaction.channel.id,{content:':saluting_face: refreshing '+timestamp()})
             } catch(err){
                 log(err)
             }
@@ -46,13 +46,14 @@ let commands = [
         aliases: ['edit'],
         command: async (interaction)=>{
             if(!interaction?.acknowledged){interaction?.acknowledge()}
+            let creator = await getCreatorInfoFromInteraction(interaction)
             let msgid = (interaction.data.custom_id.split('-')[1]==='x')?interaction.message.id : interaction.data.custom_id.split('-')[1]
             let channelid = interaction.channel.id
             let img = null
             let key = interaction.data.custom_id.split('-')[2]??interaction.data.components[0].components[0].custom_id
             let value = interaction.data.custom_id.split('-')[2]?interaction.data.values[0]:interaction.data.components[0].components[0].value
             let trackingmsg = null
-            trackingmsg = await bot.createMessage(channelid,{content:':saluting_face: refreshing with **'+key+'** of `'+value.substring(0,1000)+'`'})
+            trackingmsg = await bot.createMessage(channelid,{content:':saluting_face: refreshing with **'+key+'** of `'+value.substring(0,1000)+'` '+timestamp()})
             switch(key){
                 case 'scale':{value=parseFloat(value);break}
                 case 'steps':{value=parseInt(value);break}
@@ -60,10 +61,10 @@ let commands = [
             }
             let sourcemsg = await bot.getMessage(channelid, msgid)
             let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
-            debugLog(interaction.member?.username||interaction.author?.username||interaction.user?.username+' edit '+key+' to: '+value)
+            debugLog(creator.username+' edit '+key+' to: '+value)
             if(meta.invoke){meta.invoke[key] = value}
             if(meta.invoke?.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
-            //let result = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
+            debugLog(meta)
             let job = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
             job.creator = await getCreatorInfoFromInteraction(interaction)
             job = await messageCommands.checkUserForJob(job)
@@ -89,18 +90,17 @@ let commands = [
             let key = interaction.data.components[0].components[0].custom_id
             let value = interaction.data.components[0].components[0].value
             let trackingmsg = null
-            trackingmsg = await bot.createMessage(channelid,{content:':saluting_face: refreshing with **'+key+'** of `'+value.substring(0,1000)+'`'})
+            trackingmsg = await bot.createMessage(channelid,{content:':saluting_face: refreshing with **'+key+'** of `'+value.substring(0,1000)+'` '+timestamp()})
             let sourcemsg = await bot.getMessage(channelid, msgid)
             let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
             debugLog(interaction.member?.username||interaction.author?.username||interaction.user?.username+' edit '+key+' to: '+value)
             if(meta.invoke){
                 let w=value.split('x')[0]
-                let h=value.split('x')[0]
+                let h=value.split('x')[1]
                 meta.invoke.width = w
                 meta.invoke.height = h
             }
             if(meta.invoke?.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
-            //let result = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
             let job = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
             job.creator = await getCreatorInfoFromInteraction(interaction)
             job = await messageCommands.checkUserForJob(job)
@@ -257,10 +257,10 @@ let commands = [
         }
     },
     {
-        name: 'editResolution',
+        name: 'chooseResolution',
         description: 'Modal dialog to regenerate an image with a new resolution and seed, with the same settings',
         permissionLevel: 'all',
-        aliases: ['editResolution'],
+        aliases: ['chooseResolution'],
         command: async (interaction)=>{
             let msgid = interaction.data.custom_id.split('-')[1]
             let channelid = interaction.channel.id
@@ -271,7 +271,7 @@ let commands = [
             //strength = strength.toString()
             return interaction.createModal({
                 custom_id:'edit-'+sourcemsg.id,
-                title:'Edit the strength',
+                title:'Edit the resolution',
                 components:[
                     {type:1,components:[
                         {
@@ -310,7 +310,7 @@ let commands = [
                     {
                         type:1,
                         components:[
-                            {type: 2, style: 1, label: 'Resolution', custom_id: 'editResolution-'+msgid, emoji: { name: '📏', id: null}, disabled: true },
+                            {type: 2, style: 1, label: 'Resolution', custom_id: 'chooseResolution-'+msgid, emoji: { name: '📏', id: null}, disabled: true },
                             {type: 2, style: 1, label: 'Scale', custom_id: 'editScale-'+msgid, emoji: { name: '⚖️', id: null}, disabled: false },
                             {type: 2, style: 1, label: 'Steps', custom_id: 'editSteps-'+msgid, emoji: { name: '♻️', id: null}, disabled: false },
                             {type: 2, style: 1, label: 'Strength', custom_id: 'editStrength-'+msgid, emoji: { name: '💪', id: null}, disabled: false },
@@ -341,12 +341,12 @@ let commands = [
             }
             let newmodelname = interaction.data.values[0]
             debugLog('Changing model to ' + newmodelname)
-            let trackingmsg = await bot.createMessage(interaction.channel.id, { content: ':saluting_face: Changing model to ' + newmodelname, embeds: [], components: [] })
+            let trackingmsg = await bot.createMessage(interaction.channel.id, { content: ':saluting_face: Changing model to ' + newmodelname+' '+timestamp(), embeds: [], components: [] })
             let channelid = interaction.channel.id
             let sourcemsg = await bot.getMessage(channelid, msgid)
             let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
             let newmodel = models.find(m => m.model_name === newmodelname) // undefined ?
-            if (meta.invoke?.model?.base_model !== newmodel?.base_model) {
+            if (meta.invoke?.model?.base_model !== newmodel?.base_model) { // changing base model class (sd1 to sdxl etc)
                 let ar = await aspectRatio.resToRatio(meta.invoke?.width, meta.invoke?.height)
                 let newpixels = newmodel?.base_model === 'sdxl' ? 1048576 : 262144 // 1024x1024 for sdxl, 512x512 for sd1/2
                 let newres = await aspectRatio.ratioToRes(ar, newpixels)
@@ -354,6 +354,8 @@ let commands = [
                     meta.invoke.width = newres?.width
                     meta.invoke.height = newres?.height
                 }
+                // unset ipamodel when switching base class, leave control set to ipa so it autodetects new default ipa for base class
+                if(meta.invoke.control==='ipa'&&meta.invoke.ipamodel){meta.invoke.ipamodel=undefined}
             }
             if (meta.invoke) {
                 meta.invoke.model = newmodelname
@@ -499,7 +501,6 @@ let commands = [
             // should immediately delete for admin, creator, guild admin
             // otherwise add 🗑️ emoji if not already existing 
             // and tell user to click it to confirm their vote for removal
-            // todo needs more testing for private DM's where we cannot delete
             if(
                 (interaction.member?.id===config.adminID)|| // admin
                 (msg.mentions.length>0&&interaction.member?.id===msg.mentions[0].id) // creator
@@ -530,7 +531,7 @@ let commands = [
         permissionLevel: ['all'],
         aliases: ['removeBackground'],
         command: async (interaction)=>{
-            interaction.editParent({content:':saluting_face: Removing background',embeds:[],components:[]})
+            interaction.editParent({content:':saluting_face: Removing background '+timestamp(),embeds:[],components:[]})
             //interaction.acknowledge()
             let userid = interaction.member?.id||interaction.author?.id||interaction.user?.id
             let channelid = interaction.channel.id
@@ -574,7 +575,7 @@ let commands = [
                         let res = await aspectRatio.ratioToRes(interaction.data.values[0],pixels)
                         // interaction.channel.createMessage does not work in DM
                         //let trackingmsg = await interaction.channel.createMessage({content:':saluting_face: '+res.description+' '+res.width+' x '+res.height+' selected',components:[],embeds:[]})
-                        let trackingmsg = await bot.createMessage(msg.channel.id,{content:':saluting_face: '+res.description+' '+res.width+' x '+res.height+' selected',components:[],embeds:[]})
+                        let trackingmsg = await bot.createMessage(msg.channel.id,{content:':saluting_face: '+res.description+' '+res.width+' x '+res.height+' selected '+timestamp(),components:[],embeds:[]})
                         meta.invoke.width = res.width
                         meta.invoke.height = res.height
                         let img = null
@@ -613,7 +614,7 @@ let commands = [
                 // capture a response instead of asking for one
                 if(!interaction.acknowledged){interaction?.acknowledge()}
                 let channelid = interaction.channel.id
-                let trackingmsg = await bot.createMessage(channelid,{content:':saluting_face: refreshing with **Scheduler** of `'+interaction.data.values[0]+'`'})
+                let trackingmsg = await bot.createMessage(channelid,{content:':saluting_face: refreshing with **Scheduler** of `'+interaction.data.values[0]+'` '+timestamp()})
                 let sourcemsg = await bot.getMessage(channelid,msgid)
                 let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
                 let img = null
@@ -666,12 +667,12 @@ let commands = [
             // Ideally this should only respond to cancel requests from original creator, or bot admin
             // keep it simple for initial version
             // extract batchid from commmand id
-            let userid = parseInt(interaction?.user?.id)
+            let requester = getCreatorInfoFromInteraction(interaction)
+            let userid = requester.discordid
             if(!interaction?.acknowledged){interaction?.acknowledge()}
             let batchid = interaction.data.custom_id.replace('cancelBatch-','')
             // todo auth gating here
-            if(userid===config?.adminID){
-                // pass to invoke function
+            if(userid.toString()===config?.adminID.toString()){
                 let response = await invoke.cancelBatch(batchid)
                 log(response)
             } else {
@@ -722,11 +723,8 @@ parseCommand = async(interaction)=>{
                         //log(interaction)
                         log(c.name+' triggered by '+creator.username+' in '+creator.channelid+' ('+creator.guildid||'DM'+')')
                         let result
-                        try{
-                            result = await c.command(interaction)
-                        } catch(err){
-                            log(err)
-                        }
+                        try{result = await c.command(interaction)
+                        } catch(err){log(err)}
                         let messages = result?.messages
                         let files = result?.files
                         let error = result?.error
