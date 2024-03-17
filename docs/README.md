@@ -13,7 +13,7 @@ This branch is a work in progress for a major rewrite of the arty project.
 
 It still has a long way to go before it's ready for public use and should be considered an alpha test at best.
 
-It's currently compatible with `invokeai 3.6.3`.
+It's currently compatible with `invokeai 3.7.0`.
 
 **Working:**
 - Oldschool `!dream prompt` + parameters
@@ -21,15 +21,10 @@ It's currently compatible with `invokeai 3.6.3`.
 - Building node graphs from job requests,submitting,tracking,posting to discord
 - Refresh button starting renders using png metadata alone (no job db required!)
 - Input images can be used as sources for image to latent, controlnet, ip_adapter
-- Tweak menu with aspect ratio, scale, steps, sampler, strength
+- Tweak menu with models, aspect ratio, scale, steps, sampler, strength
 - Remove background using custom invokeai node
 - websocket job progress tracking, discord status updates for invoke cluster queue info
-- LLM integration (currently requires LM Studio, but full openai api compatibility is coming)
-
-**Not Working:**
-- Pretty much everything else
-- No user/channel/guild tracking
-- No db at all at this point
+- LLM integration (/chat , /describe , prompt improvement)
 
 **Setup:**
 
