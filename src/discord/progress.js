@@ -1,39 +1,10 @@
 // Track progress for a specific job, report to discord on changes
-const {log,debugLog,sleep}=require('../utils.js')
+const {log,debugLog,sleep, getUUID, getRandomColorDec}=require('../utils.js')
 const {resultCache}=require('../resultCache')
 
 update = async(msg,batchid)=>{
     // Call once, repetitively update message with results of get(batchid)
     let error=false,done=false,statusmsg=null,cached=null,result=null,interval=500,fails=0
-    /*
-    const intervalId = setInterval(async () => {
-        try {
-        result = resultCache.get(batchid)
-        statusmsg = returnProgressMessage(batchid)
-        if (!statusmsg) {
-            fails++
-            if (fails > 3) {
-            await msg.delete()
-            clearInterval(intervalId) // Stop the interval
-            return
-            }
-            return
-        }
-        if (statusmsg && statusmsg !== cached) {
-            cached = statusmsg // update cache
-            await msg.edit(statusmsg.msg, statusmsg.file) // edit progress message
-        }
-        if (['completed', 'failed', 'cancelled'].includes(result.status)) {
-            await msg.delete()
-            clearInterval(intervalId) // Stop the interval
-            return
-        }
-        } catch (err) {
-            debugLog(err)
-            error = true
-        }
-    }, interval)
-    */
     while(!error&&!done){
         try {
             await sleep(interval)
@@ -66,6 +37,7 @@ returnProgressMessage = (batchid) =>{
         let r = resultCache.get(batchid)
         let content= ''//+batchid
         file=null
+        filename=null
         if(r){
             switch(r.status){
                 case('in_progress'):content=':green_circle: In progress';break
@@ -82,17 +54,22 @@ returnProgressMessage = (batchid) =>{
             } else if(r.results.length>0 && r.results[r.results.length-1].type) {
                 content = content + ':floppy_disk: ' + r.results[r.results.length-1].type + '\n'
             }
-            /* Cannot edit attachments on an existing message
+            // Cannot edit attachments on an existing message
             /// Can edit image urls if we have public url
+            /*
             if(r.progress?.progress_image){
-                debugLog('progress image')
-                debugLog(r.progress.progress_image)
-                file=[{file:r.progress.progress_image,name:'preview-'+getUUID()+'.png'}]
+                //debugLog('progress image')
+                //debugLog(r.progress.progress_image)
+                filename='preview-'+getUUID()+'.png'
+                file=[{file:r.progress.progress_image,name:filename}]
             }
             */
         let components = [{type:1,components:[{type:2,style:4,label:'Cancel',custom_id:'cancelBatch-'+batchid,emoji:{name:'🗑️',id:null},disabled:false}]}]
         let msg = {embeds: [{description:content}],components:components}
-        return {msg:msg}//,file}
+        if(file){
+            msg.embeds[0].thumbnail={url:'attachment://'+filename}
+            return {msg,file}
+        } else {return {msg:msg}}
         } else {return null}
     } catch (err) {throw(err)}
 }
