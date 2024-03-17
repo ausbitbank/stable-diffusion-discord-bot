@@ -64,9 +64,11 @@ userHasCredit=async(user)=>{
     }
 }
 userAllowedFeature=async(user,feature)=>{
+    debugLog('userAllowedFeature check for '+user.discordid+' feature '+feature)
     let [usr,created] = await User.findOrCreate({where:{discordID: user.discordid},defaults:{username:user.username,credits:config.credits?.default??100}})
     if(!created&&!usr.username){usr.username=user.username}
     switch(feature) {
+        case 'any':
         case 'sd-1':// always allow sd1
             return true
         case 'sd-2':// sd2 is members only
