@@ -76,11 +76,15 @@ var slashCommands = [
       if(img){job.initimg=img}
       job = await invoke.validateJob(job)
       job.creator=await getCreatorInfoFromInteraction(i)
-      job = await messageCommands.checkUserForJob(job)
-      if(job.error){return job}
+      job = await auth.userAllowedJob(job)
+      if(job.error){
+          log('Error: '.bgRed+' '+error)
+          i.createMessage({content:':warning: '+job.error})
+          return
+      }
       let dreamresult = await invoke.cast(job)
       if(imgurl && !dreamresult.error && dreamresult.images?.length > 0){dreamresult.images[0].buffer = await exif.modify(dreamresult.images[0].buffer,'arty','inputImageUrl',imgurl)}
-      let fakemsg = {member:{id:userid}}
+      let fakemsg = {member:{id:userid},fake:true}
       let result = await returnMessageResult(fakemsg,dreamresult)
       let messages = result?.messages
       let files = result?.files
@@ -219,6 +223,7 @@ var slashCommands = [
         }
         */
         let result = await invoke.interrogate(img,undefined,interrogateOptions)
+        result.result=result.result.replace('(^|\s)(arafed)\b','') // remove arafed as a whole word or from start of string
         let options = result.options
         let newMsg = {
             content:':eyes: Image scanned with `'+options.clip_model+'`, captioned by `'+options.caption_model+'`:',
@@ -467,6 +472,8 @@ if(config.llm?.enabled){
       stream.on('error', (error)=>{
           log('LLM Stream error:')
           log(error)
+          latestUpdate={content:initResponse, embeds:[{title:':warning: Error',description:'Unable to connect to chat server',color:color}]}
+          done=true
       })
       i.createMessage(initResponse)
           .then(async(newmsg)=>{
