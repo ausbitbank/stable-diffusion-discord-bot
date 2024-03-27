@@ -1,6 +1,6 @@
 const {config,log,debugLog}=require('../utils.js')
 const {db,User}=require('../db.js')
-const {credit}=require('../credits.js')
+const {credits}=require('../credits.js')
 
 // true/false for if a user,guild,channel is authorised
 let allowedUsers=config.authentication.allowed.users
@@ -54,7 +54,7 @@ userHasCredit=async(user)=>{
     // Check if a user exists in database, create new user if it doesnt, return true/false if the user has credit > 0
     if(user===config.adminID){return true} // always allow admin
     if(config.credits.enabled){
-        let balance = await credit.balance(user)
+        let balance = await credits.balance(user)
         if(balance>0){
             return true
         } else { return false }
@@ -64,6 +64,8 @@ userHasCredit=async(user)=>{
     }
 }
 userAllowedFeature=async(user,feature)=>{
+    // if credits are disabled, bypass completely
+    if(!config.credits.enabled){return true}
     debugLog('userAllowedFeature check for '+user.discordid+' feature '+feature)
     let [usr,created] = await User.findOrCreate({where:{discordID: user.discordid},defaults:{username:user.username,credits:config.credits?.default??100}})
     if(!created&&!usr.username){usr.username=user.username}
@@ -77,6 +79,15 @@ userAllowedFeature=async(user,feature)=>{
             return usr.tier >= 1
     }
 }
+userAllowedJob=async(job)=>{
+    if(job.error){return job}// is job errored already
+    let balance = await credits.balance(job.creator)// do they have the funds
+    if(balance<job.cost){job.error = 'Insufficient :coin:'; return job}
+    let modelAllowed = await userAllowedFeature(job.creator,job.model.base_model) // check model type allowed
+    if(!modelAllowed){job.error=job.model.base_model+' is for members only'}
+    return job
+}
+
 
 module.exports = {
     auth:{
@@ -84,6 +95,7 @@ module.exports = {
         guild:guildAllowed,
         channel:channelAllowed,
         check,
-        userAllowedFeature
+        userAllowedFeature,
+        userAllowedJob
     }
 }
