@@ -30,9 +30,12 @@ let commands = [
             meta.invoke.seed = random.seed()
             let job = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
             job.creator = await getCreatorInfoFromInteraction(interaction)
-            job = await messageCommands.checkUserForJob(job)
-            if(job.error){return job}
+            job = await auth.userAllowedJob(job)
             let result = await invoke.cast(job)
+            if(result.error){
+                debugLog('job.error:');debugLog(job.error)
+                return job
+            }
             if(meta.invoke?.inputImageUrl && !result.error && result.images?.length > 0){result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke.inputImageUrl)}
             let newmsg = interaction.message
             newmsg.member = interaction.member
@@ -64,10 +67,9 @@ let commands = [
             debugLog(creator.username+' edit '+key+' to: '+value)
             if(meta.invoke){meta.invoke[key] = value}
             if(meta.invoke?.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
-            debugLog(meta)
             let job = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
             job.creator = await getCreatorInfoFromInteraction(interaction)
-            job = await messageCommands.checkUserForJob(job)
+            job = await auth.userAllowedJob(job)
             if(job.error){
                 log('job error in edit componentCommand',job.error)
                 return job}
@@ -103,7 +105,7 @@ let commands = [
             if(meta.invoke?.inputImageUrl){img = await urlToBuffer(meta.invoke.inputImageUrl)}
             let job = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
             job.creator = await getCreatorInfoFromInteraction(interaction)
-            job = await messageCommands.checkUserForJob(job)
+            job = await auth.userAllowedJob(job)
             if(job.error){return job}
             let result = await invoke.cast(job)
             if(meta.invoke?.inputImageUrl && !result.error && result.images?.length > 0){result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke.inputImageUrl)}
@@ -367,7 +369,7 @@ let commands = [
             //let result = await invoke.jobFromMeta(meta, img, { type: 'discord', msg: trackingmsg })
             let job = await invoke.jobFromMeta(meta, img, { type: 'discord', msg: trackingmsg })
             job.creator = await getCreatorInfoFromInteraction(interaction)
-            job = await messageCommands.checkUserForJob(job)
+            job = await auth.userAllowedJob(job)
             if(job.error){return job}
             let result = await invoke.cast(job)
             if (meta.invoke?.inputImageUrl && !result.error && result.images?.length > 0) {
@@ -583,7 +585,7 @@ let commands = [
                         //let result = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
                         let job = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
                         job.creator = await getCreatorInfoFromInteraction(interaction)
-                        job = await messageCommands.checkUserForJob(job)
+                        job = await auth.userAllowedJob(job)
                         if(job.error){return job}
                         let result = await invoke.cast(job)
                         if(meta.invoke?.inputImageUrl && !result.error && result.images?.length > 0){result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke.inputImageUrl)}
@@ -623,7 +625,7 @@ let commands = [
                 //let result = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
                 let job = await invoke.jobFromMeta(meta,img,{type:'discord',msg:trackingmsg})
                 job.creator = await getCreatorInfoFromInteraction(interaction)
-                job = await messageCommands.checkUserForJob(job)
+                job = await auth.userAllowedJob(job)
                 if(job.error){return job}
                 let result = await invoke.cast(job)
                 if(meta.invoke.inputImageUrl && !result.error && result.images?.length > 0){result.images[0].buffer = await exif.modify(result.images[0].buffer,'arty','inputImageUrl',meta.invoke.inputImageUrl)}
@@ -730,7 +732,7 @@ parseCommand = async(interaction)=>{
                         let error = result?.error
                         if(error){
                             log('Error: '.bgRed+' '+error)
-                            interaction.createMessage({content:':warning: '+error,flags:64})
+                            interaction.createMessage({title:':warning: Error',content:error})
                             return
                         }
                         if(!Array.isArray(messages)){messages=[messages]}
