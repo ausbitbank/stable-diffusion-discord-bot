@@ -27,6 +27,7 @@ load=async(buf)=>{
         let clipskip = meta?.clip_skip
         let loras=meta?.loras
         let control, controlweight, controlstart, controlend, ipamodel, facemask, strength, lscale, invert, hrf, hrfwidth, hrfheight, prompt, cost = null
+        let creator = {}
         try{
             //debugLog(exif.invokeai_metadata.value)
             let workflow = JSON.parse(meta.arty)
@@ -46,6 +47,13 @@ load=async(buf)=>{
             hrfwidth = workflow?.hrfwidth
             hrfheight = workflow?.hrfheight
             cost=workflow?.cost
+            if(workflow?.creator){
+                try{
+                    creator=JSON.parse(workflow.creator)
+                } catch {
+                    debugLog('Exif - unable to parse workflow.creator json')
+                }
+            }
         } catch(err){
             debugLog('Error parsing invokeai_workflow metadata')
             debugLog(err)
@@ -123,7 +131,8 @@ load=async(buf)=>{
             hrfheight,
             hrfwidth,
             seamlessx,
-            seamlessy
+            seamlessy,
+            creator
         }
     }
     return results
@@ -155,7 +164,6 @@ modify=async(buf,parent,key,value)=>{
     //let output = pngencode(chunks)
     buf = Buffer.from(pngencode(chunks))
     return buf
-
 }
 
 module.exports={exif:{load,modify}}
