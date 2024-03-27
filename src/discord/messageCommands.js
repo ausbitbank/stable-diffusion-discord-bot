@@ -10,6 +10,7 @@ const {aspectRatio}=require('./aspectRatio')
 const {llm}=require('../plugins/llm/llm')
 const {credits}=require('../credits')
 const {membership}=require('../membership')
+const {imageproxy} = require('../imageproxy')
 
 // Process discord text message commands
 let commands = [
@@ -19,7 +20,7 @@ let commands = [
         permissionLevel: 'all',
         aliases: ['dream','drm','d','imagine','drm3'],
         prefix:'!',
-        command: async (args,msg)=>{
+        command: async (args,msg,creator)=>{
             msg.addReaction('🫡') // salute emoji
             /* todo update to accept multiple init images
                 let images = await extractImagesAndUrlsFromMessageOrReply(msg)
@@ -31,10 +32,10 @@ let commands = [
             let img,imgurl
             let imgres = await extractImageAndUrlFromMessageOrReply(msg)
             if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
-            let trackingmsg = await bot.createMessage(msg.channel.id,{content:':saluting_face: dreaming '+timestamp()})
+            let trackingmsg = await bot.createMessage(creator.channelid,{content:':saluting_face: dreaming '+timestamp()})
             let job = await invoke.jobFromDream(args,img,{type:'discord',msg:trackingmsg})
-            job.creator=getCreatorInfoFromMsg(msg)
-            job = await checkUserForJob(job)
+            job.creator=creator
+            job = await auth.userAllowedJob(job)
             if(job.error){return job}
             let result = await invoke.cast(job)
             // inject the original template image url
@@ -51,14 +52,16 @@ let commands = [
         permissionLevel:'all',
         aliases:['describe'],
         prefix:'!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             let imgres = await extractImageAndUrlFromMessageOrReply(msg)
             if(!imgres||!imgres?.img){return {error:'No compatible image found'}}
             let result = await invoke.interrogate(imgres.img)
+            result.result=result.result.replace('(^|\s)(arafed)\b','') // remove arafed as a whole word or from start of string
             let options = result.options
             let newMsg = {
                 content:':eyes: Image scanned with `'+options.clip_model+'`, captioned by `'+options.caption_model+'`:',
-                embeds:[{description:result.result,color:getRandomColorDec(),thumbnail:{url:imgres.url}}]
+                embeds:[{description:result.result,color:getRandomColorDec(),thumbnail:{url:imgres.url}}],
+                messageReference:{message_id:msg.id}
             }
             return {messages:[newMsg],files:[]}
         }
@@ -69,19 +72,19 @@ let commands = [
         permissionLevel: 'all',
         aliases: ['bg','background'],
         prefix:'!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             debugLog('background removal triggered: '+args.join(' '))
             let img,imgurl
             let imgres = await extractImageAndUrlFromMessageOrReply(msg)
             if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
             if(img){
-                let trackingmsg = await bot.createMessage(msg.channel.id,{content:':saluting_face: Removing background '+timestamp()})
+                let trackingmsg = await bot.createMessage(creator.channelid,{content:':saluting_face: Removing background '+timestamp()})
                 let result = await invoke.processImage(img,null,'removebg',{},{type:'discord',msg:trackingmsg})
                 if(result?.images?.length>0){
                     let buf = result.images[0]?.buffer
                     buf = await exif.modify(buf,'arty','imageType','foreground')
                     //let components = [{type:1,components:[{type: 2, style: 1, label: 'Use this pose', custom_id: 'usepose', emoji: { name: '🤸', id: null}, disabled: true }]}]
-                    return {messages:[{embeds:[{description:'Removed background',color:getRandomColorDec()}],components:[]}],files:[{file:buf,name:result.images[0].name}]}
+                    return {messages:[{embeds:[{description:'Removed background',color:getRandomColorDec()}],components:[],messageReference:{message_id:msg.id}}],files:[{file:buf,name:result.images[0].name}]}
                 }else{
                     return {error:'Failed at background removal'}
                 }
@@ -96,9 +99,8 @@ let commands = [
         permissionLevel:'all',
         aliases:['chat','c'],
         prefix:'!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             if(!config.llm.enabled){return}
-            let creator = getCreatorInfoFromMsg(msg)
             let allowed = await auth.userAllowedFeature(creator,'llm')
             if(!allowed){return {error:'ai chat is for members only'}}
             msg.addReaction('🫡')
@@ -121,11 +123,20 @@ let commands = [
             }
             */
             let initResponse = ':thought_balloon: `'+newprompt.substr(0,1900)+'` '+timestamp()
-            let stream = await llm.chatStream(newprompt)
-            if(stream.error){return {error:stream.error}}
+            let stream
+            try{
+                stream = await llm.chatStream(newprompt)
+                if(stream.error){return {error:stream.error}}
+            } catch (err) {
+                debugLog('caught error in llm module')
+                debugLog(err)
+                return{error:'Error connecting to llm backend'}
+            }
+
             startEditing=()=>{
                 intervalId = setInterval(()=>{
                     debugLog('llm tick')
+                    //debugLog(stream)
                     if(!isUpdating&&latestUpdate){
                         const update = latestUpdate
                         latestUpdate=null
@@ -156,12 +167,13 @@ let commands = [
                     if(!isUpdating&&done&&page===pages){clearInterval(intervalId)} // if we're done, shut down the timer
                 },1000) // check every 1s
             }
+
             let lastsnapshot = ''
             let currentMessage = initResponse
             stream.on('content', (delta,snapshot)=>{
                 if(snapshot.trim().length>0&&lastsnapshot!==snapshot){
                     const newContent = currentMessage + snapshot
-                    latestUpdate={content:initResponse, embeds:[{description:snapshot,color:color}]}
+                    latestUpdate={content:initResponse, embeds:[{description:snapshot,color:color}],messageReference:{message_id:msg.id}}
                     currentMessage = newContent
                     lastsnapshot = snapshot
                 }
@@ -173,8 +185,10 @@ let commands = [
             stream.on('error', (error)=>{
                 log('LLM Stream error:')
                 log(error)
+                latestUpdate={content:initResponse, embeds:[{title:':warning: Error',description:'Unable to connect to chat server',color:color,messageReference:{message_id:msg.id}}]}
+                done=true
             })
-            bot.createMessage(msg.channel?.id,initResponse)
+            bot.createMessage(msg.channel?.id,{content:initResponse,messageReference:{message_id:msg.id}})
                 .then(async(newmsg)=>{
                     newMessage = newmsg
                     startEditing()
@@ -189,7 +203,7 @@ let commands = [
         permissionLevel:'all',
         aliases:['t5','p','superprompt'],
         prefix:'!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             // Requires custom node v1.4 https://github.com/gogurtenjoyer/nightmare-promptgen
             // Do NOT allow repo_id to be directly set by user or you deserve what happens next
             // Superprompt t5 model: roborovski/superprompt-v1  
@@ -208,9 +222,9 @@ let commands = [
                 typical_p:1,
                 use_cache:false
             }
-            let trackingmsg = await bot.createMessage(msg.channel.id,{content:':saluting_face: Improving prompt '+timestamp()})
+            let trackingmsg = await bot.createMessage(creator.channelid,{content:':saluting_face: Improving prompt '+timestamp()})
             let response = await invoke.nightmarePromptGen(null,parsedOptions,{type:'discord',msg:trackingmsg})
-            let newMsg = {content:':brain: **Generated prompts:**',embeds:[],tts:true}
+            let newMsg = {content:':brain: **Generated prompt:**',embeds:[],messageReference:{message_id:msg.id}}
             for (let answer in response){newMsg.embeds.push({description:response[answer].prompt,color:getRandomColorDec()})}
             return {messages:[newMsg],files:[]}
         }
@@ -221,7 +235,7 @@ let commands = [
         permissionLevel: 'all',
         aliases: ['depth'],
         prefix:'!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             debugLog('depth map creation triggered: '+args.join(' '))
             let img,imgurl
             let imgres = await extractImageAndUrlFromMessageOrReply(msg)
@@ -229,12 +243,12 @@ let commands = [
             if(img){
                 msg.addReaction('🫡') // salute emoji
                 //let result = await invoke.processImage(img,null,'depthmap',{a_mult:2,bg_th:0.1})
-                let trackingmsg = await bot.createMessage(msg.channel.id,{content:':saluting_face: Creating depth map '+timestamp()})
+                let trackingmsg = await bot.createMessage(creator.channelid,{content:':saluting_face: Creating depth map '+timestamp()})
                 let result = await invoke.processImage(img,null,'depthanything',{},{type:'discord',msg:trackingmsg})
                 if (result?.images?.length>0){
                     let buf = result.images[0]?.buffer
                     buf = await exif.modify(buf,'arty','imageType','depth')
-                    return {messages:[{embeds:[{description:'Converted image to depth map',color:getRandomColorDec()}]}],files:[{file:buf,name:result.images[0].name}]}
+                    return {messages:[{embeds:[{description:'Converted image to depth map',color:getRandomColorDec()}],messageReference:{message_id:msg.id}}],files:[{file:buf,name:result.images[0].name}]}
                 } else {
                     return {error:'Failed depth map creation'}
                 }
@@ -249,14 +263,14 @@ let commands = [
         permissionLevel: 'all',
         aliases: ['face'],
         prefix:'!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             debugLog('face crop triggered: '+args.join(' '))
             let img,imgurl
             let imgres = await extractImageAndUrlFromMessageOrReply(msg)
             if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
             if(img){
                 //let result = await invoke.processImage(img,null,'depthmap',{a_mult:2,bg_th:0.1})
-                let trackingmsg = await bot.createMessage(msg.channel.id,{content:':saluting_face: Cropping face '+timestamp()})
+                let trackingmsg = await bot.createMessage(creator.channelid,{content:':saluting_face: Cropping face '+timestamp()})
                 let options={face_id:0,minimum_confidence:0.5,x_offset:0,y_offset:0,padding:0,chunk:false}
                 if(args[0]){
                     debugLog('Seeking face '+args[0])
@@ -264,7 +278,7 @@ let commands = [
                 }
                 let result = await invoke.faceCrop(img,undefined,options,{type:'discord',msg:trackingmsg})
                 if (result?.images?.length>0){
-                    return {messages:[{embeds:[{description:'Cropped face from image',color:getRandomColorDec()}]}],files:[{file:result.images[0]?.file,name:result.images[0].name}]}
+                    return {messages:[{embeds:[{description:'Cropped face from image',color:getRandomColorDec()}],messageReference:{message_id:msg.id}}],files:[{file:result.images[0]?.file,name:result.images[0].name}]}
                 } else {
                     return {error:'Failed to crop face'}
                 }
@@ -279,19 +293,19 @@ let commands = [
         permissionLevel: 'all',
         aliases: ['edge','edges','canny'],
         prefix:'!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             debugLog('canny edge detection creation triggered: '+args.join(' '))
             let img,imgurl
             let imgres = await extractImageAndUrlFromMessageOrReply(msg)
             if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
             if(img){
-                let trackingmsg = await bot.createMessage(msg.channel.id,{content:':saluting_face: Creating canny edge detection '+timestamp()})
+                let trackingmsg = await bot.createMessage(creator.channelid,{content:':saluting_face: Creating canny edge detection '+timestamp()})
                 let result = await invoke.processImage(img,null,'canny',{low_threshold:100,high_threshold:200},{type:'discord',msg:trackingmsg})
                 if(result?.images?.length>0){
                     debugLog(result.images[0])
                     let buf = result.images[0]?.buffer
                     buf = await exif.modify(buf,'arty','imageType','canny')
-                    return {messages:[{embeds:[{description:'Converted to canny edge detection',color:getRandomColorDec()}]}],files:[{file:buf,name:result.images[0].name}]}
+                    return {messages:[{embeds:[{description:'Converted to canny edge detection',color:getRandomColorDec()}],messageReference:{message_id:msg.id}}],files:[{file:buf,name:result.images[0].name}]}
                 } else {
                     return {error:'Failed canny edge detection'}
                 }
@@ -306,18 +320,18 @@ let commands = [
         permissionLevel: 'all',
         aliases: ['lineart'],
         prefix:'!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             debugLog('lineart creation triggered: '+args.join(' '))
             let img,imgurl
             let imgres = await extractImageAndUrlFromMessageOrReply(msg)
             if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
             if(img){
-                let trackingmsg = await bot.createMessage(msg.channel.id,{content:':saluting_face: Creating lineart '+timestamp()})
+                let trackingmsg = await bot.createMessage(creator.channelid,{content:':saluting_face: Creating lineart '+timestamp()})
                 let result = await invoke.processImage(img,null,'lineart',{detect_resolution:512,image_resolution:512,coarse:false},{type:'discord',msg:trackingmsg})
                 if(result?.images?.length>0){
                     let buf = result.images[0]?.buffer
                     buf = await exif.modify(buf,'arty','imageType','lineart')
-                    return {messages:[{embeds:[{description:'Converted to lineart',color:getRandomColorDec()}]}],files:[{file:buf,name:result.images[0].name}]}
+                    return {messages:[{embeds:[{description:'Converted to lineart',color:getRandomColorDec()}],messageReference:{message_id:msg.id}}],files:[{file:buf,name:result.images[0].name}]}
                 } else {
                     return {error:'Failed lineart'}
                 }
@@ -332,18 +346,18 @@ let commands = [
         permissionLevel: 'all',
         aliases: ['lineartanime'],
         prefix:'!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             debugLog('lineart anime creation triggered: '+args.join(' '))
             let img,imgurl
             let imgres = await extractImageAndUrlFromMessageOrReply(msg)
             if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
             if(img){
-                let trackingmsg = await bot.createMessage(msg.channel.id,{content:':saluting_face: Creating lineart anime '+timestamp()})
+                let trackingmsg = await bot.createMessage(creator.channelid,{content:':saluting_face: Creating lineart anime '+timestamp()})
                 let result = await invoke.processImage(img,null,'lineartanime',{detect_resolution:512,image_resolution:512},{type:'discord',msg:trackingmsg})
                 if(result?.images?.length>0){
                     let buf = result.images[0]?.buffer
                     buf = await exif.modify(buf,'arty','imageType','lineartanime')
-                    return {messages:[{embeds:[{description:'Converted to lineart anime',color:getRandomColorDec()}]}],files:[{file:buf,name:result.images[0].name}]}
+                    return {messages:[{embeds:[{description:'Converted to lineart anime',color:getRandomColorDec()}],messageReference:{message_id:msg.id}}],files:[{file:buf,name:result.images[0].name}]}
                 } else {
                     return {error:'Failed lineart anime'}
                 }
@@ -358,7 +372,7 @@ let commands = [
         permissionLevel: 'all',
         aliases: ['colormap','colourmap','pixel','pixelart'],
         prefix:'!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             debugLog('color map creation triggered: '+args.join(' '))
             let img,imgurl
             let imgres = await extractImageAndUrlFromMessageOrReply(msg)
@@ -366,12 +380,12 @@ let commands = [
             if(img){
                 debugLog(args)
                 let tile_size = args.length>0 ? parseInt(args[0]) : 64
-                let trackingmsg = await bot.createMessage(msg.channel.id,{content:':saluting_face: Creating colormap with tilesize '+tile_size+' '+timestamp()})
+                let trackingmsg = await bot.createMessage(creator.channelid,{content:':saluting_face: Creating colormap with tilesize '+tile_size+' '+timestamp()})
                 let result = await invoke.processImage(img,null,'colormap',{tile_size:tile_size},{type:'discord',msg:trackingmsg})
                 if(result?.images?.length>0){
                     let buf = result.images[0]?.buffer
                     buf = await exif.modify(buf,'arty','imageType','colormap')
-                    return {messages:[{embeds:[{description:'Converted to colormap with tile size '+tile_size,color:getRandomColorDec()}]}],files:[{file:buf,name:result.images[0].name}]}
+                    return {messages:[{embeds:[{description:'Converted to colormap with tile size '+tile_size,color:getRandomColorDec()}],messageReference:{message_id:msg.id}}],files:[{file:buf,name:result.images[0].name}]}
                 } else {
                     return {error:'Failed color map'}
                 }
@@ -386,19 +400,19 @@ let commands = [
         permissionLevel: 'all',
         aliases: ['pose','openpose'],
         prefix:'!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             debugLog('pose detection creation triggered: '+args.join(' '))
             let img,imgurl
             let imgres = await extractImageAndUrlFromMessageOrReply(msg)
             if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
             if(img){
-                let trackingmsg = await bot.createMessage(msg.channel.id,{content:':saluting_face: Creating pose detection '+timestamp()})
+                let trackingmsg = await bot.createMessage(creator.channelid,{content:':saluting_face: Creating pose detection '+timestamp()})
                 let result = await invoke.processImage(img,null,'openpose',{image_resolution:512,draw_hands:true,draw_body:true,draw_face:true},{type:'discord',msg:trackingmsg})
                 if(result?.images?.length>0){
                     let buf = result.images[0]?.buffer
                     buf = await exif.modify(buf,'arty','imageType','openpose')
                     let components = [{type:1,components:[{type: 2, style: 1, label: 'Use this pose', custom_id: 'usepose', emoji: { name: '🤸', id: null}, disabled: true }]}]
-                    return {messages:[{embeds:[{description:'Converted to openpose detection',color:getRandomColorDec()}],components:components}],files:[{file:buf,name:result.images[0].name}]}
+                    return {messages:[{embeds:[{description:'Converted to openpose detection',color:getRandomColorDec()}],components:components,messageReference:{message_id:msg.id}}],files:[{file:buf,name:result.images[0].name}]}
                 }else{
                     return {error:'Failed at openpose detection'}
                 }
@@ -411,9 +425,9 @@ let commands = [
         name: 'esrgan',
         description: 'Return a 2x upscaled version of an input image',
         permissionLevel: 'all',
-        aliases: ['esrgan','upscale','enhance'],
+        aliases: ['esrgan','upscale','enhance','u'],
         prefix:'!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             debugLog('esrgan triggered: '+args.join(' '))
             // debugLog(host.config?.upscaling_methods?.upscaling_models)
             // RealESRGAN_x2plus.pth
@@ -426,14 +440,14 @@ let commands = [
             if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
             if(img){
                 msg.addReaction('🫡') // salute emoji
-                let trackingmsg = await bot.createMessage(msg.channel.id,{content:':saluting_face: Upscaling image '+timestamp()})
+                let trackingmsg = await bot.createMessage(creator.channelid,{content:':saluting_face: Upscaling image '+timestamp()})
                 let result = await invoke.processImage(img,null,'esrgan',{model_name:modelname},{type:'discord',msg:trackingmsg})
                 if(result.error){return {error:result.error}}
                 let buf = result.images[0]?.buffer
                 let resolution = await imageEdit.getResolution(buf)
                 let newWidth = resolution?.width
                 let newHeight = resolution?.height
-                return {messages:[{embeds:[{description:'Upscaled 2x with '+modelname+' to '+newWidth+' x '+newHeight,color:getRandomColorDec()}],components:[]}],files:[{file:buf,name:result.images[0].name}]}
+                return {messages:[{embeds:[{description:'Upscaled 2x with '+modelname+' to '+newWidth+' x '+newHeight,color:getRandomColorDec()}],components:[],messageReference:{message_id:msg.id}}],files:[{file:buf,name:result.images[0].name}]}
             } else {
                 return { error:'No image attached to upscale'}
             }
@@ -445,13 +459,13 @@ let commands = [
         permissionLevel: 'all',
         aliases: ['metadata'],
         prefix:'!',
-        command: async (args,msg)=>{
+        command: async (args,msg,creator)=>{
             let meta
             if(msg.messageReference?.messageID){
-                sourcemsg = await bot.getMessage(msg.channel.id,msg.messageReference.messageID)
+                sourcemsg = await bot.getMessage(creator.channelid,msg.messageReference.messageID)
                 meta = await extractMetadataFromMessage(sourcemsg)
             } else { meta = await extractMetadataFromMessage(msg)}
-            if(meta){ return {messages:[{content:'Extracted metadata from image:',embeds:[{description:JSON.stringify(meta,null,2),color:getRandomColorDec()}]}]}
+            if(meta){ return {messages:[{content:'Extracted metadata from image:',embeds:[{description:JSON.stringify(meta,null,2),color:getRandomColorDec()}],messageReference:{message_id:msg.id}}]}
             } else { return {error:'Unable to find metadata'}}
         }
     },
@@ -461,14 +475,14 @@ let commands = [
         permissionLevel: 'all',
         aliases: ['help'],
         prefix:'!',
-        command: async(args,msg)=>{
-            let response = await help()
+        command: async(args,msg,creator)=>{
+            //let response = await help()
             let helpTitles=['let\'s get wierd','help me help you','help!','wait, what ?']
             shuffle(helpTitles)
             let m='```diff\n'
             for (const c in commands){
                 let cmd=commands[c]
-                //if(cmd.permissionLevel!=='all'){m+=' :lock:'}
+                if(cmd.permissionLevel==='admin'){continue} // dont show admin commands
                 m+='-| '+cmd.name+': '
                 for (const a in cmd.aliases){
                     let alias=cmd.aliases[a]
@@ -501,40 +515,19 @@ let commands = [
             return {messages:[helpMsgObject]}
         }
     },
-    /*
     {
         name: 'text',
-        description: 'Create an image containing text for use as an controlnet input image, overlay if an image is supplied',
-        permissionLevel: 'all',
-        aliases: ['text'],
-        prefix:'!',
-        command: async (args,msg)=>{
-            let text = args.join(' ')
-            let img,imgurl
-            let imgres = await extractImageAndUrlFromMessageOrReply(msg)
-            if(imgres&&imgres?.img&&imgres?.url){img=imgres.img;imgurl=imgres.url}
-            if(messageHasImageAttachments(msg)){ img = await extractImageBufferFromMessage(msg)}
-            result = await imageEdit.textOverlay(text,img)
-            return result
-        }
-    },*/
-    {
-        name: 'textfontimage',
-        description: 'Create an image containing text for use as an controlnet input image, using invokes "textfontimage" community node from mickr777',
+        description: 'Create an image containing text for use as a controlnet input image',
         permissionLevel: 'all',
         aliases: ['text','textfontimage'],
         prefix:'!',
-        command: async (args,msg)=>{
+        command: async (args,msg,creator)=>{
+            //https://github.com/mickr777/textfontimage
             // todo import and use parseArgs to parse settings
-            let userId=msg.user?.id||msg.member?.id||msg.author?.id
             let options = parseArgs(args,{string:['row2']})
-            //let row2 = options['--'].join(' ')
-            //let fonts = fonturls.list()
             let fonturl = null
             if(options.font){
-                // convert font name to font url
                 fonturl=fonturls.get(options.font)
-                //debugLog(fonturl)
                 if(!fonturl){return {error:'Unable to find font name `'+options.font+'`'}}
             } else {
                 let f = fonturls.random()
@@ -553,13 +546,14 @@ let commands = [
                 padding:options.padding??100,
                 row_gap:options.gap??50
             }
-            //log(parsedOptions)
             result = await invoke.textFontImage(parsedOptions)
             if(result.error||result.images.length==0){return {error:'Error in textfontimage'}}
             let response = {
                 embeds:[
-                    {description:':tada: textfontimage result for <@'+userId+'>\nText: `'+parsedOptions.text_input+'`, Width:`'+result.images[0].width+'` , Height: `'+result.images[0].height+'`, Font: `'+options.font+'`, Padding: `'+parsedOptions.padding+'`, Gap: `'+parsedOptions.row_gap+'`',color:getRandomColorDec()}
-                ]/*,
+                    {description:':tada: textfontimage result for <@'+creator.discordid+'>\nText: `'+parsedOptions.text_input+'`, Width:`'+result.images[0].width+'` , Height: `'+result.images[0].height+'`, Font: `'+options.font+'`, Padding: `'+parsedOptions.padding+'`, Gap: `'+parsedOptions.row_gap+'`',color:getRandomColorDec()}
+                ],
+                messageReference:{message_id:msg.id}
+                /*,
                 components:[{type:1,components:[
                     {type: 2, style: 1, label: 'depth controlnet (clear)', custom_id: 'depthcontrol', emoji: { name: '🪄', id: null}, disabled: true },
                     {type: 2, style: 1, label: 'qrcode controlnet (subtle)', custom_id: 'qrcontrol', emoji: { name: '🪄', id: null}, disabled: true }
@@ -569,32 +563,25 @@ let commands = [
                 messages:[response],
                 files:[{file:result.images[0].buffer,name:result.images[0].name}]
             }
-            //return result
         }
     },
-    //https://github.com/mickr777/textfontimage
     {
         name: 'append',
         description: 'Append to a renders prompt and arguments',
         permissionLevel: 'all',
         aliases: ['..'],
         prefix:'',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             let replymsg,meta,img
             let parsedCmd = parseArgs(args,{boolean:['facemask','invert','hrf']})
             if(msg.messageReference?.messageID){
-                replymsg = await bot.getMessage(msg.channel.id, msg.messageReference.messageID)
+                replymsg = await bot.getMessage(creator.channelid, msg.messageReference.messageID)
                 if(replymsg.member.id===bot.application.id&&messageHasImageAttachments(replymsg)){
-                    //msg.addReaction('🫡') // salute emoji
                     meta = await extractMetadataFromMessage(replymsg)
                     meta.invoke.prompt = meta.invoke?.prompt+' '+parsedCmd._.join(' ')
-                } else {
-                    return
-                }
-            } else {
-                return
-            }
-            let trackingmsg = await bot.createMessage(msg.channel.id,{content:':saluting_face: dreaming '+timestamp()})
+                } else {return}
+            } else {return}
+            let trackingmsg = await bot.createMessage(creator.channelid,{content:':saluting_face: dreaming '+timestamp()})
             Object.keys(parsedCmd).forEach(k=>{
                 if(k!=='_'){meta.invoke[k] = parsedCmd[k]}
             })
@@ -617,11 +604,9 @@ let commands = [
         permissionLevel: 'all',
         aliases: ['avatar','avtr'],
         prefix:'!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             let avatars=[]
             let messages=[]
-            let userId=msg.user?.id||msg.member?.id||msg.author?.id
-            log(userId)
             let components = [{type:1,components:[{type: 2, style: 1, label: 'Pimp', custom_id: 'pimp', emoji: { name: '🪄', id: null}, disabled: true }]}]
             if(msg.mentions?.length>0){
                 for (const m in msg.mentions){
@@ -632,10 +617,10 @@ let commands = [
                     messages.push({embeds:[{description:'Here is <@'+uid+'>\'s full size avatar:',color:getRandomColorDec()}],components:components})
                 }
             } else {
-                let url=await getAvatarUrl(userId)
+                let url=await getAvatarUrl(creator.discordid)
                 let buf = await urlToBuffer(url)
                 avatars.push({file:buf,name:getUUID()+'.png'})
-                messages.push({embeds:[{description:'Here is <@'+userId+'>\'s full size avatar:',color:getRandomColorDec()}],components:components})
+                messages.push({embeds:[{description:'Here is <@'+userId+'>\'s full size avatar:',color:getRandomColorDec()}],components:components,messageReference:{message_id:msg.id}})
             }
             if(avatars.length>0){return {messages:messages,files:avatars}}
         }
@@ -646,7 +631,7 @@ let commands = [
         permissionLevel: 'all',
         aliases:['models','mdl'],
         prefix:'!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             let models = await invoke.allUniqueModelsAvailable()
             let sd1 = models.filter(obj => obj.base_model === 'sd-1')
             let sd2 = models.filter(obj => obj.base_model === 'sd-2')
@@ -657,7 +642,8 @@ let commands = [
                 embeds:[
                     {description:'Models currently available\n**sd-1**: '+sd1.length+' , **sd-2**: '+sd2.length+' **sdxl**: '+sdxl.length,color:getRandomColorDec()}
                 ],
-                components:[]
+                components:[],
+                messageReference:{message_id:msg.id}
             }
             let basemodels = ['sd-1','sd-2','sdxl']
             for (const modeltype in basemodels){
@@ -668,7 +654,7 @@ let commands = [
                     marr.push(model.model_name)
                 }
                 if(marr.length>0){
-                    let newdlg = {color:getRandomColorDec(),description:'**'+basemodels[modeltype]+' models**:\n'+marr.join('\n')}
+                    let newdlg = {color:getRandomColorDec(),description:'**'+basemodels[modeltype]+' models**:\n'+marr.join('\n'),messageReference:{message_id:msg.id}}
                     dialog.embeds.push(newdlg)
                 }
             }
@@ -681,7 +667,7 @@ let commands = [
         permissionLevel: 'all',
         aliases:['lora','loras'],
         prefix:'!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             let models = await invoke.allUniqueLorasAvailable()
             let sd1 = models.filter(obj => obj.base_model === 'sd-1')
             let sd2 = models.filter(obj => obj.base_model === 'sd-2')
@@ -692,7 +678,8 @@ let commands = [
                 embeds:[
                     {description:'Loras currently available\n**sd-1**: '+sd1.length+' , **sd-2**: '+sd2.length+' **sdxl**: '+sdxl.length,color:getRandomColorDec()}
                 ],
-                components:[]
+                components:[],
+                messageReference:{message_id:msg.id}
             }
             let basemodels = ['sd-1','sd-2','sdxl']
             for (const modeltype in basemodels){
@@ -716,7 +703,7 @@ let commands = [
         permissionLevel:'all',
         aliases:['nightmare','n'],
         prefix:'!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             // Requires custom node https://github.com/gogurtenjoyer/nightmare-promptgen
             // Do NOT allow repo_id to be directly set by user or you deserve what happens next
             // OG 500mb model:  cactusfriend/nightmare-invokeai-prompts
@@ -735,9 +722,9 @@ let commands = [
                 typical_p:1,
                 use_cache:false
             }
-            let trackingmsg = await bot.createMessage(msg.channel.id,{content:':saluting_face: Having a nightmare '+timestamp()})
+            let trackingmsg = await bot.createMessage(creator.channelid,{content:':saluting_face: Having a nightmare '+timestamp()})
             let response = await invoke.nightmarePromptGen(null,parsedOptions,{type:'discord',msg:trackingmsg})
-            let newMsg = {content:':brain: **Generated prompts:**',embeds:[]}
+            let newMsg = {content:':brain: **Generated prompt:**',embeds:[],messageReference:{message_id:msg.id}}
             for (let answer in response){newMsg.embeds.push({description:response[answer].prompt,color:getRandomColorDec()})}
             return {messages:[newMsg],files:[]}
         }
@@ -748,7 +735,7 @@ let commands = [
         permissionLevel:'all',
         aliases:['load'],
         prefix:'!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             // get image metadata, show a frame similar to an image result with the controls
             msg.addReaction('🫡') // salute emoji
             let result
@@ -769,7 +756,7 @@ let commands = [
         permissionLevel:'all',
         aliases:['aspect','ar'],
         prefix:'!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             if (args[0]){
                 let w = args[0].split('x')[0]
                 let h = args[0].split('x')[1]
@@ -789,7 +776,8 @@ let commands = [
                 let ar = await aspectRatio.resToRatio(w,h)
                 let newMsg = {
                     content:'',
-                    embeds:[{description:':straight_ruler: Resolution of `'+w+'` x `'+h+'` has an aspect ratio of `'+ar+'`',color:getRandomColorDec()}]
+                    embeds:[{description:':straight_ruler: Resolution of `'+w+'` x `'+h+'` has an aspect ratio of `'+ar+'`',color:getRandomColorDec()}],
+                    messageReference:{message_id:msg.id}
                 }
                 return {messages:[newMsg],files:[]}
             }
@@ -801,13 +789,14 @@ let commands = [
         permissionLevel:'all',
         aliases:['res','resolution'],
         prefix:'!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             let imgres = await extractImageAndUrlFromMessageOrReply(msg)
             if(!imgres||!imgres?.img){return {error:'No compatible image found'}}
             let res = await imageEdit.getResolution(imgres.img)
             let newMsg = {
                 content:'',
-                embeds:[{description:'Image resolution is `'+res.width+'x'+res.height+'`',color:getRandomColorDec()}]
+                embeds:[{description:'Image resolution is `'+res.width+'x'+res.height+'`',color:getRandomColorDec()}],
+                messageReference:{message_id:msg.id}
             }
             return {messages:[newMsg],files:[]}
         }
@@ -818,14 +807,14 @@ let commands = [
         permissionLevel:'admin', // incomplete
         aliases:['handfix'],
         prefix:'!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             let imgres = await extractImageAndUrlFromMessageOrReply(msg)
             if(!imgres||!imgres?.img){return {error:'No compatible image found'}}
-            let trackingmsg = await bot.createMessage(msg.channel.id,{content:':saluting_face: attempting to fix hands '+timestamp()})
+            let trackingmsg = await bot.createMessage(creator.channelid,{content:':saluting_face: attempting to fix hands '+timestamp()})
             let result = await invoke.handfix(imgres.img,undefined,undefined,{type:'discord',msg:trackingmsg})
             debugLog(result)
             return {
-                messages:[{embeds:[{description:'Attempted hand fix',color:getRandomColorDec()}]}],
+                messages:[{embeds:[{description:'Attempted hand fix',color:getRandomColorDec()}],messageReference:{message_id:msg.id}}],
                 files:[
                     {file:result.images[1].buffer,name:result.images[1].name}
                 ]
@@ -838,7 +827,7 @@ let commands = [
         permissionLevel:'admin',
         aliases:['tier1'],
         prefix:'!!!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             // extract all the referened users from the message
             let userids = msg.mentions.map(o=>o.id)
             let r = ''
@@ -846,7 +835,7 @@ let commands = [
                 await membership.setTier(userids[id],1)
                 r+='<@'+userids[id]+'> is now tier 1 \n'
             }
-            let newMsg = {content:'',embeds:[{description:r,color:getRandomColorDec()}]}
+            let newMsg = {content:'',embeds:[{description:r,color:getRandomColorDec()}],messageReference:{message_id:msg.id}}
             return {messages:[newMsg],files:[]}
         }
     },
@@ -856,7 +845,7 @@ let commands = [
         permissionLevel:'admin',
         aliases:['tier0'],
         prefix:'!!!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             // extract all the referened users from the message
             let userids = msg.mentions.map(o=>o.id)
             let r = ''
@@ -864,7 +853,7 @@ let commands = [
                 await membership.setTier(userids[id],0)
                 r+='<@'+userids[id]+'> is now tier 0 \n'
             }
-            let newMsg = {content:'',embeds:[{description:r,color:getRandomColorDec()}]}
+            let newMsg = {content:'',embeds:[{description:r,color:getRandomColorDec()}],messageReference:{message_id:msg.id}}
             return {messages:[newMsg],files:[]}
         }
     },
@@ -874,10 +863,10 @@ let commands = [
         permissionLevel:'admin',
         aliases:['test'],
         prefix:'!!!',
-        command: async(args,msg)=>{
-            
+        command: async(args,msg,creator)=>{
+            imageproxy.purgeOld()
             let newMsg = {
-                content:'timestamp gen '+timestamp(),
+                content:'Purged images older then 24hrs from caching proxy',
                 //embeds:[{description:'Enabled tier1 membership for ',color:getRandomColorDec()}]
             }
             return {messages:[newMsg],files:[]}
@@ -889,27 +878,22 @@ let commands = [
         permissionLevel:'admin',
         aliases:['addcredit','addcredits'],
         prefix:'!!!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             // extract all the referened users from the message
             let userids = msg.mentions.map(o=>o.id)
+            let usernames = msg.mentions.map(o=>o.username)
             let r = ''
             let amount = 0
-            if(args[0]){
-                amount=parseInt(args[0])
-            } else {
-                return {error:amount+' is not a valid amount'}
-            }
+            if(args[0]){ amount=parseInt(args[0])
+            } else {return {error:amount+' is not a valid amount'}}
             for (id in userids){
                 debugLog('Adding '+amount+' to userid '+userids[id])
-                let balance = await credits.balance(userids[id])
+                let balance = await credits.balance({discordid:userids[id],username:usernames[id]})
                 await credits.increment(userids[id],amount)
                 balance=balance+amount
                 r+='<@'+userids[id]+'> balance is now :coin: '+balance+' \n'
             }
-            let newMsg = {
-                content:r,
-                //embeds:[{description:'Enabled tier1 membership for ',color:getRandomColorDec()}]
-            }
+            let newMsg = {embeds:[{description:r,color:getRandomColorDec()}],messageReference:{message_id:msg.id}}
             return {messages:[newMsg],files:[]}
         }
     },
@@ -919,11 +903,11 @@ let commands = [
         permissionLevel:'admin',
         aliases:['reinit'],
         prefix:'!!!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             // manually trigger rescan/reinitialize of all hosts using invoke.init()
             // for the truly impatient, scheduler already runs this every 5 minutes
             invoke.init()
-            return {messages:[{content:'',embeds:[{description:':information_source: Scanning all invoke backends for model changes',color:getRandomColorDec()}]}],files:[]}
+            return {messages:[{content:'',embeds:[{description:':information_source: Scanning all invoke backends for model changes',color:getRandomColorDec()}],messageReference:{message_id:msg.id}}],files:[]}
         }
     },
     {
@@ -932,9 +916,9 @@ let commands = [
         permissionLevel:'admin',
         aliases:['hosts'],
         prefix:'!!!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             // Get status of all invoke hosts
-            let newMsg = {content:'',embeds:[{description:'',color:getRandomColorDec()}]}
+            let newMsg = {content:'',embeds:[{description:'',color:getRandomColorDec()}],messageReference:{message_id:msg.id}}
             let hoststxt=':information_source: **backend status**\n'
             for (h in cluster){
                 let host = cluster[h]
@@ -951,7 +935,7 @@ let commands = [
         permissionLevel: 'admin',
         aliases: ['unregisterslashcommands'],
         prefix:'!!!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             await bot.bulkEditCommands([])
             let response = {content:':information_source: Unregistered Slash Commands'}
             return {messages:[response]}
@@ -961,12 +945,38 @@ let commands = [
         name: 'restart',
         description: 'forcibly restart the bot process',
         permissionLevel: 'admin',
-        aliases: ['restart','rstrt'],
+        aliases: ['restart'],
         prefix:'!!!',
-        command: async(args,msg)=>{
+        command: async(args,msg,creator)=>{
             process.exit(0)
         }
-    }
+    },
+    {
+        name:'togglehost',
+        description:'Toggle status of a backend host by name',
+        permissionLevel:'admin',
+        aliases:['togglehost','th'],
+        prefix:'!!!',
+        command: async(args,msg,creator)=>{
+            if (args[0]){
+                let hostnametodisable = args[0].toString()
+                for (h in cluster){
+                    let host = cluster[h]
+                    if(host.name===hostnametodisable){
+                        if(host.disabled){
+                            host.online=true
+                            host.disabled=false
+                            return {messages:[{embeds:[{description:':white_check_mark: Enabled backend host `'+hostnametodisable+'`',color:getRandomColorDec()}],messageReference:{message_id:msg.id}}]}
+                        } else {
+                            host.online=false
+                            host.disabled=true
+                            return {messages:[{embeds:[{description:':x: Disabled backend host `'+hostnametodisable+'`',color:getRandomColorDec()}],messageReference:{message_id:msg.id}}]}
+                        }
+                    }
+                }
+            }
+        }        
+    },
 ]
 
 // generate simple lookup array of all command aliases with prefixes
@@ -975,11 +985,8 @@ commands.forEach(c=>{c.aliases.forEach(a=>{prefixes.push(c.prefix+a)})})
 
 parseMsg=async(msg)=>{
     // normalise values between responses in channel and DM
-    let userid = msg.member?.id||msg.author?.id
-    let username = msg.user?.username||msg.member?.username||msg.author?.username
-    let channelid = msg.channel?.id
-    let guildid = msg.guildID||'DM'
-    if(!auth.check(userid,guildid,channelid)){return} // if not authorised, ignore
+    let creator = getCreatorInfoFromMsg(msg)
+    if(!auth.check(creator.discordid,creator.guildid,creator.channelid)){return} // if not authorised, ignore
     if(msg.length===0||msg.content.length===0){return} // if empty message (or just an image) ignore
     let firstword = msg.content.split(' ')[0].toLowerCase()
     if(prefixes.includes(firstword)){
@@ -992,22 +999,22 @@ parseMsg=async(msg)=>{
                     switch(c.permissionLevel){
                         case 'all':{break} // k fine
                         case 'admin':{
-                            if(parseInt(userid)!==config.adminID){
+                            if(creator.discordid.toString()!==config.adminID.toString()){
                                 log('Denied admin command for '+username)
                                 return
                             }
                             break
                         }
                     }
-                    log(c.name+' triggered by '+username+' in '+msg.channel.name??channelid+' ('+guildid+')')
+                    log(c.name+' triggered by '+creator.username+' in '+msg.channel.name??creator.channelid+' ('+creator.guildid+')')
                     try{
-                        let result = await c.command(args,msg)
+                        let result = await c.command(args,msg,creator)
                         let messages = result?.messages
                         let files = result?.files
                         let error = result?.error
                         if(error){
                             log('Error: '.bgRed+' '+error)
-                            chat(channelid,{content:'<@'+userid+'>', embeds:[{description:':warning: '+error,color:getRandomColorDec()}]})
+                            chat(creator.channelid,{content:'<@'+creator.discordid+'>', embeds:[{title:':warning: Error',description:error,color:getRandomColorDec()}]})
                             return
                         }
                         if(!Array.isArray(messages)){messages=[messages]}
@@ -1024,9 +1031,9 @@ parseMsg=async(msg)=>{
                                 file=files.shift()// grab the top file
                             }
                             if(message&&file){
-                                chat(channelid,message,file) // Send message with attachment
+                                chat(creator.channelid,message,file) // Send message with attachment
                             }else if(message){
-                                chat(channelid,message) // Send message, no attachment
+                                chat(creator.channelid,message) // Send message, no attachment
                             }
                         })
                     } catch (err) {
@@ -1047,10 +1054,6 @@ returnMessageResult = async(msg,result)=>{
             let image=result.images[i]
             let meta=await exif.load(image.buffer)
             message = await imageResultMessage(msg.member?.id||msg.author?.id,image,result,meta)
-            if(msg.id){
-                //debugLog(msg)
-                message.messageReference={message_id:msg.id}
-            }
             messages.push(message)
             files.push({file:image.buffer,name:image.name})
         }
@@ -1248,9 +1251,6 @@ getAvatarUrl = async(userId)=>{
 }
 
 imageResultMessage = async(userid,img,result,meta)=>{
-    //debugLog('debug imageresultmessage')
-    //debugLog(meta)
-    //debugLog(result)
     let p=meta?.invoke?.prompt
     let cost = meta.invoke?.cost??null
     //if(result.job.negative_prompt){p=p+' ['+result.job.negative_prompt+']'}
@@ -1283,14 +1283,10 @@ imageResultMessage = async(userid,img,result,meta)=>{
     if(meta.invoke?.seamlessx===true||meta.invoke?.seamlessy===true){t+=' :knot: '}
     if(meta.invoke?.seamlessx===true){t+='x '}
     if(meta.invoke?.seamlessy===true){t+='y '}
-    //if(cost){t+=' :coin: '+meta.invoke.cost}
     let colordec=getRandomColorDec()
     let content = ':brain: <@'+userid+'>'
     if(config.credits?.enabled&&cost){
-        // Charge user, display remaining balance
-        //let balance = await credits.decrement(userid,cost)
-        let balance = await credits.balance(userid)
-        //log(balance)
+        let balance = await credits.balance(meta.invoke.creator)
         content+=' :coin: '+balance+'(-'+cost+')'
     }
     let newmsg = {
@@ -1384,7 +1380,6 @@ const checkUserForJob=async(job)=>{
     // is job errored already
     if(job.error){return job}
     // do they have the funds
-    //let balance = await credits.balance(job.creator.discordid)
     let balance = await credits.balance(job.creator)
     if(balance<job.cost){job.error = 'Insufficient :coin:'; return job}
     // check model type allowed
@@ -1408,7 +1403,6 @@ module.exports = {
         extractImageUrlsFromMessage,
         extractTextFileFromMessageOrReply,
         messageHasImageAttachments,
-        returnMessageResult,
-        checkUserForJob
+        returnMessageResult
     }
 }
