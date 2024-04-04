@@ -203,26 +203,31 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         seamless_y:job.seamlessy===true?true:false
     }
     // Reformat lora array for metadata object
-    if(job.loras?.length>0){for (const l in job.loras){metaObject.loras.push({lora:{name:job.loras[l].model.name,base:job.loras[l].model.base},weight:job.loras[l].weight})}}
+    if(job.loras?.length>0){
+        for (const l in job.loras){
+            metaObject.loras.push({model:{name:job.loras[l].model.name,base:job.loras[l].model.base,key:job.loras[l].key,hash:job.loras[l].hash,type:'lora'},weight:job.loras[l].weight})
+        }
+        debugLog(metaObject.loras) // todo bug above related to format of loras metadata, fix, key and hash are undefined
+    }
     if(job.control&&job.initimgObject){
         //metaObject.controlnets.push({controlnet:{model_name:job.control}})
     }
     if(['sd-1','sd-2'].includes(job.model.base)){
         node('main_model_loader',{model:job.model,is_intermediate:true},[])
         //node('vae_loader',{vae_model:{model_name:'sd-vae-ft-mse',base_model:'sd-1'},is_intermediate:true},[])
-        if(job.loras?.length>0){for (const l in job.loras) {node('lora_loader',{is_intermediate:true,lora:{base:job.loras[l].model.base,name:job.loras[l].model.name},weight:job.loras[l].weight},[pipe(lastid.clip,'clip','SELF','clip'),pipe(lastid.unet,'unet','SELF','unet')])}} // lora loader, chain multiple loras with clip and unet into each other
+        if(job.loras?.length>0){
+            for (const l in job.loras) {
+                node('lora_loader',{is_intermediate:true,lora:{base:job.loras[l].model.base,name:job.loras[l].model.name,key:job.loras[l].key,hash:job.loras[l].hash,type:'lora'},weight:job.loras[l].weight},[pipe(lastid.clip,'clip','SELF','clip'),pipe(lastid.unet,'unet','SELF','unet')])}} // lora loader, chain multiple loras with clip and unet into each other
     } else {
         node('sdxl_model_loader',{model:job.model,is_intermediate:true},[])
         if(job.loras?.length>0){
-            debugLog('Before lora node, unet id is '+lastid.unet)
             for (const l in job.loras) {
-                node('sdxl_lora_loader',{is_intermediate:true,lora:{base:job.loras[l].model.base,name:job.loras[l].model.name},weight:job.loras[l].weight},
+                node('sdxl_lora_loader',{is_intermediate:true,lora:{base:job.loras[l].model.base,name:job.loras[l].model.name,key:job.loras[l].key,hash:job.loras[l].hash,type:'lora'},weight:job.loras[l].weight},
                 [
                     pipe(lastid.clip,'clip','SELF','clip'),
                     pipe(lastid.clip2,'clip2','SELF','clip2'),
                     pipe(lastid.unet,'unet','SELF','unet')
                 ])
-                debugLog('Added lora node, unet id is '+lastid.unet)
             }
             }
     }
@@ -477,7 +482,7 @@ const cancelBatch = async(batchid,host=null,name='arty')=>{
     }
 }
 
-const isLoraMatch = (lora,loras)=>{return loras.some(jobLora => jobLora.name === lora.model_name)}
+const isLoraMatch = (lora,loras)=>{return loras.some(jobLora => jobLora.name === lora.name)}
 function findHostsWithJobLoras(hosts, job) {
   // Filter the hosts array based on the loras
     return hosts.filter(host => {
@@ -834,7 +839,7 @@ const extractLoras = async (inputString) => {
         lora.model = await loranameToObject(lora.name)
         if(!lora.model) break
         stripped = inputString.replace(lora.m, '')
-        newloras.push({name:lora.name,model:lora.model,weight:lora.weight})
+        newloras.push({name:lora.name,model:lora.model,weight:lora.weight,key:lora.key,hash:lora.hash,type:lora.type})
     }
     return {
         loras: newloras,
@@ -867,12 +872,14 @@ const allUniqueLorasAvailable = async () => {
     let uniqueLorasMap = new Map()
     for (const host of availableHosts) {
         for (const model of host.lora) {
-            const key = `${model.name}-${model.base}-${model.type}`
+            const key = `${model.name}-${model.base}-${model.type}-${model.key}-${model.hash}`
             if (!uniqueLorasMap.has(key)) {
                 uniqueLorasMap.set(key, {
                     name: model.name,
                     base: model.base,
                     type: model.type,
+                    key: model.key,
+                    hash: model.hash,
                     description: model.description
                 })
             }
@@ -1392,7 +1399,7 @@ const loranameToObject = async(loraname)=>{
         let host=cluster[h]
         let lora=host.lora.find(m=>{return m.name===loraname})
         if(isObject(lora)){
-            return {name: lora.name,base: lora.base}
+            return {name: lora.name,base: lora.base, key:lora.key, hash:lora.hash, type:'lora'}
         }else{log('Error: No lora with name '+loraname+' on host '+host.name)}
     }
     throw {error:'Unable to find online host with lora: `'+loraname+'`'}
