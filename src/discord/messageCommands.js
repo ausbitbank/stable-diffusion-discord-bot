@@ -122,7 +122,7 @@ let commands = [
                 newprompt+='\nFile attachment '+txtObject.filename+' :\n```'+txtObject.txt+'\n```'
             }
             */
-            let initResponse = ':thought_balloon: `'+newprompt.substr(0,1900)+'` '+timestamp()
+            let initResponse = '<@'+creator.discordid+'> :thought_balloon: `'+newprompt.substr(0,1900)+'` '+timestamp()
             let stream
             try{
                 stream = await llm.chatStream(newprompt)
@@ -135,7 +135,8 @@ let commands = [
 
             startEditing=()=>{
                 intervalId = setInterval(()=>{
-                    debugLog('llm tick')
+                    // todo replace this whole timer based system cos its shit
+                    //debugLog('llm tick')
                     //debugLog(stream)
                     if(!isUpdating&&latestUpdate){
                         const update = latestUpdate
@@ -633,9 +634,9 @@ let commands = [
         prefix:'!',
         command: async(args,msg,creator)=>{
             let models = await invoke.allUniqueModelsAvailable()
-            let sd1 = models.filter(obj => obj.base_model === 'sd-1')
-            let sd2 = models.filter(obj => obj.base_model === 'sd-2')
-            let sdxl = models.filter(obj => obj.base_model === 'sdxl')
+            let sd1 = models.filter(obj => obj.base === 'sd-1')
+            let sd2 = models.filter(obj => obj.base === 'sd-2')
+            let sdxl = models.filter(obj => obj.base === 'sdxl')
             let dialog = {
                 content:'',
                 flags:64,
@@ -647,11 +648,11 @@ let commands = [
             }
             let basemodels = ['sd-1','sd-2','sdxl']
             for (const modeltype in basemodels){
-                let filteredModels = models.filter(obj=>obj.base_model===basemodels[modeltype])
+                let filteredModels = models.filter(obj=>obj.base===basemodels[modeltype])
                 let marr=[]
                 for (const m in filteredModels){
                     let model = filteredModels[m]
-                    marr.push(model.model_name)
+                    marr.push(model.name)
                 }
                 if(marr.length>0){
                     let newdlg = {color:getRandomColorDec(),description:'**'+basemodels[modeltype]+' models**:\n'+marr.join('\n'),messageReference:{message_id:msg.id}}
@@ -669,9 +670,9 @@ let commands = [
         prefix:'!',
         command: async(args,msg,creator)=>{
             let models = await invoke.allUniqueLorasAvailable()
-            let sd1 = models.filter(obj => obj.base_model === 'sd-1')
-            let sd2 = models.filter(obj => obj.base_model === 'sd-2')
-            let sdxl = models.filter(obj => obj.base_model === 'sdxl')
+            let sd1 = models.filter(obj => obj.base === 'sd-1')
+            let sd2 = models.filter(obj => obj.base === 'sd-2')
+            let sdxl = models.filter(obj => obj.base === 'sdxl')
             let dialog = {
                 content:'',
                 flags:64,
@@ -683,11 +684,11 @@ let commands = [
             }
             let basemodels = ['sd-1','sd-2','sdxl']
             for (const modeltype in basemodels){
-                let filteredModels = models.filter(obj=>obj.base_model===basemodels[modeltype])
+                let filteredModels = models.filter(obj=>obj.base===basemodels[modeltype])
                 let marr=[]
                 for (const m in filteredModels){
                     let model = filteredModels[m]
-                    marr.push(model.model_name)
+                    marr.push(model.name)
                 }
                 if(marr.length>0){
                     let newdlg = {color:getRandomColorDec(),description:'**'+basemodels[modeltype]+' loras**:\n'+marr.join('\n')}
@@ -1261,13 +1262,13 @@ imageResultMessage = async(userid,img,result,meta)=>{
     if(meta.invoke?.scheduler){t+=' :eye: '+meta.invoke.scheduler}
     if(meta.invoke?.seed){t+=' :game_die: '+meta.invoke.seed}
     if(meta.invoke?.scale){t+=' :scales: '+meta.invoke.scale}
-    if(meta.invoke?.model){t+=' :floppy_disk: '+meta.invoke.model?.model_name}
+    if(meta.invoke?.model){t+=' :floppy_disk: '+meta.invoke.model?.name}
     if(meta.invoke?.clipskip){t+=' :clipboard: '+meta.invoke.clipskip}
     if(meta.invoke?.strength){t+=' :muscle: '+meta.invoke.strength}
     if(meta.invoke?.lscale&&meta.invoke?.lscale!==1){t+=' :mag_right: '+meta.invoke.lscale}
     if(meta.invoke?.loras?.length>0){
         t+=' :pill: '
-        for (const l in meta.invoke?.loras){t+=meta.invoke.loras[l].lora.model_name+'('+meta.invoke.loras[l].weight+') '}
+        for (const l in meta.invoke?.loras){t+=meta.invoke.loras[l].lora.name+'('+meta.invoke.loras[l].weight+') '}
     }
     if(meta.invoke?.inputImageUrl){t+=' :paperclip: [img]('+meta.invoke.inputImageUrl+')'}
     if(meta.invoke?.control){t+=' :video_game: '+meta.invoke.control}
@@ -1349,11 +1350,11 @@ imageResultMessage = async(userid,img,result,meta)=>{
     // get all available controlnet modes and ipa types for base model
     if(meta.invoke?.inputImageUrl&&meta.invoke?.control){
         let cnwo = []
-        let basemodel = meta.invoke.model.base_model
+        let basemodel = meta.invoke.model.base
         //let controltypes = ['ipa','i2l','depth','canny','openpose','qrCodeMonster_v20']
         if(meta.invoke.control==='ipa'){ // if control=ipa, we actually need to modify ipamodel
             let ipatypes = await invoke.allUniqueIpAdaptersAvailable()
-            ipatypes = ipatypes.filter(o=>o.base_model===basemodel).map(o=>o.model_name)
+            ipatypes = ipatypes.filter(o=>o.base===basemodel).map(o=>o.name)
             for (const i in ipatypes){
                 let o = ipatypes[i]
                 let od = (meta.invoke.ipamodel===o) ? 'Selected' : null
@@ -1362,7 +1363,7 @@ imageResultMessage = async(userid,img,result,meta)=>{
             newmsg.components.push({type:1,components:[{type: 3,custom_id:'edit-x-ipamodel',placeholder:'Ip Adapter: '+meta.invoke.ipamodel,min_values:1,max_values:1,options:cnwo}]})
         } else { // otherwise assume control is the name of a controlnet
             let controltypes = await invoke.allUniqueControlnetsAvailable()
-            controltypes = controltypes.filter(o=>o.base_model===basemodel).map(o=>o.model_name)
+            controltypes = controltypes.filter(o=>o.base===basemodel).map(o=>o.name)
             for (const i in controltypes){
                 let o = controltypes[i]
                 let od = (meta.invoke.control===o) ? 'Selected' : null
@@ -1383,8 +1384,8 @@ const checkUserForJob=async(job)=>{
     let balance = await credits.balance(job.creator)
     if(balance<job.cost){job.error = 'Insufficient :coin:'; return job}
     // check model type allowed
-    let modelAllowed = await auth.userAllowedFeature(job.creator,job.model.base_model)
-    if(modelAllowed){return job}else{job.error=job.model.base_model+' is for members only';return job}
+    let modelAllowed = await auth.userAllowedFeature(job.creator,job.model.base)
+    if(modelAllowed){return job}else{job.error=job.model.base+' is for members only';return job}
 }
 
 const getCreatorInfoFromMsg=(msg)=>{
