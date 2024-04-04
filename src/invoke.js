@@ -38,6 +38,8 @@ const initHost=async(host)=>{
     try{
         // on connect, get all the backend info we can in parallel
         //host.online=false // do not disable during sync or jobs will fail
+        // todo update for invoke4 v2 models api, reduce to single call and filter afterwards
+        // since invoke4 no controlnets or embeddings are visible ?
         const [version, models, lora, ti, vae, controlnet, ip_adapter, t2i_adapter, cfg] = await Promise.all(
             [
                 getVersion(host),
@@ -72,6 +74,7 @@ const initHost=async(host)=>{
         queueStatus(host) // connect, prune old jobs from queue
         if(host.socket.connected===false){subscribeQueue(host,'arty')}
     } catch (err) {
+        debugLog(err)
         if(host.online===true||!host.lastFail){
             log('Failed to init host '.bgRed.black+host.name.bgRed+' : '+err.code)
         }
@@ -102,6 +105,8 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     let lastid={unet:null,clip:null,vae:null,latents:null,noise:null,image:null,width:null,height:null,controlnet:null,mask:null,denoise_mask:null,width:null,height:null,metadata:null,merge_metadata:null,core_metadata:null,metadata_item:null,ip_adapter:null,t2i_adapter:null,collect:null,string:null}
     let pipe = (fromnode,fromfield,tonode,tofield)=>{return {source:{node_id:fromnode,field:fromfield},destination:{node_id:tonode,field:tofield}}}
     let node = (type,params,edges)=>{
+        //debugLog(type)
+        //debugLog(params)
         let newid=getUUID()
         graph.nodes[newid]={}
         graph.nodes[newid].type=type
@@ -198,20 +203,20 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         seamless_y:job.seamlessy===true?true:false
     }
     // Reformat lora array for metadata object
-    if(job.loras?.length>0){for (const l in job.loras){metaObject.loras.push({lora:{model_name:job.loras[l].model.model_name,base_model:job.loras[l].model.base_model},weight:job.loras[l].weight})}}
+    if(job.loras?.length>0){for (const l in job.loras){metaObject.loras.push({lora:{name:job.loras[l].model.name,base:job.loras[l].model.base},weight:job.loras[l].weight})}}
     if(job.control&&job.initimgObject){
         //metaObject.controlnets.push({controlnet:{model_name:job.control}})
     }
-    if(['sd-1','sd-2'].includes(job.model.base_model)){
+    if(['sd-1','sd-2'].includes(job.model.base)){
         node('main_model_loader',{model:job.model,is_intermediate:true},[])
         //node('vae_loader',{vae_model:{model_name:'sd-vae-ft-mse',base_model:'sd-1'},is_intermediate:true},[])
-        if(job.loras?.length>0){for (const l in job.loras) {node('lora_loader',{is_intermediate:true,lora:{base_model:job.loras[l].model.base_model,model_name:job.loras[l].model.model_name},weight:job.loras[l].weight},[pipe(lastid.clip,'clip','SELF','clip'),pipe(lastid.unet,'unet','SELF','unet')])}} // lora loader, chain multiple loras with clip and unet into each other
+        if(job.loras?.length>0){for (const l in job.loras) {node('lora_loader',{is_intermediate:true,lora:{base:job.loras[l].model.base,name:job.loras[l].model.name},weight:job.loras[l].weight},[pipe(lastid.clip,'clip','SELF','clip'),pipe(lastid.unet,'unet','SELF','unet')])}} // lora loader, chain multiple loras with clip and unet into each other
     } else {
         node('sdxl_model_loader',{model:job.model,is_intermediate:true},[])
         if(job.loras?.length>0){
             debugLog('Before lora node, unet id is '+lastid.unet)
             for (const l in job.loras) {
-                node('sdxl_lora_loader',{is_intermediate:true,lora:{base_model:job.loras[l].model.base_model,model_name:job.loras[l].model.model_name},weight:job.loras[l].weight},
+                node('sdxl_lora_loader',{is_intermediate:true,lora:{base:job.loras[l].model.base,name:job.loras[l].model.name},weight:job.loras[l].weight},
                 [
                     pipe(lastid.clip,'clip','SELF','clip'),
                     pipe(lastid.clip2,'clip2','SELF','clip2'),
@@ -242,10 +247,12 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     if(job.initimgObject){
         debugLog('Adding init img to graph')
         if(job.control==='ipa'){ // todo rework so it can be used independantly of controlnet or i2l , allow model selection
-            let ipamodel=(job.model.base_model==='sdxl')?'ip_adapter_sdxl':'ip_adapter_sd15'
+            let ipamodel=(job.model.base==='sdxl')?'ip_adapter_sdxl':'ip_adapter_sd15'
             if(job.ipamodel){ipamodel=job.ipamodel}
-            debugLog('Using ip_adapter with input image, model '+ipamodel)
-            node('ip_adapter',{ip_adapter_model:{base_model:job.model.base_model,model_name:ipamodel},begin_step_percent:job.controlstart?job.controlstart:0,end_step_percent:job.controlend?job.controlend:1,is_intermediate:true,image:{image_name:job.initimgObject.image_name},weight:job.controlweight?job.controlweight:1},[])
+            //debugLog('Looking up ipamodel '+ipamodel+' , turning into object')
+            let ipamodelobject=await(modelnameToObject(ipamodel,'ip_adapter'))
+            debugLog('Using ip_adapter with input image, model '+ipamodelobject.name)
+            node('ip_adapter',{ip_adapter_model:{base:ipamodelobject.base,name:ipamodelobject.name,key:ipamodelobject.key,hash:ipamodelobject.hash,type:ipamodelobject.type,submodel_type:null},begin_step_percent:job.controlstart?job.controlstart:0,end_step_percent:job.controlend?job.controlend:1,is_intermediate:true,image:{image_name:job.initimgObject.image_name},weight:job.controlweight?job.controlweight:1},[])
         // todo need to incorporate t2i as well, copy ipamodel syntax, add a --t2imodel param
         // } else if (job.control==='t2i') {
         //      let t2imodel=(job.model.base_model==='sdxl')?'canny-sdxl':'canny-sd15'
@@ -264,7 +271,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         } else {
             debugLog('Using controlnet '+job.control||'depth')
             node('controlnet',{image:{image_name:job.initimgObject.image_name},
-                    control_model:{model_name:job.control?job.control:'depth',base_model:job.model.base_model},
+                    control_model:{name:job.control?job.control:'depth',base:job.model.base},
                     control_weight:job.controlweight?job.controlweight:1,
                     begin_step_percent:job.controlstart?job.controlstart:0,
                     end_step_percent:job.controlend?job.controlend:1,
@@ -293,7 +300,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     node('collect',{},[pipe(lastid.metadata,'metadata','SELF','item'),pipe(lastid.core_metadata,'metadata','SELF','item')])
     node('merge_metadata',{},[pipe(lastid.collect,'collection','SELF','collection')])
 
-    if(['sd-1','sd-2'].includes(job.model.base_model)){
+    if(['sd-1','sd-2'].includes(job.model.base)){
         node('compel',{prompt:job.positive_prompt},[pipe(lastid.clip,'clip','SELF','clip')])
         node('compel',{prompt:job.negative_prompt},[pipe(lastid.clip,'clip','SELF','clip')])
         p = [
@@ -329,7 +336,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         node('l2i',{fp32:fp32,is_intermediate:true},[pipe(lastid.latents,'latents','SELF','latents'),pipe('main_model_loader','vae','SELF','vae')])
         node('img_resize',{width:job.width,height:job.height,is_intermediate:true},[pipe('l2i','image','SELF','image')])
         node('noise',{seed:job.seed,width:job.width,height:job.height},[])
-        if(['sd-1','sd-2'].includes(job.model.base_model)){
+        if(['sd-1','sd-2'].includes(job.model.base)){
             debugLog(lastid.vae)
             node('i2l',{is_intermediate:true},[pipe('img_resize','image','SELF','image'),pipe('main_model_loader','vae','SELF','vae')])
             p = [pipe('compel','conditioning','SELF','positive_conditioning'),pipe('compel-2','conditioning','SELF','negative_conditioning')]
@@ -346,7 +353,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         node('denoise_latents',{is_intermediate:true,steps:job.steps,cfg_scale:job.scale,scheduler:job.scheduler,denoising_start:denoising_start,denoising_end:1.0},p)
     }
     // final output
-    if(['sd-1','sd-2'].includes(job.model.base_model)){
+    if(['sd-1','sd-2'].includes(job.model.base)){
         node('l2i',{tiled:true,fp32:fp32,is_intermediate:false},[pipe(lastid.vae,'vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('merge_metadata','metadata','SELF','metadata')])
     } else {
         node('l2i',{tiled:true,fp32:fp32,is_intermediate:false},[pipe(lastid.vae,'vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('merge_metadata','metadata','SELF','metadata')])
@@ -387,7 +394,7 @@ const getJobCost = (job) =>{
     if(job.hrf&&job.hrfwidth&&job.hrfheight&&job.strength){
         cost=cost*(job.hrfwidth*job.hrfheight*(steps*job.strength))/pixelStepsBase // account for 2 pass hiresfix
     }
-    if(job.model.base_model==='sdxl'){cost=cost+0.45} // increased vram use, load time (higher base res already included earlier)
+    if(job.model.base==='sdxl'){cost=cost+0.45} // increased vram use, load time (higher base res already included earlier)
     if(job.loras&&job.loras.length>0){cost=cost+(job.loras.length*0.25)} // 0.25 for each lora
     // todo charge for loras, ipa, controlnet
     return parseFloat(cost.toFixed(2))
@@ -563,13 +570,13 @@ const subscribeQueue = async(host,name='arty')=>{
             })
         })
         socket.on('model_load_started', msg => {
-            let t = msg.base_model+'/'+msg.model_name
-            if(msg.submodel){t= t+'/'+msg.submodel}
+            let t = msg.model_config.base+'/'+msg.model_config.name
+            if(msg.submodel_type){t= t+'/'+msg.submodel_type}
             debugLog(host.name+' loading '+t)
             resultCache.addResult(msg.queue_batch_id,{type:t})
         })
         socket.on('model_load_completed', msg => {
-            debugLog(host.name+' loaded: '+msg.model_name)
+            debugLog(host.name+' loaded: '+msg.model_config.name)
         })
         socket.on('graph_execution_state_complete', msg => {
             // queue_id str, queue_item_id int, queue_batch_id uuid, graph_execution_state_id uuid, timestamp
@@ -673,7 +680,7 @@ const getConfig = async(host)=>{
 const getModels = async(host,type='main')=>{
     // type can be embedding , main , vae , controlnet , lora
     try {
-        let u = host.url+'/api/v1/models/?model_type='+type
+        let u = host.url+'/api/v2/models/?model_type='+type
         let response = await axios.get(u)
         return response.data?.models
     } catch (err) {
@@ -782,8 +789,9 @@ const jobFromMeta = async(meta,img=null,tracking=null)=>{
     if(meta.invoke?.seed){job.seed=meta.invoke.seed} // Bugfix, actually listen to seed from image and change seed within "refresh" functions
     if(meta.invoke?.seamlessx){job.seamlessx=meta.invoke.seamlessx}
     if(meta.invoke?.seamlessy){job.seamlessy=meta.invoke.seamlessy}
+    if(meta.invoke?.preset){job.preset=meta.invoke.preset}
     job.steps = meta.invoke?.steps??config.default.steps
-    // todo need to look at job.model.base_model and use sdxl width/height defaults if not already in meta.invoke
+    // todo need to look at job.model.base and use sdxl width/height defaults if not already in meta.invoke
     job.width = meta.invoke?.width ? meta.invoke.width : config.default.width ?? config.default.size
     job.height = meta.invoke?.height ? meta.invoke.height : config.default.height ?? config.default.size
     job.scheduler = meta.invoke?.scheduler ? meta.invoke.scheduler : config.default.scheduler
@@ -840,12 +848,12 @@ const allUniqueModelsAvailable = async () => {
     let uniqueModelsMap = new Map()
     for (const host of availableHosts) {
         for (const model of host.models) {
-            const key = `${model.model_name}-${model.base_model}-${model.model_type}`
+            const key = `${model.name}-${model.base}-${model.type}`
             if (!uniqueModelsMap.has(key)) {
                 uniqueModelsMap.set(key, {
-                    model_name: model.model_name,
-                    base_model: model.base_model,
-                    model_type: model.model_type,
+                    name: model.name,
+                    base: model.base,
+                    type: model.type,
                     description: model.description
                 })
             }
@@ -859,12 +867,12 @@ const allUniqueLorasAvailable = async () => {
     let uniqueLorasMap = new Map()
     for (const host of availableHosts) {
         for (const model of host.lora) {
-            const key = `${model.model_name}-${model.base_model}-${model.model_type}`
+            const key = `${model.name}-${model.base}-${model.type}`
             if (!uniqueLorasMap.has(key)) {
                 uniqueLorasMap.set(key, {
-                    model_name: model.model_name,
-                    base_model: model.base_model,
-                    model_type: model.model_type,
+                    name: model.name,
+                    base: model.base,
+                    type: model.type,
                     description: model.description
                 })
             }
@@ -881,7 +889,7 @@ const allUniqueControlnetsAvailable = async()=>{
         let host=cluster[h]
         for (const m in host.controlnet){
             let model = host.controlnet[m]
-            allModels.push({model_name:model.model_name,base_model:model.base_model,model_type:model.model_type,description:model.description})
+            allModels.push({name:model.name,base:model.base,type:model.type,description:model.description})
         }
     }
     return allModels
@@ -895,7 +903,7 @@ const allUniqueIpAdaptersAvailable = async()=>{
         let host=cluster[h]
         for (const m in host.ip_adapter){
             let model = host.ip_adapter[m]
-            allModels.push({model_name:model.model_name,base_model:model.base_model,model_type:model.model_type,description:model.description})
+            allModels.push({name:model.name,base:model.base,type:model.type,description:model.description})
         }
     }
     return allModels
@@ -909,7 +917,7 @@ const allUniqueT2iAdaptersAvailable = async()=>{
         let host=cluster[h]
         for (const m in host.t2i_adapter){
             let model = host.t2i_adapter[m]
-            allModels.push({model_name:model.model_name,base_model:model.base_model,model_type:model.model_type,description:model.description})
+            allModels.push({name:model.name,base:model.base,type:model.type,description:model.description})
         }
     }
     return allModels
@@ -924,13 +932,23 @@ const validateJob = async(job)=>{
         job.prompt=random.parse(job.prompt)
         // convert prompt weighting from auto1111 format to invoke/compel
         job.prompt=auto2invoke(job.prompt)
+        // todo check for config.presets
+        if(job.preset){ // if preset is in job
+            if(config.presets&&config.presets[job.preset]){ // and also in config
+                for (const p of Object.keys(config.presets[job.preset])){ // loop through each property of the relevant preset config
+                    // double check what we're working with exactly
+                    //debugLog(p) // label
+                    //debugLog(config.presets[job.preset][p]) // data
+                    job[p] = config.presets[job.preset][p] // and set the job properties as needed
+                }
+            }
+        }
         // extract Loras in withLora(name,weight) format into job.loras
         let el = await extractLoras(job.prompt)
         if(el.error){return {error:el.error}}
         job.loras = el.loras
         // Set default model if not selected
         if(!job.model){
-            // todo maybe set default model based on member tier or saved settings ?
             job.model=await modelnameToObject(config.default.model)
         }
         // Upgrade from model string to model object
@@ -942,7 +960,7 @@ const validateJob = async(job)=>{
             job.negative_prompt=npromptmatches.join(' ').replace('[','').replace(']','')
         }else{
             // default negative prompt
-            if(job.model?.base_model==='sdxl'){
+            if(job.model?.base==='sdxl'){
                 job.negative_prompt=config.default.sdxlnegprompt||''
             } else {
                 job.negative_prompt=config.default.negprompt||''
@@ -958,7 +976,7 @@ const validateJob = async(job)=>{
         if(!job.steps){job.steps=config.default.steps??30}
         if(!job.strength&&job.initimg){job.strength=config.default.strength||0.75}
         if(job.steps>config.maximum.steps){return{error:'Steps `'+job.steps+'` is above the current maximum step count `'+config.maximum.steps+'`'}}
-        if(job.model?.base_model==='sdxl'){
+        if(job.model?.base==='sdxl'){
             if(!job.width){job.width=config.default.sdxlwidth??1024}
             if(!job.height){job.height=config.default.sdxlheight??1024}
         } else {
@@ -998,13 +1016,13 @@ const validateJob = async(job)=>{
                 if(!job.controlend){job.controlend=1}
             }
             if(job.control==='ipa'&&!job.ipamodel){
-                job.ipamodel=(job.model.base_model==='sdxl')?'ip_adapter_sdxl':'ip_adapter_sd15'
+                job.ipamodel=(job.model.base==='sdxl')?'ip_adapter_sdxl':'ip_adapter_sd15'
             }
         }
         if(job.hrf){
             // set default res for hires fix based on base model and aspect ratio
             let hrfpixellimit=604*604 // sd1
-            if(job.model?.base_model==='sdxl'){hrfpixellimit=1024*1024}
+            if(job.model?.base==='sdxl'){hrfpixellimit=1024*1024}
             let curpixels=job.width*job.height
             if(curpixels>hrfpixellimit){
                 //debugLog('res too big, calc aspect ratio for hi res fix')
@@ -1208,9 +1226,9 @@ const handfix = async(img,host,options={resolution:512,mask_padding:30,offload:t
                         "negativeprompt":{"type":"compel","id":"negativeprompt","use_cache":true,"is_intermediate":true},
                         "latentstoimage":{"type":"l2i","id":"latentstoimage","tiled":false,"fp32":false,"use_cache":true,"is_intermediate":true},
                         "denoise":{"type":"denoise_latents","id":"denoise","steps":options.steps,"cfg_scale":options.scale,"denoising_start":0.25,"denoising_end":1,"scheduler":options.scheduler,"cfg_rescale_multiplier":0,"use_cache":true,"is_intermediate":true},
-                        "positivepromptclip":{"type":"main_model_loader","id":"positivepromptclip","model":{"model_name":options.model.model_name,"base_model":options.model.base_model,"model_type":"main"},"use_cache":true,"is_intermediate":true},
+                        "positivepromptclip":{"type":"main_model_loader","id":"positivepromptclip","model":{"model_name":options.model.name,"base":options.model.base,"type":"main"},"use_cache":true,"is_intermediate":true},
                         "positiveprompt":{"type":"compel","id":"positiveprompt","use_cache":true,"is_intermediate":true},
-                        "depthcontrolnet":{"type":"controlnet","id":"depthcontrolnet","control_model":{"model_name":"depth","base_model":"sd-1"},"control_weight":1,"begin_step_percent":0,"end_step_percent":1,"control_mode":"balanced","resize_mode":"just_resize","use_cache":true,"is_intermediate":true},
+                        "depthcontrolnet":{"type":"controlnet","id":"depthcontrolnet","control_model":{"name":"depth","base":"sd-1"},"control_weight":1,"begin_step_percent":0,"end_step_percent":1,"control_mode":"balanced","resize_mode":"just_resize","use_cache":true,"is_intermediate":true},
                         "createdenoisemask":{"type":"create_denoise_mask","id":"createdenoisemask","tiled":false,"fp32":false,"use_cache":true,"is_intermediate":true},
                         "meshgraphormer":{"type":"hand_depth_mesh_graphormer_image_processor","id":"meshgraphormer","resolution":options.resolution,"mask_padding":options.mask_padding,"offload":options.offload,"use_cache":true,"is_intermediate":true},
                         "inputimg":{"type":"image","id":"inputimg","image":{"image_name":initimg.image_name},"use_cache":true,"is_intermediate":true},
@@ -1336,17 +1354,26 @@ const nightmarePromptGen = async(host,options={temp:1.8,top_k:40,top_p:0.9,repo_
     }
 }
 
-const modelnameToObject = async(modelname)=>{
+const modelnameToObject = async(modelname,modeltype='main')=>{
     // look up models available on hosts
     let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
     for (const h in availableHosts){
         let host=cluster[h]
-        let model=host.models.find(m=>{return m.model_name===modelname})
+        let model
+        if(modeltype==='main'){
+            model=host.models.find(m=>{return m.name===modelname})
+        } else if (modeltype==='ip_adapter'){
+            model=host.ip_adapter.find(m=>{return m.name===modelname})
+        }
+        debugLog(modeltype)
+        debugLog(model)
         if(isObject(model)){
             return {
-                model_name: model.model_name,
-                base_model: model.base_model,
-                model_type: model.model_type,
+                key: model.key,
+                hash: model.hash,
+                name: model.name,
+                base: model.base,
+                type: model.type,
                 description: model.description
             }
         }else{
@@ -1363,9 +1390,9 @@ const loranameToObject = async(loraname)=>{
     let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
     for (const h in availableHosts){
         let host=cluster[h]
-        let lora=host.lora.find(m=>{return m.model_name===loraname})
+        let lora=host.lora.find(m=>{return m.name===loraname})
         if(isObject(lora)){
-            return {model_name: lora.model_name,base_model: lora.base_model}
+            return {name: lora.name,base: lora.base}
         }else{log('Error: No lora with name '+loraname+' on host '+host.name)}
     }
     throw {error:'Unable to find online host with lora: `'+loraname+'`'}
@@ -1377,8 +1404,8 @@ const controlnetnameToObject = async(controlnetname) => {
         return host.online && !host.disabled  
     })
     for(let host of availableHosts) {
-        let controlnet = host.controlnets.find(c => {return c.model_name === controlnetname})
-        if(controlnet) {return {model_name: controlnet.model_name, base_model: controlnet.base_model,model_type: controlnet.model_type}
+        let controlnet = host.controlnets.find(c => {return c.name === controlnetname})
+        if(controlnet) {return {name: controlnet.name, base: controlnet.base,type: controlnet.type}
         } else {log(`Controlnet ${controlnetname} not found on host ${host.name}`)}
     }
     throw {error:'Unable to find online host with controlnet: `'+controlnetname+'`'}
