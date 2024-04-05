@@ -1268,7 +1268,7 @@ imageResultMessage = async(userid,img,result,meta)=>{
     if(meta.invoke?.lscale&&meta.invoke?.lscale!==1){t+=' :mag_right: '+meta.invoke.lscale}
     if(meta.invoke?.loras?.length>0){
         t+=' :pill: '
-        for (const l in meta.invoke?.loras){t+=meta.invoke.loras[l].lora.name+'('+meta.invoke.loras[l].weight+') '}
+        for (const l in meta.invoke?.loras){t+=meta.invoke.loras[l].model.name+'('+meta.invoke.loras[l].weight+') '}
     }
     if(meta.invoke?.inputImageUrl){t+=' :paperclip: [img]('+meta.invoke.inputImageUrl+')'}
     if(meta.invoke?.control){t+=' :video_game: '+meta.invoke.control}
