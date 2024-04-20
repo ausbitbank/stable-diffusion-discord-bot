@@ -325,6 +325,34 @@ let commands = [
                     ]}
                 ]
             }
+            // todo Add dropdown menus for presets from config file
+            if(config.presets){
+                let options = []
+                for (const p in config.presets){
+                    let pd = config.presets[p]
+                    options.push({
+                        label:p,
+                        value:p,
+                        description:pd.description,
+                        emoji:null
+                    })
+                }
+                let dropdown = {
+                    type: 1,
+                    components:[
+                        {
+                            type: 3,
+                            custom_id: 'edit-'+msgid+'-preset',
+                            placeholder: 'Quality Presets',
+                            min_values: 1,
+                            max_values: 1,
+                            options: options
+                        }
+                    ]
+                }
+                tweakmsg.components.push(dropdown)
+            }
+            
             interaction.createMessage(tweakmsg)
         }
     },
@@ -347,10 +375,10 @@ let commands = [
             let channelid = interaction.channel.id
             let sourcemsg = await bot.getMessage(channelid, msgid)
             let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
-            let newmodel = models.find(m => m.model_name === newmodelname) // undefined ?
-            if (meta.invoke?.model?.base_model !== newmodel?.base_model) { // changing base model class (sd1 to sdxl etc)
+            let newmodel = models.find(m => m.name === newmodelname) // undefined ?
+            if (meta.invoke?.model?.base !== newmodel?.base) { // changing base model class (sd1 to sdxl etc)
                 let ar = await aspectRatio.resToRatio(meta.invoke?.width, meta.invoke?.height)
-                let newpixels = newmodel?.base_model === 'sdxl' ? 1048576 : 262144 // 1024x1024 for sdxl, 512x512 for sd1/2
+                let newpixels = newmodel?.base === 'sdxl' ? 1048576 : 262144 // 1024x1024 for sdxl, 512x512 for sd1/2
                 let newres = await aspectRatio.ratioToRes(ar, newpixels)
                 if (meta.invoke && newmodel) {
                     meta.invoke.width = newres?.width
@@ -386,12 +414,12 @@ let commands = [
         }
         for (const i in models) {
             let m = models[i]
-            if (m.model_type === 'main') {
-                switch (m.base_model) {
+            if (m.type === 'main') {
+                switch (m.base) {
                     case 'sd-1': {
                         categories['sd-1'].push({
-                            label: m.model_name?.substring(0, 50),
-                            value: m.model_name,
+                            label: m.name?.substring(0, 50),
+                            value: m.name,
                             description: m.description?.substring(0, 50),
                             emoji: null
                         })
@@ -399,8 +427,8 @@ let commands = [
                     }
                     case 'sd-2': {
                         categories['sd-2'].push({
-                            label: m.model_name?.substring(0, 50),
-                            value: m.model_name,
+                            label: m.name?.substring(0, 50),
+                            value: m.name,
                             description: m.description?.substring(0, 50),
                             emoji: null
                         })
@@ -408,8 +436,8 @@ let commands = [
                     }
                     case 'sdxl': {
                         categories['sdxl'].push({
-                            label: m.model_name?.substring(0, 50),
-                            value: m.model_name,
+                            label: m.name?.substring(0, 50),
+                            value: m.name,
                             description: m.description?.substring(0, 50),
                             emoji: null
                         })
@@ -473,22 +501,22 @@ let commands = [
             if(!interaction.acknowledged){interaction?.acknowledge()}
             let msgid = interaction.data.custom_id.split('-')[1]
             // At first, keep it simple and allow configuring a single control adapter by name
-            // need to discover current if base_model is sdxl or not
+            // need to discover current if base model is sdxl or not
             // pull image meta
             let channelid = interaction.channel.id
             let sourcemsg = await bot.getMessage(channelid,msgid)
             let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
-            let base = meta?.invoke?.model?.base_model
+            let base = meta?.invoke?.model?.base
             debugLog(base)
             debugLog(meta?.invoke?.inputImageUrl)
             debugLog(meta?.invoke?.inputImageUrl)
             // get all controlnet types
             let cnets = await invoke.allUniqueControlnetsAvailable()
             // reduce to simple array of names of relevant models
-            cnets = cnets.filter(c=>c.base_model===base).map(c=>c.model_name)
+            cnets = cnets.filter(c=>c.base===base).map(c=>c.name)
             // get all ip adapter types
             let ipa = await invoke.allUniqueIpAdaptersAvailable()
-            ipa = ipa.filter(c=>c.base_model===base).map(c=>c.model_name)
+            ipa = ipa.filter(c=>c.base===base).map(c=>c.name)
         }
     },
     {
@@ -669,7 +697,7 @@ let commands = [
             // Ideally this should only respond to cancel requests from original creator, or bot admin
             // keep it simple for initial version
             // extract batchid from commmand id
-            let requester = getCreatorInfoFromInteraction(interaction)
+            let requester = await getCreatorInfoFromInteraction(interaction)
             let userid = requester.discordid
             if(!interaction?.acknowledged){interaction?.acknowledge()}
             let batchid = interaction.data.custom_id.replace('cancelBatch-','')
