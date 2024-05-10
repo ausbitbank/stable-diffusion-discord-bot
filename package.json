@@ -26,6 +26,7 @@
     "chokidar": "^3.5.3",
     "colors": "1.4.0",
     "crypto": "^1.0.1",
+    "cheerio": "^1.0.0-rc.12",
     "debounce": "^1.2.1",
     "diff": "^5.1.0",
     "dotenv": "^16.0.2",
