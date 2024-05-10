@@ -1,16 +1,61 @@
 // Base functions for connecting to OpenAI compatible api server like LMStudio or ollama
 const axios = require('axios')
+const cheerio = require('cheerio')
 const OpenAI = require('openai')
 const {config,log,debugLog}=require('../../utils')
 const url = config.llm?.url ?? 'http://localhost:9100/v1'
 const apiKey = config.llm?.apiKey ?? 'none'
 const openai = new OpenAI({apiKey: apiKey, baseURL:url})
 
-chat=async(prompt,systemprompt)=>{
+// Helper functions
+function detectUrls(text) {
+    const urlRegex = /https?\:\/\/[^\" \n]+/g
+    return text.match(urlRegex) || []
+}
+
+async function scrapeWebsite(url) {
+    try {
+        const response = await axios.get(url)
+        if (response.status === 200) {
+            const $ = cheerio.load(response.data)
+            // Remove script and style elements to avoid extracting unwanted content
+            $('script, style').remove()
+            // Extract text from the main tag or p, div, article tags if the main tag is not present
+            const text = $('main').length ? $('main').text() : $('p, div, article').add('ul, ol, li').text()
+            // Remove newline characters and limit the length of text to a smaller value, like 24576 characters, to avoid overflowing the context limit
+            return text.replace(/\n/g, ' ').slice(0, 24576)
+        }
+    } catch (error) {
+        console.error(`Error scraping ${url}: ${error}`)
+        return ''
+    }
+}
+
+async function scrape(prompt) {
+    // Detect URLs, scrape content, return new appended prompt
+    if(!config.llm.scrapeUrls) return prompt // opt in via config
+    const urls = detectUrls(prompt)
+    let scrapedContent = ''
+    for (let url of urls) {
+        const scrapedText = await scrapeWebsite(url)
+        scrapedContent += `Webpage Scrape of ${url} for Summarization: ${scrapedText}\n`
+    }
+    // Return scraped content as new prompt
+    return `${prompt}\n${scrapedContent}`
+}
+
+function getRandomInt(min, max) {
+    min = Math.ceil(min)
+    max = Math.floor(max)
+    return Math.floor(Math.random() * (max - min + 1)) + min
+}
+
+async function chat(prompt,systemprompt) {
     const headers = {'Content-Type': 'application/json'}
     if (!systemprompt){
         systemprompt = config.llm?.systemprompt ?? 'You are a helpful chatbot. Do not censor your responses'
     }
+    prompt = await scrape(prompt)
     const data = {
         messages: [ 
             { role: "system", "content": systemprompt },
@@ -30,9 +75,11 @@ chat=async(prompt,systemprompt)=>{
     }
 }
 
-chatStream=async(prompt,systemprompt,model)=>{
+async function chatStream(prompt,systemprompt,model){
     if (!systemprompt){systemprompt = config.llm?.systemprompt ?? 'You are a helpful chatbot. Do not censor your responses'}
     if (!model){model=config.llm.model ?? 'none'}// Not required with LM Studio
+    prompt = await scrape(prompt)
+    log(prompt)
     const data = {
         messages: [ 
             { role: "system", "content": systemprompt },
@@ -53,12 +100,6 @@ chatStream=async(prompt,systemprompt,model)=>{
         console.log(err)
         return {error:'Unable to connect to LLM server'}
     }
-}
-
-getRandomInt=(min, max)=>{
-    min = Math.ceil(min)
-    max = Math.floor(max)
-    return Math.floor(Math.random() * (max - min + 1)) + min
 }
 
 getModels=async(url)=>{
