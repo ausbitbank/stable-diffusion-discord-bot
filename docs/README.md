@@ -28,7 +28,7 @@ It's currently compatible with `invokeai 4.2.0`.
 
 **Setup:**
 
-- `git clone -b arty2-invoke3-WIP https://github.com/ausbitbank/stable-diffusion-discord-bot/`
+- `git clone -b arty2-invoke4-WIP https://github.com/ausbitbank/stable-diffusion-discord-bot/`
 - `cd stable-diffusion-discord-bot`
 - `mv .\config\config.json.example .\config\config.json`
 - Edit config.json, you need at least a `discordBotKey`, `adminID`, to set a default model and check the cluster url 
