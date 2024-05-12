@@ -13,7 +13,7 @@ This branch is a work in progress for a major rewrite of the arty project.
 
 It still has a long way to go before it's ready for public use and should be considered an alpha test at best.
 
-It's currently compatible with `invokeai 4.0.2`.
+It's currently compatible with `invokeai 4.2.0`.
 
 **Working:**
 - Oldschool `!dream prompt` + parameters
