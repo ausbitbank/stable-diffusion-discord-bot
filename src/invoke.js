@@ -191,7 +191,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         steps:job.steps,
         model:job.model,
         loras:[], // loras array is legitimately populated below
-        controlnets:[],
+        control_layers:{layers:[],version:2}, // invoke 4.2+ rebrands controlnets to control_adapters
         ipAdapters:[],// invoke 3.2+
         t2iAdapters:[],// invoke 3.3rc1+
         positive_style_prompt:job.style??'', // todo apparently you're supposed to append your main prompt to the style prompt
@@ -210,9 +210,38 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         //debugLog('buildgraphfromjob , building metaObject, added loras:')
         //debugLog(metaObject.loras) // todo bug above related to format of loras metadata, fix, key and hash are undefined
     }
+    // todo properly populate the control_layers metadata with legit info (below)
+    /*
     if(job.control&&job.initimgObject){
-        //metaObject.controlnets.push({controlnet:{model_name:job.control}})
+        for (const c in job.control_layers){
+            metaObject.control_layers.layers.push(
+                {
+                    bbox:null,
+                    bboxNeedsUpdate:true,
+                    controlAdapter:{
+                        beginEndStepPct:[0,1],
+                        controlmode:job.control_mode??'balanced',
+                        image:job.initimgObject,
+                        isProcessingImage:false,
+                        model:{}, //todo
+                        processImage:job.initimgObject,
+                        processorConfig:{}, //todo
+                        type:'controlnet',
+                        weight:1 //todo
+                    },
+                    id:4242424269696, //todo need the unique id of the controlnet layers that we dont have yet at this point...
+                    isEnabled:true,
+                    isFilterEnabled:true,
+                    isSelected:true,
+                    opacity:1,
+                    type:'control_adapter_layer',
+                    x:0,
+                    y:0
+                }
+            )
+        }
     }
+    */
     if(['sd-1','sd-2'].includes(job.model.base)){
         node('main_model_loader',{model:job.model,is_intermediate:true},[])
         //node('vae_loader',{vae_model:{model_name:'sd-vae-ft-mse',base_model:'sd-1'},is_intermediate:true},[])
@@ -230,7 +259,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
                     pipe(lastid.unet,'unet','SELF','unet')
                 ])
             }
-            }
+        }
     }
     // Add freeu node https://stable-diffusion-art.com/freeu/
     // current default settings :
@@ -275,9 +304,10 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
             // todo do we resize the image first instead of resizing latents ?
             node('lresize',{model:'bilinear',antialias:false,width:job.width,height:job.height},[pipe(lastid.latents,'latents','SELF','latents')])
         } else {
-            debugLog('Using controlnet '+job.control||'depth')
+            let cnetname = job.control??'depth'
+            let cnetmodel = await controlnetnameToObject(cnetname)
             node('controlnet',{image:{image_name:job.initimgObject.image_name},
-                    control_model:{name:job.control?job.control:'depth',base:job.model.base},
+                    control_model:cnetmodel,
                     control_weight:job.controlweight?job.controlweight:1,
                     begin_step_percent:job.controlstart?job.controlstart:0,
                     end_step_percent:job.controlend?job.controlend:1,
@@ -759,6 +789,7 @@ const jobFromDream = async(cmd,images=null,tracking=null)=>{
     if(job.A){job.sampler=job.A;delete job.A}
     if(job.f){job.strength=job.f;delete job.f}
     if(job.n){job.number=job.n;delete job.n}
+    if(job.p){job.preset=job.p;delete job.p}
     if(job.sampler){job.scheduler=job.sampler;delete job.sampler}
     if(tracking){job.tracking=tracking}
     // take prompt from what's left
@@ -955,8 +986,8 @@ const validateJob = async(job)=>{
         let el = await extractLoras(job.prompt)
         if(el.error){return {error:el.error}}
         job.loras = el.loras
-        debugLog('loras inside validatejob')
-        debugLog(el.loras)
+        //debugLog('loras inside validatejob')
+        //debugLog(el.loras)
         // Set default model if not selected
         if(!job.model){
             job.model=await modelnameToObject(config.default.model)
@@ -990,6 +1021,7 @@ const validateJob = async(job)=>{
             if(!job.width){job.width=config.default.sdxlwidth??1024}
             if(!job.height){job.height=config.default.sdxlheight??1024}
         } else {
+            //job.hrf=true // Force HiResFix on all sd1/2 renders
             if(!job.width){job.width=config.default.width??512}
             if(!job.height){job.height=config.default.height??512}
         }
@@ -1374,9 +1406,11 @@ const modelnameToObject = async(modelname,modeltype='main')=>{
             model=host.models.find(m=>{return m.name===modelname})
         } else if (modeltype==='ip_adapter'){
             model=host.ip_adapter.find(m=>{return m.name===modelname})
+        } else if (modeltype==='controlnet'){
+            model=host.controlnet.find(m=>{return m.name===modelname})
+        } else if (modeltype==='lora'){
+            model=host.lora.find(m=>{return m.name===modelname})
         }
-        debugLog(modeltype)
-        debugLog(model)
         if(isObject(model)){
             return {
                 key: model.key,
@@ -1387,40 +1421,15 @@ const modelnameToObject = async(modelname,modeltype='main')=>{
                 description: model.description
             }
         }else{
-            log('No model with name '+modelname+' on host '+host.name)
+            log('No '+modeltype+' model with name '+modelname+' on host '+host.name)
         }
     }
     debugLog('Unable to find online host with model: '+modelname)
     throw({error:'Unable to find online host with model: `'+modelname+'`'})
 }
 
-const loranameToObject = async(loraname)=>{
-    // look up loras available on hosts
-    //if(!loraname){throw('loranameToObject ')}
-    let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
-    for (const h in availableHosts){
-        let host=cluster[h]
-        let lora=host.lora.find(m=>{return m.name===loraname})
-        if(isObject(lora)){
-            return {name: lora.name,base: lora.base, key:lora.key, hash:lora.hash, type:'lora'}
-        }else{log('Error: No lora with name '+loraname+' on host '+host.name)}
-    }
-    throw {error:'Unable to find online host with lora: `'+loraname+'`'}
-}
-
-const controlnetnameToObject = async(controlnetname) => {
-    // Look up controlnets available on hosts
-    let availableHosts = cluster.filter(host => {
-        return host.online && !host.disabled  
-    })
-    for(let host of availableHosts) {
-        let controlnet = host.controlnets.find(c => {return c.name === controlnetname})
-        if(controlnet) {return {name: controlnet.name, base: controlnet.base,type: controlnet.type}
-        } else {log(`Controlnet ${controlnetname} not found on host ${host.name}`)}
-    }
-    throw {error:'Unable to find online host with controlnet: `'+controlnetname+'`'}
-}
-
+loranameToObject = async(loraname)=>{return await modelnameToObject(loraname,'lora')}
+controlnetnameToObject = async(controlnetname) => {return await modelnameToObject(controlnetname,'controlnet')}
 getHostById = (id)=>{return cluster.find(h=>{h.id===id})}
 getHostByName = (name)=>{return cluster.find(h=>{h.name===name})}
 getHostByJobId = (id)=>{return cluster.find(h=>{h.jobs.includes(id)})}
