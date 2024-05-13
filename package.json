@@ -50,7 +50,7 @@
     "socket.io": "^4.5.2",
     "socket.io-client": "^4.5.2",
     "sqlite3": "^5.1.7",
-    "stripe": "^14.20.0",
+    "stripe": "^15.6.0",
     "tipcc.js": "^1.0.1",
     "topgg-autoposter": "^2.0.1"
   }
