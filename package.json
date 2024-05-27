@@ -27,7 +27,7 @@
     "colors": "1.4.0",
     "crypto": "^1.0.1",
     "cheerio": "^1.0.0-rc.12",
-    "debounce": "^1.2.1",
+    "debounce": "^2.1.0",
     "diff": "^5.1.0",
     "dotenv": "^16.0.2",
     "eris": "DonovanDMC/eris#ed41313d9df5ff7c31bc955e0888f9c6f732c963",
