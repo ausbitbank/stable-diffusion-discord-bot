@@ -6,7 +6,7 @@ A discord bot built to interface with the [InvokeAI](https://github.com/invoke-a
 ![discord](https://img.shields.io/discord/419390618209353730?style=plastic)
 ![license](https://img.shields.io/github/license/ausbitbank/stable-diffusion-discord-bot?style=plastic)
 ![size](https://img.shields.io/github/repo-size/ausbitbank/stable-diffusion-discord-bot?style=plastic)
-![last commit](https://img.shields.io/github/last-commit/ausbitbank/stable-diffusion-discord-bot/arty2-invoke3-WIP?style=plastic)
+![last commit](https://img.shields.io/github/last-commit/ausbitbank/stable-diffusion-discord-bot/arty2-invoke4-WIP?style=plastic)
 [![twitter](https://img.shields.io/twitter/follow/ausbitbank?style=social)](https://twitter.com/ausbitbank)
 
 This branch is a work in progress for a major rewrite of the arty project. 
