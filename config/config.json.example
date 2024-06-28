@@ -150,5 +150,17 @@
             "ipamodel": "ip_adapter_sdxl",
             "ipamethod": "style"
         },
+    },
+    "ipfs":{
+        "ip":"0.0.0.0",
+        "port":"4001"
+    },
+    "web":{
+        "enabled":true,
+        "ip":"0.0.0.0",
+        "port":"42069",
+        "headerText":"arty web alpha",
+        "discordInviteLink":"https://discord.com/oauth2/authorize?client_id=&scope=bot&permissions=124992",
+        "sessionsecret":"KEEPITSECRETKEEPITSAFEYOUSHOULDCHANGETHIS"
     }
 }
