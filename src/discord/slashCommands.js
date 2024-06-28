@@ -49,12 +49,8 @@ var slashCommands = [
       let img,imgurl
       let userid=i.member?.id??i.user?.id
       let username=i.member?.username??i.user?.username
-      if (i.data.resolved && i.data.resolved.attachments && i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))){
-        let attachmentOrig=i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))
-        imgurl = attachmentOrig.url
-        img = await urlToBuffer(imgurl)
-      }
       log(username+' triggered dream command')
+      if(i?.acknowledged===false){i.acknowledge()}
       let job={}
       try {
         let trackingmsg = await i.createMessage({content:':saluting_face: dreaming '+timestamp()})
@@ -69,7 +65,14 @@ var slashCommands = [
         switch (a.name){
           case('prompt'):job.prompt=a.value;break
           case('negative'):job.prompt=job.prompt+'['+a.value+']';break
-          case('attachment'):break
+          case('attachment'):{
+            // a.value is id
+            if(i.data.resolved.attachments[a.value].content_type.startsWith('image/')){
+              imgurl = i.data.resolved.attachments[a.value].url
+              img = await urlToBuffer(imgurl)
+            }
+            break
+          }
           default:job[a.name]=a.value;break
         }
       }
@@ -78,14 +81,15 @@ var slashCommands = [
       job.creator=await getCreatorInfoFromInteraction(i)
       job = await auth.userAllowedJob(job)
       if(job.error){
-          log('Error: '.bgRed+' '+error)
+          log('Error: '.bgRed+' '+job.error)
           i.createMessage({content:':warning: '+job.error})
+          if(job?.tracking?.msg){job.tracking.msg.delete()} // delete tracking message for failed job
           return
       }
       let dreamresult = await invoke.cast(job)
       if(imgurl && !dreamresult.error && dreamresult.images?.length > 0){dreamresult.images[0].buffer = await exif.modify(dreamresult.images[0].buffer,'arty','inputImageUrl',imgurl)}
       let fakemsg = {member:{id:userid},fake:true}
-      let result = await returnMessageResult(fakemsg,dreamresult)
+      let result = await returnMessageResult(fakemsg,dreamresult,job.creator)
       let messages = result?.messages
       let files = result?.files
       let error = result?.error
@@ -115,10 +119,10 @@ var slashCommands = [
     execute: async(i) => {
       let userid=i.member?.id??i.user?.id
       let username=i.member?.username??i.user?.username
-      if (i.data.resolved && i.data.resolved.attachments && i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))){
-        let attachmentOrig=i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))
-        let imgurl = attachmentOrig.url
-        //let response = await removeBackground(imgurl)
+      if(i?.acknowledged===false){i.acknowledge()}
+      if (i.data.resolved && i.data.resolved.attachments){
+        let imgurl = i.data.resolved.attachments[i.data.options[0].value].content_type.startsWith('image/') ? i.data.resolved.attachments[i.data.options[0].value].url : null
+        if(!imgurl) return {error:'No image attached'}
         let img = await urlToBuffer(imgurl)
         if (img){
           let result = await invoke.processImage(img,null,'removebg',{})
@@ -131,9 +135,6 @@ var slashCommands = [
             i.createMessage(reply,{file:buf,name:getUUID()+'.png'})
           }
         }
-        //i.createMessage(reply,{file:response.image,name:getUUID()+'.png'})
-      } else {
-        // Invalid or no image attachment, fail
       }
     }
   },
@@ -153,6 +154,7 @@ var slashCommands = [
     execute: async(i) => {
       let userid=i.member?.id??i.user?.id
       let username=i.member?.username??i.user?.username
+      if(i?.acknowledged===false){i.acknowledge()}
       log(username+' triggered text command')
       let options = {}
       for (const arg in i.data.options){
@@ -205,10 +207,11 @@ var slashCommands = [
       //{type: 3, name: 'caption', description: 'caption model to use', required: false,choices:[{name:'blip-base',value:'blip-base'},{name:'blip-large',value:'blip-large'},{name:'blip2-2.7b',value:'blip2-2.7b'},{name:'blip2-flan-t5-xl',value:'blip2-flan-t5-xl'},{name:'git-large-coco',value:'git-large-coco'}]}
     ],
     execute: async(i)=>{
-      if (i.data.resolved && i.data.resolved.attachments && i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))){
-        let attachmentOrig=i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))
-        let imgurl = attachmentOrig.url
+      if(i?.acknowledged===false){i.acknowledge()}
+      if (i.data.resolved?.attachments){
+        let imgurl = i.data.resolved.attachments[i.data.options[0].value].content_type.startsWith('image/') ? i.data.resolved.attachments[i.data.options[0].value].url : null
         let img = await urlToBuffer(imgurl)
+        if(!img){return {error:'No image attached'}}
         let interrogateOptions={best_max_flavors:32,mode:'fast',clip_model:'ViT-L-14/openai',caption_model:'blip-large',low_vram:true}
         /* Removed options, larger models use too much vram for most consumer cards
         for (const arg in i.data.options){
@@ -223,7 +226,8 @@ var slashCommands = [
         }
         */
         let result = await invoke.interrogate(img,undefined,interrogateOptions)
-        result.result=result.result.replace('(^|\s)(arafed)\b','') // remove arafed as a whole word or from start of string
+        //result.result=result.result.replace('(^|\s)(arafed)\b','') // remove arafed as a whole word or from start of string
+        result.result=result.result.replace(/(^|\s)(arafed|araffe)\b/g, '') // remove arafed as a whole word or from start of string
         let options = result.options
         let newMsg = {
             content:':eyes: Image scanned with `'+options.clip_model+'`, captioned by `'+options.caption_model+'`:',
@@ -271,94 +275,35 @@ var slashCommands = [
   },
 
 ]
-/*,
-  {
-    name: 'models',
-    description: 'See what models are currently available',
-    cooldown: 1000,
-    execute: (i) => {
-      listModels(i.channel.id)
-    }
-  },
-  {
-    name: 'embeds',
-    description: 'See what embeddings are currently available',
-    cooldown: 1000,
-    execute: (i) => {
-      listEmbeds(i.channel.id)
-    }
-  },
-  {
-    name: 'text',
-    description: 'Add text overlays to an image',
-    options: [
-      {type: 3, name: 'text', description: 'What to write on the image', required: true, min_length: 1, max_length:500 },
-      {type: 11, name: 'attachment', description: 'Image to add text to', required: true},
-      {type: 3, name: 'position', description: 'Where to position the text',required: false,value: 'south',choices: [{name:'centre',value:'centre'},{name:'north',value:'north'},{name:'northeast',value:'northeast'},{name:'east',value:'east'},{name:'southeast',value:'southeast'},{name:'south',value:'south'},{name:'southwest',value:'southwest'},{name:'west',value:'west'},{name:'northwest',value:'northwest'}]},
-      {type: 3, name: 'color', description: 'Text color (name or hex)', required: false, min_length: 1, max_length:50 },
-      {type: 3, name: 'blendmode', description: 'How to blend the text layer', required: false,value:'overlay',choices:[{name:'clear',value:'clear'},{name:'over',value:'over'},{name:'out',value:'out'},{name:'atop',value:'atop'},{name:'dest',value:'dest'},{name:'xor',value:'xor'},{name:'add',value:'add'},{name:'saturate',value:'saturate'},{name:'multiply',value:'multiply'},{name:'screen',value:'screen'},{name:'overlay',value:'overlay'},{name:'darken',value:'darken'},{name:'lighten',value:'lighten'},{name:'color-dodge',value:'color-dodge'},{name:'color-burn',value:'color-burn'},{name:'hard-light',value:'hard-light'},{name:'soft-light',value:'soft-light'},{name:'difference',value:'difference'},{name:'exclusion',value:'exclusion'}] }, // should be dropdown
-      {type: 3, name: 'width', description: 'How many pixels wide is the text?', required: false, min_length: 1, max_length:5 },
-      {type: 3, name: 'height', description: 'How many pixels high is the text?', required: false, min_length: 1, max_length:5 },
-      {type: 3, name: 'font', description: 'What font to use', required: false,value:'Arial',choices:fontsSlashCmd},
-      {type: 5, name: 'extend', description: 'Extend the image?', required: false},
-      {type: 3, name: 'extendcolor', description: 'What color extension?', required: false, min_length: 1, max_length:10 },
-    ],
-    cooldown: 500,
-    execute: (i) => {
-      var ops=i.data.options
-      var {text='word',position='south',color='white',blendmode='difference',width=false,height=125,font=fonts[0],extend=false,extendcolor='black'}=ops.reduce((acc,o)=>{acc[o.name]=o.value;return acc}, {})
-      var userid=i.member ? i.member.id : i.user.id
-      if (i.data.resolved && i.data.resolved.attachments && i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))){
-        var attachmentOrig=i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))
-      }
-      textOverlay(attachmentOrig.proxyUrl,text,position,i.channel.id,userid,color,blendmode,parseInt(width)||false,parseInt(height),font,extend,extendcolor)
-    }
-  },
-  {
-    name: 'background',
-    description: 'Remove background from an image',
-    options: [
-      {type:11,name:'attachment',description:'Image to remove background from',required:true},
-      {type: 3, name: 'model', description: 'Which masking model to use',required: false,value: 'u2net',choices: [{name:'u2net',value:'u2net'},{name:'u2netp',value:'u2netp'},{name:'u2net_human_seg',value:'u2net_human_seg'},{name:'u2net_cloth_seg',value:'u2net_cloth_seg'},{name:'silueta',value:'silueta'},{name:'isnet-general-use',value:'isnet-general-use'}]},
-      {type: 5, name: 'a', description: 'Alpha matting true/false', required: false,default:false},
-      {type: 4, name: 'ab', description: 'Background threshold 0-255 default 10', required: false,min_length:1,max_length:3,value:10},
-      {type: 4, name: 'af', description: 'Foreground threshold 0-255 default 240', required: false,value:240},
-      {type: 4, name: 'ae', description: 'Alpha erode size 0-255 default 10', required: false,value:10},
-      {type: 5, name: 'om', description: 'Mask Only true/false default false', required: false,value:false},
-      {type: 5, name: 'ppm', description: 'Post Process Mask true/false default false', required: false,value:false},
-      {type: 3, name: 'bgc', description: 'Background color R,G,B,A 0-255 default 0,0,0,0', required: false}
-    ],
-    cooldown: 500,
-    execute: (i) => {
-      if (i.data.resolved && i.data.resolved.attachments && i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))){
-        var attachmentOrig=i.data.resolved.attachments.find(a=>a.contentType.startsWith('image/'))
-        var userid=i.member ? i.member.id : i.user.id
-        var ops=i.data.options
-        debugLog(ops)
-        var {model='u2net',a=false,ab=10,af=240,ae=10,om=false,ppm=false,bgc='0,0,0,0'}=ops.reduce((acc,o)=>{acc[o.name]=o.value;return acc}, {})
-        removeBackground(attachmentOrig.proxyUrl,i.channel.id,userid,model,a,ab,af,ae,om,ppm,bgc)
-      }
-    }
-  }*/
 
 // If credits are active, add /recharge and /balance otherwise don't include them
-/*
+
 if(config.credits.enabled)
 {
-
   slashCommands.push({
     name: 'recharge',
-    description: 'Recharge your render credits with Hive, HBD or Bitcoin over lightning network',
+    description: 'Recharge your render credits',
     cooldown: 500,
-    execute: (i) => {if (i.member) {rechargePrompt(i.member.id,i.channel.id)} else if (i.user){rechargePrompt(i.user.id,i.channel.id)}}
+    execute: async(i) => {
+      let newMsg = await messageCommands.rechargePromptMsg()
+      if(i.acknowledged===false){await i.acknowledge({flags:64})}
+      i.createMessage(newMsg)
+    }
   })
   slashCommands.push({
     name: 'balance',
     description: 'Check your credit balance',
     cooldown: 500,
-    execute: (i) => {var userid=i.member?i.member.id:i.user.id;balancePrompt(userid,i.channel.id)}
+    execute: async(i) => {
+      let creator = await getCreatorInfoFromInteraction(i)
+      let newMsg = await messageCommands.balanceMsg(creator)
+      if(i.acknowledged===false){await i.acknowledge({flags:64})}
+      //newMsg.reply = i.channel
+      //newMsg.mentions = creator.discordid
+      i.createFollowup(newMsg)
+    }
   })
-}*/
+}
 
 // if llm is enabled in config, add its /chat slash command to the mix
 if(config.llm?.enabled){
@@ -373,15 +318,16 @@ if(config.llm?.enabled){
     cooldown:2000,
     options:[
       {type: 3,name:'prompt',description:'What do you want to ask?',required:true,min_length:1,max_length:6000},
-      {type: 3, name:'persona',description:'Pick a personality type for the bot',required:false,value:'',choices:llmpersonasChoices},
-      {type: 3,name:'systemprompt',description:'Customise the system prompt to change how the bot behaves (advanced)',required:false,min_length:1,max_length:6000}
+      {type: 3,name:'persona',description:'Pick a personality type for the bot',required:false,value:'',choices:llmpersonasChoices},
+      {type: 3,name:'systemprompt',description:'Customise the system prompt to change how the bot behaves (advanced)',required:false,min_length:1,max_length:6000},
+      //{type: 5,name:'private',description:'Only you will see the chat dialog',required:false } // need boolean type and to handle response
     ],
     execute:async(i)=>{
       let userid=i.member?.id??i.user?.id
       let username=i.member?.username??i.user?.username
+      if(i?.acknowledged===false){i.acknowledge()}
       log(username+' triggered chat command')
       let options = {}
-      if(!i?.acknowledged){i.acknowledge()}
       let allowed = await auth.userAllowedFeature({discordid:userid,username:username},'llm')
       if(!allowed){return {error:'llm is for members only'}}
       for (const arg in i.data.options){
@@ -403,9 +349,11 @@ if(config.llm?.enabled){
       let pages = 0
       let maxlength = 4000
       // 4096 actual maximum per embed field (for 6k chars total across all embeds), maxlength 4k leaves 2k chars for content and 2k for another embed field
-      let initResponse = ':thought_balloon: `'+newprompt.substr(0,1000)+'`'
+      let initResponse = '<@'+userid+'> :thought_balloon: `'+newprompt.substr(0,1000)+'`'
       if(options.persona){initResponse+=' :brain: `'+options.persona+'`'}
       if(options.systemprompt){initResponse+=' :face_in_clouds:'}
+      let flags=undefined
+      if(options.private===true){flags=64}
       let modelname = null
       let stream = await llm.chatStream(newprompt,systemprompt)
       if(stream.error){return {error:stream.error}}
@@ -452,7 +400,7 @@ if(config.llm?.enabled){
       stream.on('content', (delta,snapshot)=>{
           if(snapshot.trim().length>0&&lastsnapshot!==snapshot){
             const newContent = currentMessage + snapshot
-            latestUpdate={content:initResponse, embeds:[{description:snapshot,color:color}]}
+            latestUpdate={content:initResponse, flags:flags, embeds:[{description:snapshot,color:color}]}
             if(modelname){
               latestUpdate.embeds.push({description:':floppy_disk: '+modelname})
             }
@@ -475,7 +423,7 @@ if(config.llm?.enabled){
           latestUpdate={content:initResponse, embeds:[{title:':warning: Error',description:'Unable to connect to chat server',color:color}]}
           done=true
       })
-      i.createMessage(initResponse)
+      i.createMessage({content:initResponse,flags:flags})
           .then(async(newmsg)=>{
             newMessage = newmsg
             startEditing()
@@ -511,7 +459,7 @@ parseCommand = async(interaction)=>{
       // check if its already been registered, send message only visible to user if it's not valid
       if (!bot.commands?.has(interaction.data.name)){return interaction.createMessage({content:'Command does not exist', flags:64})}
       try{
-        await interaction.acknowledge()// acknowledge the interacton
+        if(interaction.acknowledged===false){await interaction.acknowledge()}// acknowledge the interacton
         if(!auth.check(interaction.user?.id,interaction.guild?.id??'DM',interaction.channel?.id)){return} // if not authorised, ignore
         bot.commands.get(interaction.data.name).execute(interaction)// run the stored slash command
       }catch(err){
