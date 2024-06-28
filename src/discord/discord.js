@@ -4,44 +4,51 @@ const Constants = Eris.Constants
 const Collection = Eris.Collection
 const {bot} = require('./bot')
 const {config,log,debugLog,tidyNumber}=require('../utils')
-const {exif}=require('../exif')
-const {messageCommands}=require('./messageCommands')
+//const {exif}=require('../exif')
+//const {messageCommands}=require('./messageCommands')
 const {componentCommands}=require('./componentCommands')
 const {slashCommands}=require('./slashCommands')
 var colors = require('colors')
 const {auth}=require('./auth')
 const {emojiCommands} = require("./emojiCommands")
 const {status} = require('./status')
-const { isFunction } = require("lodash")
 const {db,Image} = require("../db")
+let inviteLink = ''
 
-chat=async(channel,msg,file=null)=>{
+chat=async(channel,msg,file=null,retry=0)=>{
   if(msg!==null&&msg!==''){
     try{
       if(file){
         bot.createMessage(channel,msg,file)
           .then(async r=>{
-            // log uploaded images to db
-            Image.create({url:r.attachments[0]?.proxy_url,data:file.file})
-              .then((ul)=>{debugLog('Image uploaded to db: '+r.attachments[0]?.proxy_url)})
-              .catch((err)=>{debugLog('Unable to upload image to db:');debugLog(err)})
+            // cache image in proxy server
+            let data = file.file
+            if(file.length>0){data = file[0].file}
+            Image.create({url:r.attachments[0]?.proxy_url,data})
+              .then((ul)=>{debugLog('Image cached in db: '+r.attachments[0]?.proxy_url)})
+              .catch((err)=>{debugLog('Unable to cache image in db:');debugLog(err)})
           })
-          .catch(e=>{chatFail(e,channel,msg,file)})
-      }else{bot.createMessage(channel,msg).then().catch(e=>{chatFail(e,channel,msg)})}
+          .catch(async e=>{await chatFail(e,channel,msg,file,retry)})
+      }else{bot.createMessage(channel,msg).then().catch(e=>{chatFail(e,channel,msg,null,retry)})}
     }catch(err){
       debugLog('Error posting to discord')
       debugLog(err)
     }}
 }
 
-chatFail=(error,channel,msg,file=null)=>{
+chatFail=async(error,channel,msg,file=null,retry=0)=>{
   debugLog('caught error posting to discord:'.bgRed.black)
   debugLog(error.message)
-  if(error.message?.includes('message_reference: Unknown message')&&msg.messageReference){
-        debugLog('The request message was deleted before we responded, removing reference and trying again')
-        delete msg.messageReference
-        delete msg.message_reference
-        chat(channel,msg,file)
+  if(error.message?.includes('Request timed out')&&retry<2){
+    retry++
+    debugLog('Retry send attempt '+retry)
+    let resent = await chat(channel,msg,file,retry)
+    debugLog(resent)
+  } else if(error.message?.includes('message_reference: Unknown message')&&msg.messageReference){
+    debugLog('The request message was deleted before we responded, removing reference and trying again')
+    delete msg.messageReference
+    delete msg.message_reference
+    chat(channel,msg,file)
   }
 }
 
@@ -111,7 +118,8 @@ async function botInit(){
   bot.on("guildDelete", (guild) => {var m='left guild: '+guild.name;log(m.bgRed);debugLog(guild);chatDM(config.adminID,m)})
   bot.on('ready', async () => {
     log('Connected to '.bgGreen.black+' discord'.bgGreen+' in '+bot.guilds.size+' guilds')
-    log(('Invite bot to server: https://discord.com/oauth2/authorize?client_id='+bot.application.id+'&scope=bot&permissions=124992').dim)
+    inviteLink = 'https://discord.com/oauth2/authorize?client_id='+bot.application.id+'&scope=bot&permissions=124992'
+    log(('Invite bot to server: '+inviteLink).dim)
     slashCommands.init()
 
     //if (config.hivePaymentAddress.length>0){checkNewPayments()}
@@ -120,7 +128,7 @@ async function botInit(){
   bot.on('messageCreate',async(msg)=>{
     if(config.ignoreAllBots&&msg.author.bot) return // ignore all bot messages
     if(config.logging.chat)logChat(msg)
-    parseMsg(msg).then().catch(e=>{log('Error on discord/parseMsg');log(e)})
+    parseMsg(msg,bot.application.id).then().catch(e=>{log('Error on discord/parseMsg');log(e)})
   })
   // Runs on all interactions
   bot.on("interactionCreate", async (interaction) => {
@@ -141,6 +149,7 @@ module.exports={
     botInit,
     chat,
     chatDM,
-    Constants
+    Constants,
+    inviteLink
   }
 }
