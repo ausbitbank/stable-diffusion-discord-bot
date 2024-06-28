@@ -25,6 +25,7 @@ const init=async()=>{
         let c=cluster[d]
         try{
             if(!c.online){break}
+            if(c.type&&c.type!=='invoke'){break}
             initHost(c)
         } catch(err) {
             c.online=false
@@ -89,7 +90,7 @@ buildWorkflowFromJob = (job)=>{
     let keys = Object.keys(job)
     for (const i in keys){
         let key = keys[i]
-        if(['prompt','strength','control','controlstart','controlend','controlweight','ipamodel','facemask','lscale','invert','width','height','hrf','hrfwidth','hrfheight','cost'].includes(key)){essentials[key] = job[key]}
+        if(['prompt','strength','control','controlstart','controlend','controlweight','ipamodel','ipamethod','facemask','lscale','invert','width','height','hrf','hrfwidth','hrfheight','cost'].includes(key)){essentials[key] = job[key]}
         if(['creator'].includes(key)){essentials[key] = JSON.stringify(job[key])}
     }
     return JSON.stringify(essentials)
@@ -180,6 +181,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         is_intermediate:false,
         generation_mode:job.initimg?'img2img':'txt2img',
         cfg_scale:job.scale,
+        cfg_rescale_multiplier:0,
         clip_skip:job.clipskip,
         //cfg_rescale_multiplier: 0,
         height:job.height,
@@ -274,20 +276,14 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     if(job.model.base_model==='sdxl'){node('freeu',{is_intermediate:true,b1:1.1,b2:1.2,s1:0.6,s2:0.4,use_cache:true},[pipe('sdxl_model_loader','unet','SELF','unet')])}
     */
 
-    // Tamper with unet and vae if using seamless mode
-    if(job.seamlessx===true||job.seamlessy===true){
-        node('seamless',{is_intermediate:false,use_cache:false,seamless_x:job.seamlessx===true?true:false,seamless_y:job.seamlessy===true?true:false},[pipe(lastid.unet,'unet','SELF','unet'),pipe(lastid.vae,'vae','SELF','vae')])
-    }
-
     if(job.initimgObject){
         debugLog('Adding init img to graph')
         if(job.control==='ipa'){ // todo rework so it can be used independantly of controlnet or i2l , allow model selection
             let ipamodel=(job.model.base==='sdxl')?'ip_adapter_sdxl':'ip_adapter_sd15'
             if(job.ipamodel){ipamodel=job.ipamodel}
-            //debugLog('Looking up ipamodel '+ipamodel+' , turning into object')
             let ipamodelobject=await(modelnameToObject(ipamodel,'ip_adapter'))
             debugLog('Using ip_adapter with input image, model '+ipamodelobject.name)
-            node('ip_adapter',{ip_adapter_model:{base:ipamodelobject.base,name:ipamodelobject.name,key:ipamodelobject.key,hash:ipamodelobject.hash,type:ipamodelobject.type,submodel_type:null},begin_step_percent:job.controlstart?job.controlstart:0,end_step_percent:job.controlend?job.controlend:1,is_intermediate:true,image:{image_name:job.initimgObject.image_name},weight:job.controlweight?job.controlweight:1},[])
+            node('ip_adapter',{ip_adapter_model:{base:ipamodelobject.base,name:ipamodelobject.name,key:ipamodelobject.key,hash:ipamodelobject.hash,type:ipamodelobject.type,submodel_type:null},begin_step_percent:job.controlstart?job.controlstart:0,end_step_percent:job.controlend?job.controlend:1,method:job.ipamethod??'full',is_intermediate:true,image:{image_name:job.initimgObject.image_name},weight:job.controlweight?job.controlweight:1},[])
         // todo need to incorporate t2i as well, copy ipamodel syntax, add a --t2imodel param
         // } else if (job.control==='t2i') {
         //      let t2imodel=(job.model.base_model==='sdxl')?'canny-sdxl':'canny-sd15'
@@ -317,7 +313,6 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
                     },[])
         }
     }
-
     node('clip_skip',{skipped_layers:job.clipskip??0,is_intermediate:true},[pipe(lastid.clip,'clip','SELF','clip')])
     if(lastid.width&&lastid.height){
         node('noise',{use_cpu:true},[pipe(lastid.width,'width','SELF','width'),pipe(lastid.height,'height','SELF','height')])
@@ -335,6 +330,13 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     node('core_metadata',metaObject,[])
     node('collect',{},[pipe(lastid.metadata,'metadata','SELF','item'),pipe(lastid.core_metadata,'metadata','SELF','item')])
     node('merge_metadata',{},[pipe(lastid.collect,'collection','SELF','collection')])
+
+    // Tamper with unet and vae if using seamless mode
+    if(job.seamlessx===true||job.seamlessy===true){
+        debugLog('Seamless mode enabled:\nunet id before '+lastid.unet+' , vae id before:'+lastid.vae)
+        node('seamless',{is_intermediate:true,use_cache:true,seamless_x:job.seamlessx===true?true:false,seamless_y:job.seamlessy===true?true:false},[pipe(lastid.unet,'unet','SELF','unet'),pipe(lastid.vae,'vae','SELF','vae')])
+        debugLog('unet id after '+lastid.unet+' , vae id after: '+lastid.vae)
+    }
 
     if(['sd-1','sd-2'].includes(job.model.base)){
         node('compel',{prompt:job.positive_prompt},[pipe(lastid.clip,'clip','SELF','clip')])
@@ -361,7 +363,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     if(lastid.latents){p.push(pipe(lastid.latents,'latents','SELF','latents'))}
     let denoising_start = 0.0
     if(job.strength&&job.initimgObject&&job.control==='i2l'){denoising_start=1.0-job.strength}
-    node('denoise_latents',{is_intermediate:true,noise:null,steps:job.steps,cfg_scale:job.scale,denoising_start:denoising_start,denoising_end:1.0,scheduler:job.scheduler},p)
+    node('denoise_latents',{is_intermediate:true,noise:null,steps:job.steps,cfg_scale:job.scale,cfg_rescale_multiplier:0,denoising_start:denoising_start,denoising_end:1.0,scheduler:job.scheduler},p)
     // new Hires fix implementation
     // do initial render at basemodel default pixellimit in correct aspect ratio
     // l2i , img_resize to full res , noise at full res , i2l , denoise latents at start 0.55 , l2i
@@ -369,15 +371,14 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         debugLog('Applying hires fix, init width:'+job.hrfwidth+', height:'+job.hrfheight)
         denoising_start = 0.55//1.0 - job.strength??0.55
         debugLog('denoising start is '+denoising_start)
-        node('l2i',{fp32:fp32,is_intermediate:true},[pipe(lastid.latents,'latents','SELF','latents'),pipe('main_model_loader','vae','SELF','vae')])
+        node('l2i',{fp32:fp32,is_intermediate:true},[pipe(lastid.latents,'latents','SELF','latents'),pipe(lastid.vae,'vae','SELF','vae')])
         node('img_resize',{width:job.width,height:job.height,is_intermediate:true},[pipe('l2i','image','SELF','image')])
         node('noise',{seed:job.seed,width:job.width,height:job.height},[])
         if(['sd-1','sd-2'].includes(job.model.base)){
-            debugLog(lastid.vae)
-            node('i2l',{is_intermediate:true},[pipe('img_resize','image','SELF','image'),pipe('main_model_loader','vae','SELF','vae')])
+            node('i2l',{is_intermediate:true},[pipe('img_resize','image','SELF','image'),pipe(lastid.vae,'vae','SELF','vae')])
             p = [pipe('compel','conditioning','SELF','positive_conditioning'),pipe('compel-2','conditioning','SELF','negative_conditioning')]
         } else { // sdxl
-            node('i2l',{is_intermediate:true},[pipe('img_resize','image','SELF','image'),pipe('sdxl_model_loader','vae','SELF','vae')])
+            node('i2l',{is_intermediate:true},[pipe('img_resize','image','SELF','image'),pipe(lastid.vae,'vae','SELF','vae')])
             p = [pipe('sdxl_compel_prompt','conditioning','SELF','positive_conditioning'),pipe('sdxl_compel_prompt-2','conditioning','SELF','negative_conditioning')]
         }
         p.push(pipe(lastid.noise,'noise','SELF','noise'))
@@ -386,15 +387,18 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         if(lastid.ip_adapter){p.push(pipe(lastid.ip_adapter,'ip_adapter','SELF','ip_adapter'))}
         if(lastid.denoise_mask){p.push(pipe(lastid.denoise_mask,'denoise_mask','SELF','denoise_mask'))}
         if(lastid.latents){p.push(pipe(lastid.latents,'latents','SELF','latents'))}
+        debugLog(p)
         node('denoise_latents',{is_intermediate:true,steps:job.steps,cfg_scale:job.scale,scheduler:job.scheduler,denoising_start:denoising_start,denoising_end:1.0},p)
     }
     // final output
+    node('l2i',{tiled:true,fp32:fp32,is_intermediate:false},[pipe(lastid.vae,'vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('merge_metadata','metadata','SELF','metadata')])
+    /*
     if(['sd-1','sd-2'].includes(job.model.base)){
         node('l2i',{tiled:true,fp32:fp32,is_intermediate:false},[pipe(lastid.vae,'vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('merge_metadata','metadata','SELF','metadata')])
     } else {
         node('l2i',{tiled:true,fp32:fp32,is_intermediate:false},[pipe(lastid.vae,'vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('merge_metadata','metadata','SELF','metadata')])
     }
-
+    */
     //if(job.upscale&&job.upscale===2){node('esrgan',{model_name:'RealESRGAN_x2plus.pth'},[pipe(lastid.image,'image','SELF','image')])}
     let dataitems = [job.seed]
     while(dataitems.length<job.number){dataitems.push(random.seed())}
@@ -427,8 +431,14 @@ const getJobCost = (job) =>{
     cost=(pixelSteps/pixelStepsBase)*cost
     cost=cost*number
     if(job.control==='i2l'&&job.strength){cost=cost*job.strength} // account for reduced steps with img2img
-    if(job.hrf&&job.hrfwidth&&job.hrfheight&&job.strength){
-        cost=cost*(job.hrfwidth*job.hrfheight*(steps*job.strength))/pixelStepsBase // account for 2 pass hiresfix
+    if(job.hrf){ // account for 2 pass hiresfix
+        if(!job.hrfwidth){job.hrfwidth===job.width}
+        if(!job.hrfheight){job.hrfheight===job.height}
+        if(!job.strength){job.strength=config.default.strength}
+        //debugLog('Increase cost for hrf job based on '+job.hrfwidth+' * '+job.hrfheight+' * ('+steps+' * '+job.strength+')) / '+pixelStepsBase)
+        //debugLog('Cost before = '+cost)
+        cost=cost+(job.hrfwidth*job.hrfheight*(steps*job.strength))/pixelStepsBase 
+        //debugLog('Cost after = '+cost)
     }
     if(job.model.base==='sdxl'){cost=cost+0.45} // increased vram use, load time (higher base res already included earlier)
     if(job.loras&&job.loras.length>0){cost=cost+(job.loras.length*0.25)} // 0.25 for each lora
@@ -529,7 +539,7 @@ function findHostsWithJobLoras(hosts, job) {
 
 const findHost = async(job=null)=>{
     // find host with the required models, embeds, etc that isn't currently busy
-    let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
+    let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled&&h.type==='invoke'})
     if(job===null&&availableHosts.length>0){
         debugLog('No job info supplied, returning random available host')
         return availableHosts[Math.floor(Math.random() * availableHosts.length)]
@@ -579,25 +589,26 @@ const subscribeQueue = async(host,name='arty')=>{
         })
         socket.on('queue_item_status_changed', msg => {
             // queue_id str, queue_item_id int, status str, batch_id uuid, session_id uuid, error, created_at str, updated_at str, started_at str, completed at null, timestamp
-            debugLog(host.name+' '+msg.queue_item?.batch_id?.dim+' '+msg.queue_item?.status)
+            debugLog(host.name+' '+msg.batch_id?.dim+' '+msg.status)
             // resultCache.edit(msg.batch_id,'status',msg.status) // invoke 3.2
-            resultCache.edit(msg.queue_item?.batch_id,'status',msg.queue_item?.status) // invoke 3.3
+            resultCache.edit(msg.batch_id,'status',msg.status) // invoke 3.3
         })
-        socket.on('invocation_started', msg => {debugLog(host.name+' '+msg.queue_batch_id.dim+' started '+msg.node.type)})
+        socket.on('invocation_started', msg => {
+            debugLog(host.name+' '+msg.batch_id+' started '+msg.invocation.type)})
         socket.on('invocation_complete', msg => {
-            debugLog(host.name+' '+msg.queue_batch_id.dim+' finished '+msg.node.type)
-            if(msg.result?.type==='image_output'&&msg.node.is_intermediate){
+            debugLog(host.name+' '+msg.batch_id+' finished '+msg.invocation.type)
+            if(msg.result?.type==='image_output'&&msg.invocation.is_intermediate){
                 debugLog('ignore intermediate image')
             } else {
-                resultCache.addResult(msg.queue_batch_id,msg.result)
+                resultCache.addResult(msg.batch_id,msg.result)
             }            
         })
-        socket.on('generator_progress', msg => {
-            log(host.name+' '+msg.queue_batch_id.dim+' '+msg.order+' : '+msg.step+' / '.dim+msg.total_steps)
+        socket.on('invocation_denoise_progress', msg => {
+            log(host.name+' '+msg.batch_id.dim+' '+msg.order+' : '+msg.step+' / '.dim+msg.total_steps)
             let buf=null
             // decode progress images
             //if(msg.progress_image?.dataURL){buf = Buffer.from(msg.progress_image.dataURL.split(','[1], 'base64'))}
-            resultCache.edit(msg.queue_batch_id,'progress',{
+            resultCache.edit(msg.batch_id,'progress',{
                 step:msg.step,
                 total_steps:msg.total_steps,
                 order:msg.order,
@@ -606,17 +617,17 @@ const subscribeQueue = async(host,name='arty')=>{
             })
         })
         socket.on('model_load_started', msg => {
-            let t = msg.model_config.base+'/'+msg.model_config.name
+            let t = msg.config.base+'/'+msg.config.name
             if(msg.submodel_type){t= t+'/'+msg.submodel_type}
             debugLog(host.name+' loading '+t)
-            resultCache.addResult(msg.queue_batch_id,{type:t})
+            resultCache.addResult(msg.batch_id,{type:t})
         })
         socket.on('model_load_completed', msg => {
-            debugLog(host.name+' loaded: '+msg.model_config.name)
+            debugLog(host.name+' loaded: '+msg.config.name)
         })
         socket.on('graph_execution_state_complete', msg => {
-            // queue_id str, queue_item_id int, queue_batch_id uuid, graph_execution_state_id uuid, timestamp
-            debugLog(host.name+' graph done '.bgGreen+msg.queue_batch_id.dim)
+            // queue_id str, queue_item_id int, batch_id uuid, graph_execution_state_id uuid, timestamp
+            debugLog(host.name+' graph done '.bgGreen+msg.batch_id.dim)
         })
     } catch(err) {
         log('Error with websocket for host '+host.name)
@@ -776,7 +787,7 @@ const auto2invoke = (text)=>{
     return text
 }
 
-const jobFromDream = async(cmd,images=null,tracking=null)=>{
+const jobFromDream = async(cmd,images=null)=>{ //,tracking=null
     // input oldschool !dream format, output job object
     var job = parseArgs(cmd,{boolean:['facemask','invert','hrf','seamlessx','seamlessy','seamless']})//string: ['sampler','text_mask'],boolean: ['seamless','hires_fix']}) // parse arguments //
     // set argument aliases
@@ -791,7 +802,7 @@ const jobFromDream = async(cmd,images=null,tracking=null)=>{
     if(job.n){job.number=job.n;delete job.n}
     if(job.p){job.preset=job.p;delete job.p}
     if(job.sampler){job.scheduler=job.sampler;delete job.sampler}
-    if(tracking){job.tracking=tracking}
+    //if(tracking){job.tracking=tracking}
     // take prompt from what's left
     job.prompt=job._.join(' ')
     if(images){job.initimg=images}
@@ -814,6 +825,7 @@ const jobFromMeta = async(meta,img=null,tracking=null)=>{
     if(meta.invoke.controlend !== null && meta.invoke.controlend !== undefined){job.controlend=meta.invoke.controlend}
     if(meta.invoke.controlweight !== null && meta.invoke.controlweight !== undefined){job.controlweight=meta.invoke.controlweight}
     if(meta.invoke?.ipamodel){job.ipamodel=meta.invoke.ipamodel}
+    if(meta.invoke?.ipamethod){job.ipamethod=meta.invoke.ipamethod}
     if(meta.invoke?.facemask){job.facemask=meta.invoke.facemask;job.control='i2l'}
     if(meta.invoke?.invert){job.facemask=meta.invoke.invert}
     if(meta.invoke.strength !== null && meta.invoke.strength !== undefined){job.strength=meta.invoke.strength}  
@@ -865,14 +877,19 @@ const extractLoras = async (inputString) => {
             m
         }
     })
+    const loraNamesMap = new Map() // Create a Map to store unique Lora names
     let stripped = inputString
     let newloras = []
     for (const lora of loras){
         lora.model = await loranameToObject(lora.name)
         if(!lora.model) break
         stripped = inputString.replace(lora.m, '')
-        newloras.push({name:lora.name,model:lora.model,weight:lora.weight,key:lora.key,hash:lora.hash,type:lora.type})
+        if (!loraNamesMap.has(lora.name)) {
+            loraNamesMap.set(lora.name, lora)
+            newloras.push({name:lora.name,model:lora.model,weight:lora.weight,key:lora.key,hash:lora.hash,type:lora.type})
+        }
     }
+    // todo do not allow duplicate lora name's, even if they have different weight only use the first one
     return {
         loras: newloras,
         stripped: stripped,
@@ -881,7 +898,7 @@ const extractLoras = async (inputString) => {
 }
 const allUniqueModelsAvailable = async () => {
     // Return an array with all available main models, across all connected & online hosts with no repeats
-    let availableHosts = cluster.filter(h => h.online && !h.disabled)
+    let availableHosts = cluster.filter(h => h.online && !h.disabled && h.type==='invoke')
     let uniqueModelsMap = new Map()
     for (const host of availableHosts) {
         for (const model of host.models) {
@@ -900,7 +917,7 @@ const allUniqueModelsAvailable = async () => {
 }
 const allUniqueLorasAvailable = async () => {
     // Return an array with all available lora models, across all connected & online hosts with no repeats
-    let availableHosts = cluster.filter(h => h.online && !h.disabled)
+    let availableHosts = cluster.filter(h => h.online && !h.disabled&& h.type==='invoke')
     let uniqueLorasMap = new Map()
     for (const host of availableHosts) {
         for (const model of host.lora) {
@@ -922,7 +939,7 @@ const allUniqueLorasAvailable = async () => {
 
 const allUniqueControlnetsAvailable = async()=>{
     // Return an object with all available controlnet models, across all connected & online hosts //todo : no repeats
-    let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
+    let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled&& h.type==='invoke'})
     let allModels=[]
     for (const h in availableHosts){
         let host=cluster[h]
@@ -936,7 +953,7 @@ const allUniqueControlnetsAvailable = async()=>{
 
 const allUniqueIpAdaptersAvailable = async()=>{
     // Return an object with all available ip adapter models, across all connected & online hosts //todo : no repeats
-    let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
+    let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled&& h.type==='invoke'})
     let allModels=[]
     for (const h in availableHosts){
         let host=cluster[h]
@@ -950,7 +967,7 @@ const allUniqueIpAdaptersAvailable = async()=>{
 
 const allUniqueT2iAdaptersAvailable = async()=>{
     // Return an object with all available t2i adapter models, across all connected & online hosts //todo : no repeats
-    let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
+    let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled&& h.type==='invoke'})
     let allModels=[]
     for (const h in availableHosts){
         let host=cluster[h]
@@ -986,17 +1003,19 @@ const validateJob = async(job)=>{
         let el = await extractLoras(job.prompt)
         if(el.error){return {error:el.error}}
         job.loras = el.loras
-        //debugLog('loras inside validatejob')
-        //debugLog(el.loras)
+        debugLog(el.stripped)
+        // todo use the el.stripped value (withLora(etc) removed) when splitting into positive and negative prompts (keep job.prompt intact)
         // Set default model if not selected
-        if(!job.model){
-            job.model=await modelnameToObject(config.default.model)
-        }
+        if(!job.model){job.model=await modelnameToObject(config.default.model)}
         // Upgrade from model string to model object
         if(!isObject(job.model)){job.model=await modelnameToObject(job.model)}
+        // Detect if loras are compatible with main model
+        if(job.loras){for (const l in job.loras){let lo = job.loras[l];if(lo.model.base!==job.model.base){return {error:'Lora '+lo.model.name+' ('+lo.model.base+') is incompatible with main model '+job.model.name+' ('+job.model.base+')'}}}}
+        debugLog(job)
         // split into positive/negative prompts
         const npromptregex = /\[(.*?)\]/g // match content of [square brackets]
-        const npromptmatches = job.prompt?.match(npromptregex)
+        const npromptmatches = el.stripped?.match(npromptregex)
+        //const npromptmatches = job.prompt?.match(npromptregex)
         if(npromptmatches?.length>0){
             job.negative_prompt=npromptmatches.join(' ').replace('[','').replace(']','')
         }else{
@@ -1008,7 +1027,8 @@ const validateJob = async(job)=>{
             }
             debugLog('negative prompt: '+job.negative_prompt)
         }
-        job.positive_prompt=job.prompt?.replace(npromptregex,'')
+        job.positive_prompt=el.stripped?.replace(npromptregex,'')
+        //job.positive_prompt=job.prompt?.replace(npromptregex,'')
         // set defaults if not already set
         if(!job.style){job.style=''}
         if(!job.negstyle){job.negstyle=''}
@@ -1044,7 +1064,7 @@ const validateJob = async(job)=>{
         // lscale min 1 max 3 default 1
         //if(!job.lscale||job.lscale<1||job.lscale>3){job.lscale=1}
         if(!job.clipskip){job.clipskip=0}
-        if(!job.upscale){job.upscale=0}
+        if(!job.upscale){job.upscale=0} // remove ? May be best to not upscale inside the standard renders, do afterwards as needed
         // set default init img mode
         // todo support multiple controlnet modes and images
         if(job.initimg||job.images?.length>0){
@@ -1057,8 +1077,9 @@ const validateJob = async(job)=>{
                 if(!job.controlstart){job.controlstart=0}
                 if(!job.controlend){job.controlend=1}
             }
-            if(job.control==='ipa'&&!job.ipamodel){
-                job.ipamodel=(job.model.base==='sdxl')?'ip_adapter_sdxl':'ip_adapter_sd15'
+            if(job.control==='ipa'){
+                if(!job.ipamodel){job.ipamodel=(job.model.base==='sdxl')?'ip_adapter_sdxl':'ip_adapter_sd15'}
+                if(!job.ipamethod){job.ipamethod='full'}
             }
         }
         if(job.hrf){
@@ -1126,13 +1147,14 @@ const textFontImage = async(options,host) => {
     }
 }
 
-const processImage = async(img,host,type,options,tracking) => {
+const processImage = async(img,host,type,options,tracking,creator) => {
     try {
         // todo this should check availability of the chosen preprocessor type on the host
         if(!host) host=await findHost()
         let imgid = getUUID()
         let graph = null
         let initimg = await uploadInitImage(host,img,imgid)
+        let cost = 0
         switch(type){
             case 'esrgan':{
                 let resolution = await imageEdit.getResolution(img)
@@ -1143,6 +1165,7 @@ const processImage = async(img,host,type,options,tracking) => {
                 if(totalPixels>=maxPixels){return {error: 'Image dimensions are too large! Max upscaled pixels = '+maxPixels}}
                 let model_name = options.model_name||RealESRGAN_x2plus.pth
                 graph = {nodes:{esrgan:{'id':'esrgan','type':'esrgan','model_name':model_name,'image':{'image_name':initimg.image_name}}}}
+                cost = 1
                 break
             }
             case 'openpose':{
@@ -1196,7 +1219,8 @@ const processImage = async(img,host,type,options,tracking) => {
                 // uses custom invokeai node https://github.com/blessedcoolant/invoke_bria_rmbg
                 // to install go to invokeai\nodes and git clone https://github.com/blessedcoolant/invoke_bria_rmbg
                 // would be real nice if we could transplant meta from source image to new image
-                graph = {nodes:{bria_bg_remove:{'id':'bria_bg_remove','type':'bria_bg_remove','is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
+                graph = {nodes:{bria_bg_remove:{'id':'bria_bg_remove','type':'bria_bg_remove','is_intermediate':false,'model':'1.4','image':{'image_name':initimg.image_name}}}}
+                cost = 0.5
                 break
             }
             case 'face':{
@@ -1216,6 +1240,11 @@ const processImage = async(img,host,type,options,tracking) => {
         if(tracking?.type==='discord'){progress.update(tracking.msg,batchId)}
         let images = await batchToImages(host,batchId)
         await deleteImage(host,initimg.image_name)
+        if(config.credits.enabled&&cost>0&&creator?.discordid&&host.ownerid){
+            if(creator.discordid!==host.ownerid){
+                await credits.transfer(creator.discordid,host.ownerid,cost)
+            }
+        }
         if(images.error){return {error:images.error}}
         return {images:images}
     } catch (err) {
@@ -1388,7 +1417,9 @@ const nightmarePromptGen = async(host,options={temp:1.8,top_k:40,top_p:0.9,repo_
     try {
         let batchId = await enqueueBatch(host,batch)
         let result = await batchToResult(host,batchId)
-        if(tracking?.type==='discord'){progress.update(tracking.msg,batchId)}
+        if(tracking?.type==='discord'){
+            progress.update(tracking.msg,batchId)
+        }
         return result
     } catch(err) {
         debugLog('Nightmare prompt generator failed to execute');debugLog(err)
@@ -1399,6 +1430,10 @@ const nightmarePromptGen = async(host,options={temp:1.8,top_k:40,top_p:0.9,repo_
 const modelnameToObject = async(modelname,modeltype='main')=>{
     // look up models available on hosts
     let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
+    if(availableHosts.length===0){
+        debugLog('No online hosts right now, try again later')
+        throw({error:'No online render hosts right now, try again later'})
+    }
     for (const h in availableHosts){
         let host=cluster[h]
         let model
@@ -1412,6 +1447,7 @@ const modelnameToObject = async(modelname,modeltype='main')=>{
             model=host.lora.find(m=>{return m.name===modelname})
         }
         if(isObject(model)){
+            debugLog(model)
             return {
                 key: model.key,
                 hash: model.hash,
@@ -1425,7 +1461,7 @@ const modelnameToObject = async(modelname,modeltype='main')=>{
         }
     }
     debugLog('Unable to find online host with model: '+modelname)
-    throw({error:'Unable to find online host with model: `'+modelname+'`'})
+    throw('Unable to find online host with model: `'+modelname+'`')
 }
 
 loranameToObject = async(loraname)=>{return await modelnameToObject(loraname,'lora')}
@@ -1451,12 +1487,8 @@ getJobStats = ()=>{
 }
 cast = async(job)=>{
     // easy mode, submit job, receive results
-    const context = {
-        job,
-        host:null,
-        batchId:null,
-        images:[]
-    }
+    if(job.error){return job}
+    const context = {job,host:null,batchId:null,images:[]}
     try{
         try{context.host=await findHost(context.job)}catch(err){return {error:err}}
         if(context.job.initimg){
@@ -1475,23 +1507,12 @@ cast = async(job)=>{
         context.batchId = await enqueueBatch(context.host,graph)
         if(!context.batchId||context.batchId?.error){return {error:'Error queuing job '}}
         // Trigger progress update reporting if enabled
-        if(context.job.tracking){
-            if(context.job.tracking?.type==='discord'){progress.update(job.tracking.msg,context.batchId)}
-        }
+        if(context.job.tracking?.type==='discord'){progress.update(job.tracking.msg,context.batchId)}
         context.images = await batchToImages(context.host,context.batchId)
         resultCache.remove(context.batchId)
         if(context.images?.error){return {error:context.images?.error}}
-        // Charge user here
-        if(config.credits.enabled&&job.cost>0&&context.job.creator.discordid&&context.host.ownerid){
-            if(context.job.creator.discordid===context.host.ownerid){
-                // user rendering on own backend, no charge
-            } else {
-                // charge the creator, credit the backend provider
-                await credits.transfer(context.job.creator.discordid,context.host.ownerid,job.cost)
-            }
-        } else {
-            debugLog('No charge')
-        }
+        // if credits enabled, charge the creator, credit the host
+        if(config.credits.enabled&&job.cost>0&&context.job.creator.discordid&&context.host.ownerid){if(context.job.creator.discordid!==context.host.ownerid){await credits.transfer(context.job.creator.discordid,context.host.ownerid,job.cost)}}
         if(context.job.initimgObject)deleteImage(context.host,context.job.initimgObject.image_name) // remove uploaded image after use
         let result = {
             job:context.job,
