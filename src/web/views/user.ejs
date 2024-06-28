@@ -1,0 +1,7 @@
+<%- include('header'); %>
+<div id="usergallery" class="image-grid"></div>
+<div id="paging" class="paging"></div>
+<script>
+displayPins({username:"<%= username %>"},'usergallery','paging')
+</script>
+<%- include('footer'); %>

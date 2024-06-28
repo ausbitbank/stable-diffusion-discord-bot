@@ -1,0 +1,32 @@
+<%- include('header'); %>
+            <h1>Sign In</h1>
+            <% if (locals.hasMessages) { %>
+            <section class="messages">
+                <% messages.forEach(function(message) { %>
+                    <p>
+                        <%= message %>
+                    </p>
+                    <% }); %>
+            </section>
+            <% } %>
+            <form action="/login/password" method="post">
+                <!--
+                <section>
+                    <label for="username">Username</label>
+                    <input id="username" name="username" type="text" autocomplete="username" required autofocus>
+                </section>
+                -->
+                <section>
+                    <label for="email">Email</label>
+                    <input id="email" name="email" type="text" autocomplete="email" required autofocus>
+                </section>
+                <section>
+                    <label for="current-password">Password</label>
+                    <input id="current-password" name="password" type="password" autocomplete="current-password" required>
+                </section>
+                <input type="hidden" name="csrf-token" value="<%- csrfToken %>">
+                <button type="submit">Sign in</button>
+            </form>
+            <hr>
+            <p class="help">Don't have an account? <a href="/signup">Sign up</a></p>
+<%- include('footer'); %>
