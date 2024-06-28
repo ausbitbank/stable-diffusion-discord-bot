@@ -2,6 +2,7 @@ const {config,log,debugLog,tidyNumber, urlToBuffer, getUUID}=require('../utils.j
 const {bot} = require('./bot.js')
 const {auth}=require('./auth')
 const {messageCommands}=require('./messageCommands')
+const {mod}=require('../mod')
 
 var commands = [
     {
@@ -11,6 +12,7 @@ var commands = [
         aliases: ['⭐','❤️'],
         command: async (msg,emoji,reactor)=>{
             sendToStarGallery(msg,emoji,reactor)
+            // todo star message
         }
     },
     {
@@ -52,12 +54,16 @@ var commands = [
                         debugLog('ignoring removeBadResult request')
                         return
                     }
+                // Everyone can downvote a valid cid image
+                let cid = await messageCommands.extractImageCidFromMessageOrReply(reactedmsg)
+                let creator = getCreatorInfoFromReactor(reactor,msg)
+                if(cid){await mod.downvote(cid,creator)}
+                // admin and owner can remove renders without voting
+                // anyone can remove their own messages via self votes
                 if(
                     (parseInt(reactor.user?.id)===config.adminID)||
                     (reactedmsg.mentions&&reactedmsg.mentions[0]?.id===reactor.user?.id)||
                     (reactor.user?.id===reactedmsg.member?.id)){
-                        // admin and owner can remove renders without voting
-                        // anyone can remove their own messages via self votes
                         debugLog('Removing bad result from '+reactedmsg?.member?.username+' triggered by '+reactor?.user?.username??reactor?.id)
                         reactedmsg.delete().catch(()=>{})
                 } else {
@@ -99,10 +105,13 @@ parse = async(msg,emoji,reactor)=>{
         }
     }
 }
-
+const getCreatorInfoFromReactor=(reactor,msg)=>{
+    return {discordid:reactor.user?.id,username:reactor.user?.username,channelid:msg.channel?.id,guildid:reactor.guildID||'DM'}
+}
 const starGalleryEntries = new Set() // Keep in memory set of message id's to stop duplicates, lost on restart
 const sendToStarGallery = async(msg,emoi,reactor)=>{ // Make a copy without buttons for the gallery
     // need to explore guild, check for star-gallery channel and send simplified result there with no buttons
+    // also send a mod action to star the image
     let guildId = msg.guildID
     let originalChannelId = msg.channel?.id
     let messageId = msg.id
@@ -114,7 +123,12 @@ const sendToStarGallery = async(msg,emoi,reactor)=>{ // Make a copy without butt
     if(starGalleryEntries.has(messageId)) return
     // Make sure we have the full message object now instead of the shortform thing we get when eris doesn't have the message cached yet
     msg = await bot.getMessage(msg.channel.id,msg.id)
-    if(msg.author?.id!==bot.application.id) return // only care about our own results
+    if(msg.author?.id!==bot.application.id) return // only care about things posted by the bot
+    let cid = await extractImageCidFromMessageOrReply(msg)
+    if(cid){
+        let creator = getCreatorInfoFromReactor(reactor,msg)
+        await mod.star(cid,creator)
+    }
     const messageLink = `https://discord.com/channels/${guildId}/${originalChannelId}/${messageId}`
     const components = [{ type: 1, components: [{ type: 2, style: 5, label: "Original message", url: messageLink, disabled: false }]}]
     let buf,file
@@ -131,6 +145,7 @@ const sendToStarGallery = async(msg,emoi,reactor)=>{ // Make a copy without butt
 
 module.exports = {
     emojiCommands:{
-        parse:parse
+        parse:parse,
+        getCreatorInfoFromReactor
     }
 }
