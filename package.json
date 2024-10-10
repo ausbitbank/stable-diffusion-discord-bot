@@ -23,6 +23,7 @@
     "@chainsafe/libp2p-noise": "^15.0.0",
     "@chainsafe/libp2p-yamux": "^6.0.2",
     "@helia/unixfs": "^3.0.6",
+    "@hiveio/dhive": "^1.3.1-beta",
     "@hiveio/hive-js": "^2.0.7",
     "@libp2p/autonat": "^1.0.21",
     "@libp2p/bootstrap": "^10.0.24",
