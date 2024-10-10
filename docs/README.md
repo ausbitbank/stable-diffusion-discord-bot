@@ -53,7 +53,7 @@ It's currently compatible with `invokeai 4.2.0`.
 **Patches/Pull request are greatly appreciated!**
 -----------------------
 
-If you have any questions you can find me (ausbitbank) in ![my discord here](https://discord.gg/DSdK9KRJxq)
+If you have any questions you can find me (ausbitbank) in ![my discord here]([https://discord.gg/DSdK9KRJxq](https://discord.gg/ausbit-s-stuff-and-things-419390618209353730))
 
 You can test out the bot in any of the #artspam channels or by DM'ing
 
