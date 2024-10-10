@@ -6,7 +6,7 @@ apricot
 aqua
 aquamarine
 asparagus
-auburn
+aubun
 azure
 beige
 bistre
@@ -39,8 +39,8 @@ cinnamon
 cobalt
 copper
 coral
-corn
-cornflower
+con
+conflower
 cream
 crimson
 cyan
@@ -50,7 +50,7 @@ ecru
 emerald
 eggplant
 falu-red
-fern-green
+fen-green
 firebrick
 flax
 forest-green

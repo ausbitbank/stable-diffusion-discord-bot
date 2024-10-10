@@ -1,0 +1,1 @@
+black and white, line art, coloring drawing of, withLora(lineart,0.7), white background, thick outlines

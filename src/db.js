@@ -52,6 +52,12 @@ const User = db.define('User', {
     banned: {
         type: DataTypes.BOOLEAN,
         defaultValue:false
+    },
+    hash: {
+        type: DataTypes.BLOB
+    },
+    salt: {
+        type: DataTypes.BLOB
     }
 })
 
@@ -121,10 +127,16 @@ const Payment = db.define('Payment',{
     txid:{
         type:DataTypes.STRING,
         allowNull:true
+    },
+    value:{
+        type:DataTypes.INTEGER
+    },
+    userid:{
+        type:DataTypes.INTEGER
     }
 })
 
-// Image caching proxy
+// Image caching proxy - purged of old images by scheduler every 24hrs
 const Image = imgdb.define('Image', {
     id: {
         type: DataTypes.INTEGER,
@@ -142,6 +154,54 @@ const Image = imgdb.define('Image', {
     }
 })
 
+// IPFS pinning database - tracks hashes/cid's , connects them to a user , creation date (auto createdAt,updatedAt), and filesize
+const Pin = db.define('Pin',{
+    id: {
+        type: DataTypes.INTEGER,
+        primaryKey:true,
+        autoIncrement:true
+    },
+    cid:{
+        type: DataTypes.STRING,
+        allowNull:false,
+    },
+    user:{
+        type:DataTypes.INTEGER,
+        allowNull:true
+    },
+    size:{ // in bytes
+        type:DataTypes.BIGINT,
+        allowNull:true,
+        //validate:{max:200000000}
+    },
+    flags:{ // favorite, deleted, nsfw, etc - make a spec
+        type:DataTypes.STRING,
+        allowNull:true
+    }
+})
+
+// Moderation table - id,cid,user,action
+const Moderation = db.define('Moderation',{
+    id: {
+        type:DataTypes.INTEGER,
+        primaryKey:true,
+        autoIncrement:true
+    },
+    cid:{
+        type: DataTypes.STRING,
+        allowNull:false,
+    },
+    user:{
+        type:DataTypes.INTEGER,
+        allowNull:false
+    },
+    action:{
+        type:DataTypes.ENUM('upvote','downvote','star','unstar','unvote','sfw','nfsw','rm'),
+        allowNull:false
+    }
+})
+
+
 // Jobs in progress
 const Job = db.define('Job',{
     id: {
@@ -155,22 +215,49 @@ const Job = db.define('Job',{
 })
 
 // Define associations
-/*
-Guild.hasMany(Channel)
-Channel.belongsTo(Guild)
+Moderation.belongsTo(User, {
+    foreignKey: 'user',
+    targetKey: 'id',
+    as: 'usr'
+})
 
-User.hasMany(Payment)
-Payment.belongsTo(User)
+User.hasMany(Moderation, {
+    foreignKey: 'user',
+    as: 'moderations'
+})
 
-User.belongsToMany(Guild)
-Guild.belongsToMany(User)
+Pin.belongsTo(User, {
+    foreignKey: 'user',
+    targetKey: 'id',
+    as: 'usr'
+})
 
-User.hasMany(Job)
-Job.belongsTo(User)
+User.hasMany(Pin, {
+    foreignKey: 'user',
+    as: 'pins'
+})
 
-Channel.hasMany(Job)
-Job.belongsTo(Channel)
-*/
+Payment.belongsTo(User, {
+    foreignKey: 'userid',
+    targetKey: 'id',
+    as: 'usr'
+})
+
+User.hasMany(Payment, {
+    foreignKey: 'userid',
+    as: 'payments'
+})
+
+Moderation.belongsTo(Pin,{
+    foreignKey:'cid',
+    targetKey: 'cid',
+    as: 'pin'
+})
+
+Pin.hasMany(Moderation, {
+    foreignKey:'cid',
+    as: 'moderations'
+})
 
 const initializeDatabase = async()=>{
     try{
@@ -192,5 +279,8 @@ module.exports = {
     Channel,
     Payment,
     Job,
-    Op
+    Pin,
+    Moderation,
+    Op,
+    Sequelize
 }

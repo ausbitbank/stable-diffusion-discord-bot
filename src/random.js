@@ -35,7 +35,10 @@ const replaceRandoms = (input) => {
   }).replace(/(\r\n|\r|\n)/g,' ')
 }
 
-function getRandomSeed(){return Math.floor(Math.random()*4294967295)}
+function getRandomSeed(){
+  // return Math.floor(Math.random()*4294967295)
+  return Math.floor(Math.random() * 2 ** 32)
+}
 
 module.exports = {
     random:{

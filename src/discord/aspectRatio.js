@@ -10,6 +10,11 @@ const ratioToRes = async(ratio,pixels)=>{
     let d
     let width = Math.round(Math.sqrt(pixels * w / h))
     let height = Math.round(width * h / w)
+    // Adjust width and height to be divisible by 16 (needed for flux latents)
+    width = Math.floor(width / 16) * 16
+    height = Math.floor(height / 16) * 16
+    // Recalculate pixels based on the adjusted dimensions
+    pixels = width * height
     if(ratio==='1:1'){
         d='square'
     }else if(w>h){

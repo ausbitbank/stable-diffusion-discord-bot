@@ -12,7 +12,7 @@ Delhi
 Brisbane
 Sydney
 Canberra
-Melbourne
+Melboune
 Shenzhen
 Mumbai
 Rome
@@ -24,6 +24,8 @@ Seoul
 Amsterdam
 Miami
 Las Vegas
+Los Angeles
+San Francisco
 Osaka
 Shanghai
 Berlin
@@ -35,3 +37,6 @@ Munich
 Kyoto
 Auckland
 Wellington
+Vatican
+Gibraltar
+Monaco

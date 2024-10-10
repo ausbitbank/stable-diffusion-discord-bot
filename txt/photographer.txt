@@ -106,12 +106,12 @@ Argus Paul Estabrook
 Arja Katariina Hyytiäinen
 Arkady Shaikhet
 Arlene Gottfried
-Arnaud Gaertner
-Arnaud Montagard
-Arne Wesenberg
-Arno Rafael Minkkinen
-Arnold Newman
-Arnold Odermatt
+Anaud Gaertner
+Anaud Montagard
+Ane Wesenberg
+Ano Rafael Minkkinen
+Anold Newman
+Anold Odermatt
 Arthur Bauer
 Arthur Elgort
 Arthur Fields
@@ -146,15 +146,15 @@ Barry Salzman
 Bastiaan Woudt
 Bear Kirkpatrick
 Beatrix Jourdan
-Beckett Hornik
+Beckett Honik
 Bence Mate
 Benita Suchodrev
 Benjamin De Diesbach
 Benjamin Dimmitt
 Benjamin Hoffman
 Berenice Abbott
-Bernard Benavides
-Bert Stern
+Benard Benavides
+Bert Sten
 Beth Galton
 Beth Moon
 Betina La Plante
@@ -185,9 +185,9 @@ Brett Foraker
 Brett Weston
 Brian Oldham
 Brian Ulrich
-Brigitte Carnochan
+Brigitte Canochan
 Brooke Shaden
-Bruce Barnbaum
+Bruce Banbaum
 Bruce Davidson
 Bruce Gilden
 Bruce Haswell
@@ -224,7 +224,7 @@ Carolyn Drake
 Carolyn Hampton
 Carrie Mae Weems
 Castro Frank
-Caterina Bernardi
+Caterina Benardi
 Cathleen Naundorf
 Cayetano González
 Cecil Beaton
@@ -255,7 +255,7 @@ Chrisman Studios
 Christian Chaize
 Christian Tagliavini
 Christian Vizl
-Christian Werner
+Christian Wener
 Christine Armbruster
 Christophe Jacrot
 Christopher Anderson
@@ -284,7 +284,7 @@ Constance Jaeggi
 Constantine Manos
 Constanza Hevia H.
 Consuelo Kanaga
-Cornell Capa
+Conell Capa
 Cory Johnson & Neil Kremer
 Craig Bill
 Craig Varjabedian
@@ -315,7 +315,7 @@ Dave Jordano
 David Bailey
 David Goldblatt
 David Gray
-David Hurn
+David Hun
 David Johndrow
 David Katzenstein
 David Lachapelle
@@ -376,7 +376,7 @@ Doran Bastin
 Doris Ulmann
 Dorothea Lange
 Dorrie Mcveigh
-Dorte Verner
+Dorte Vener
 Dotan Saguy
 Dougie Wallace
 E. J. Bellocq
@@ -410,7 +410,7 @@ Elisabeth Hase
 Elisabeth Sunday
 Elise Boularan
 Elizabeth (Lee) Miller
-Elizabeth Bourne
+Elizabeth Boune
 Elke Vogelsang
 Ellen Auerbach
 Ellen Cantor
@@ -438,9 +438,9 @@ Erik Hijweege
 Erik Johansson
 Erika Zolli
 Erin Mahoney
-Ernest Cole
-Ernie Luppi
-Ernst Haas
+Enest Cole
+Enie Luppi
+Enst Haas
 Erwin Blumenfeld
 Erwin Olaf
 Esmeralda Ruiz
@@ -451,7 +451,7 @@ Eugene Richards
 Eugenio Recuenco
 Eva Mallis
 Evan Anderman
-Eve Arnold
+Eve Anold
 Evelyn Bencicova
 Evgenia Arbugaeva
 Evy Huppert
@@ -521,7 +521,7 @@ Gavin Smart
 Geert Broertjes
 Geir Tonnessen
 George Brassaï
-George Byrne
+George Byne
 George Dambier
 George Hoyningen-huene
 George Hurrell
@@ -541,7 +541,7 @@ Giles Duley
 Gilles Caron
 Gilles Nicolet
 Gilles Peress
-Giorgia Borneto
+Giorgia Boneto
 Giorgio Di Maio
 Giorgio Negro
 Girithar Jeevasuba
@@ -554,12 +554,12 @@ Gottfriend Helnwein
 Graciela Iturbide
 Graeme Purdy
 Graeme Williams
-Graham Earnshaw
+Graham Eanshaw
 Gregori Maiofis
 Gregory Colbert
 Gregory Crewdson
 Gregory Dargent
-Gregory Halpern
+Gregory Halpen
 Gregory Heisler
 Gregory Spaid
 Gueorgui Pinkhassov
@@ -585,7 +585,7 @@ Hector Acebes
 Heidi Lender
 Heinrich Kühn
 Helen Levitt
-Helen Warner
+Helen Waner
 Helga Paris
 Helmut Newton
 Hemad Nazari
@@ -645,7 +645,7 @@ Jacque Rupp
 Jacqueline Walters
 Jacques Henri Lartigue
 Jacques Lowe
-Jacqui Turner
+Jacqui Tuner
 Jagjit Singh
 James Hayman
 James Houston
@@ -716,9 +716,9 @@ Jock Sturges
 Jodi Bieber
 Jodi Champagne
 Joe Vitone
-Joel Bernstein
+Joel Benstein
 Joel Meyerowitz
-Joel Sternfeld
+Joel Stenfeld
 Joël Tettamanti
 Joel-peter Witkin
 Johan Gerrits
@@ -829,7 +829,7 @@ Klavdij Sluban
 Konstantinos Tsakalidis
 Kosuke Kitajima
 Kourtney Roy
-Kristina Lerner
+Kristina Lener
 Kristina Varaksina
 Kristoffer Albrecht
 Krzysztof Wladyka
@@ -919,7 +919,7 @@ Maciej Dakowicz
 Madame D'ora
 Madhur Dhingra
 Madison Casagranda
-Magdalena Berny
+Magdalena Beny
 Maggie Taylor
 Mahdiyeh Afshar Bakeshloo
 Mahesh Balasubramanian
@@ -960,7 +960,7 @@ Maria Kanevskaya
 Mária Švarbová
 Marie Sordat
 Marie-laure Vareilles
-Mariëtte Aernoudts
+Mariëtte Aenoudts
 Mariko Evans
 Marilyn Silverstone
 Marina Lauar
@@ -980,7 +980,7 @@ Mark Seliger
 Mark Steinmetz
 Mark Tuschman
 Marlou Pulles
-Marna Clarke
+Mana Clarke
 Maroesjka Lavigne
 Marsel Van Oosten
 Marsha Guggenheim
@@ -991,7 +991,7 @@ Martin Elkort
 Martin Munkácsi
 Martin Parr
 Martin Schoeller
-Martin Usborne
+Martin Usbone
 Martine Franck
 Martine Lemarchand
 Mary Anne Mitchell
@@ -1029,7 +1029,7 @@ Micaela Mau
 Micha Bar-am
 Michael Ackerman
 Michael Eastman
-Michael Ernest Sweet
+Michael Enest Sweet
 Michael Jackson
 Michael Joseph
 Michael Kenna
@@ -1131,7 +1131,7 @@ Olivier Jarry-lacombe
 Orestes Gonzalez
 Ori Gersht
 Oriol Torra Segon
-Orna Naor
+Ona Naor
 Paola Gareri
 Paolo Pellegrin
 Paolo Roversi
@@ -1196,7 +1196,7 @@ Platon (Antoniou)
 Polly Gaillard
 Prescott Lassman
 Quentin Shih
-R.j. Kern
+R.j. Ken
 Radana Kuchařová
 Radosław Łowicki
 Rafał Michalak
@@ -1235,7 +1235,7 @@ René Burri
 René Groebli
 Renée Munn
 Reza
-Ricardo Miguel Hernandez
+Ricardo Miguel Henandez
 Ricardo Reis
 Richard Avedon
 Richard Dweck
@@ -1292,7 +1292,7 @@ Rosita Delfino
 Roy Stryker
 Rubén Salgado Escudero
 Russell Lee
-Ruth Bernhard
+Ruth Benhard
 Ruth Lauer Manenti
 Ruth Orkin
 Ruud Van Empel
@@ -1323,7 +1323,7 @@ Saul Bromberger
 Saul Leiter
 Savas Onur Sen
 Sayaka Maruyama
-Scott Bourne
+Scott Boune
 Scott M. Fincher
 Sean Gallagher
 Sean Perry
@@ -1400,7 +1400,7 @@ Sudabe Vatanparast
 Sumaya Agha
 Sumit Gupta
 Susan Borowitz
-Susan Burnstine
+Susan Bunstine
 Susan Meiselas
 Susan Reyman
 Susan Weiss
@@ -1413,8 +1413,8 @@ Sylwia Makris
 Synchrodogs
 Szymon Barylski
 Szymon Brodziak
-Tabitha Bernard
-Tadao Cern
+Tabitha Benard
+Tadao Cen
 Taisuke Sato
 Takeo Hirose
 Takuma Nakahira
@@ -1519,7 +1519,7 @@ Wendel Wirth
 Wendi Schneider
 Wendy Stone
 Wenxin Zhang
-Werner Bischof
+Wener Bischof
 Wiktor Franko
 Wiktoria Wojciechowska
 Will Burrard-lucas

@@ -39,7 +39,7 @@ eyelash
 eyelid
 face
 finger
-fingernail
+fingenail
 fist
 foot
 forearm
@@ -98,7 +98,7 @@ skull
 sole
 spine
 spleen
-sternum
+stenum
 stomach
 temple
 tendon

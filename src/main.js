@@ -15,13 +15,11 @@ const {cron}=require('./schedule')
 
 // Setup backend cluster, read available models and embeddings
 const {invoke}=require('./invoke')
+const {comfyui}=require('./comfyui')
 
-// Admin web interface
-//require('./web/init')
+// IPFS node
+const {ipfs} = require('./ipfs')
 
-// Check payments
-//const {hivePayments}=require('./hive/hivePayments')
-//hivePayments.poll()
 
 // Handle unhandled promise rejections instead of crashing app
 process.on('unhandledRejection', (reason, promise) => {log(`Unhandled Rejection at: Promise ${promise ? promise.toString() : '?'} reason:`, reason)})
@@ -29,7 +27,12 @@ process.on('uncaughtException', (err) => {log('Uncaught exception:');log(err)})
 global.handleSynchronousException = err => {log('Unhandled synchronous exception:');log(err)}
 
 init=async()=>{
+  await ipfs.init() // initialize ipfs node
   discord.botInit() // Start discord listeners
+  if(config.web.enabled){ // initialize admin web interface if enabled
+    const {web}=require('./web/web')
+    web.init()
+  }
 }
 
 init()

@@ -25,6 +25,7 @@ const init=async()=>{
         let c=cluster[d]
         try{
             if(!c.online){break}
+            if(c.type&&c.type!=='invoke'){break}
             initHost(c)
         } catch(err) {
             c.online=false
@@ -40,7 +41,7 @@ const initHost=async(host)=>{
         //host.online=false // do not disable during sync or jobs will fail
         // todo update for invoke4 v2 models api, reduce to single call and filter afterwards
         // since invoke4 no controlnets or embeddings are visible ?
-        const [version, models, lora, ti, vae, controlnet, ip_adapter, t2i_adapter, cfg] = await Promise.all(
+        const [version, models, lora, ti, vae, controlnet, ip_adapter, t2i_adapter, t5_encoder, clip_embed, cfg] = await Promise.all(
             [
                 getVersion(host),
                 getModels(host,'main'),
@@ -50,6 +51,8 @@ const initHost=async(host)=>{
                 getModels(host,'controlnet'),
                 getModels(host,'ip_adapter'),
                 getModels(host,'t2i_adapter'),
+                getModels(host,'t5_encoder'),
+                getModels(host,'clip_embed'),
                 getConfig(host)
             ])
         host.version = version
@@ -60,6 +63,8 @@ const initHost=async(host)=>{
         host.controlnet = controlnet
         host.ip_adapter = ip_adapter
         host.t2i_adapter = t2i_adapter
+        host.t5_encoder = t5_encoder
+        host.clip_embed = clip_embed
         host.config = cfg
         host.activeJob = null // unused
         if(host.socket){host.socket.close();host.socket=null}// Close the existing socket connection, if any
@@ -89,7 +94,7 @@ buildWorkflowFromJob = (job)=>{
     let keys = Object.keys(job)
     for (const i in keys){
         let key = keys[i]
-        if(['prompt','strength','control','controlstart','controlend','controlweight','ipamodel','facemask','lscale','invert','width','height','hrf','hrfwidth','hrfheight','cost'].includes(key)){essentials[key] = job[key]}
+        if(['prompt','strength','control','controlstart','controlend','controlweight','ipamodel','ipamethod','facemask','lscale','invert','width','height','hrf','hrfwidth','hrfheight','cost'].includes(key)){essentials[key] = job[key]}
         if(['creator'].includes(key)){essentials[key] = JSON.stringify(job[key])}
     }
     return JSON.stringify(essentials)
@@ -102,11 +107,13 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         edges:[],
     }
     let data = []
-    let lastid={unet:null,clip:null,vae:null,latents:null,noise:null,image:null,width:null,height:null,controlnet:null,mask:null,denoise_mask:null,width:null,height:null,metadata:null,merge_metadata:null,core_metadata:null,metadata_item:null,ip_adapter:null,t2i_adapter:null,collect:null,string:null}
-    let pipe = (fromnode,fromfield,tonode,tofield)=>{return {source:{node_id:fromnode,field:fromfield},destination:{node_id:tonode,field:tofield}}}
+    let lastid={unet:null,clip:null,vae:null,latents:null,noise:null,image:null,width:null,height:null,controlnet:null,mask:null,denoise_mask:null,width:null,height:null,metadata:null,merge_metadata:null,core_metadata:null,metadata_item:null,ip_adapter:null,t2i_adapter:null,collect:null,string:null,transformer:null}
+    let pipe = (fromnode,fromfield,tonode,tofield)=>{
+        //debugLog('pipe from '+fromnode+' field '+fromfield+' to '+tonode+' field '+tofield)
+        return {source:{node_id:fromnode,field:fromfield},destination:{node_id:tonode,field:tofield}}
+    }
     let node = (type,params,edges)=>{
-        //debugLog(type)
-        //debugLog(params)
+        //debugLog(type);debugLog(params)
         let newid=getUUID()
         graph.nodes[newid]={}
         graph.nodes[newid].type=type
@@ -117,10 +124,10 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         Object.keys(params)?.forEach((k)=>{graph.nodes[newid][k]=params[k]})
         // by tracking and updating most recent used ids we can break the job into components easier
         if(['main_model_loader','sdxl_model_loader','sdxl_model_refiner_loader','lora_loader','sdxl_lora_loader','seamless','freeu'].includes(type)){lastid.unet=newid}
-        if(['main_model_loader','sdxl_model_loader','clip_skip','lora_loader','sdxl_lora_loader'].includes(type)){lastid.clip=newid}
+        if(['main_model_loader','sdxl_model_loader','clip_skip','lora_loader','sdxl_lora_loader','flux_model_loader'].includes(type)){lastid.clip=newid}
         if(['sdxl_model_loader','sdxl_refiner_model_loader','sdxl_lora_loader'].includes(type)){lastid.clip2=newid}
-        if(['sdxl_model_loader','main_model_loader','vae_loader','seamless'].includes(type)){lastid.vae=newid}
-        if(['t2l','ttl','lscale','l2l','i2l','denoise_latents','lresize'].includes(type)){lastid.latents=newid}
+        if(['sdxl_model_loader','main_model_loader','vae_loader','seamless','flux_model_loader'].includes(type)){lastid.vae=newid}
+        if(['t2l','ttl','lscale','l2l','i2l','denoise_latents','lresize','flux_denoise'].includes(type)){lastid.latents=newid}
         if(['noise'].includes(type)){lastid.noise=newid}
         if(['controlnet'].includes(type)){lastid.control=newid}
         if(['openpose_image_processor','l2i','face_mask_detection'].includes(type)){lastid.image=newid}
@@ -134,6 +141,8 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         if(['string'].includes(type)){lastid.string=newid}
         if(['ip_adapter'].includes(type)){lastid.ip_adapter=newid}
         if(['t2i_adapter'].includes(type)){lastid.t2i_adapter=newid}
+        if(['flux_text_encoder'].includes(type)){lastid.conditioning=newid}
+        if(['flux_lora_loader','flux_model_loader'].includes(type)){lastid.transformer=newid}
         edges?.forEach(e=>{
             if(!validUUID(e.destination.node_id)){ // not already plumbed with a valid UUID
                 if(e.destination.node_id==='SELF'){ e.destination.node_id=newid
@@ -180,6 +189,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         is_intermediate:false,
         generation_mode:job.initimg?'img2img':'txt2img',
         cfg_scale:job.scale,
+        cfg_rescale_multiplier:0,
         clip_skip:job.clipskip,
         //cfg_rescale_multiplier: 0,
         height:job.height,
@@ -248,7 +258,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         if(job.loras?.length>0){
             for (const l in job.loras) {
                 node('lora_loader',{is_intermediate:true,lora:{base:job.loras[l].model.base,name:job.loras[l].model.name,key:job.loras[l].model.key,hash:job.loras[l].model.hash,type:'lora'},weight:job.loras[l].weight},[pipe(lastid.clip,'clip','SELF','clip'),pipe(lastid.unet,'unet','SELF','unet')])}} // lora loader, chain multiple loras with clip and unet into each other
-    } else {
+    } else if (job.model.base==='sdxl'){
         node('sdxl_model_loader',{model:job.model,is_intermediate:true},[])
         if(job.loras?.length>0){
             for (const l in job.loras) {
@@ -260,6 +270,60 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
                 ])
             }
         }
+    } else if (job.model.base==='flux'){
+        let fluxt5 = await modelnameToObject('t5_bnb_int8_quantized_encoder','t5_encoder') // edit me
+        let clip_embed_model = await modelnameToObject('clip-vit-large-patch14','clip_embed') // edit me - clip from invoke flux starter models
+        //let clip_embed_model = await modelnameToObject('CLIP-GmP-ViT-L-14','clip_embed') // updated clip from https://huggingface.co/zer0int/CLIP-GmP-ViT-L-14
+        let vae_model = await modelnameToObject('FLUX.1-schnell_ae','vae')
+        // insert job metadata into string, pipe to metadata_item, pipe to metadata , pipe to collect alongside core_metadata output, into merge_metadata as final meta output
+        node('string',{value:buildWorkflowFromJob(job)})
+        node('metadata_item',{label:'arty'},[pipe(lastid.string,'value','SELF','value')])
+        node('metadata',{},[pipe(lastid.metadata_item,'item','SELF','items')]) // fails with no error when uncommented
+        node('core_metadata',metaObject,[])
+        node('collect',{},[pipe(lastid.metadata,'metadata','SELF','item'),pipe(lastid.core_metadata,'metadata','SELF','item')])
+        node('merge_metadata',{},[pipe(lastid.collect,'collection','SELF','collection')])
+        node('flux_model_loader',{
+            model:{base:job.model.base,hash:job.model.hash,key:job.model.key,name:job.model.name,type:job.model.type},
+            t5_encoder_model:{base:fluxt5.base,hash:fluxt5.hash,key:fluxt5.key,name:fluxt5.name,type:fluxt5.type},
+            clip_embed_model:{base:clip_embed_model.base,hash:clip_embed_model.hash,key:clip_embed_model.key,name:clip_embed_model.name,type:clip_embed_model.type},
+            vae_model:{base:vae_model.base,hash:vae_model.hash,key:vae_model.key,name:vae_model.name,type:vae_model.type},
+            is_intermediate:true
+        })
+        node('flux_text_encoder',{prompt:job.positive_prompt,use_cache:true,is_intermediate:true},
+            [
+                pipe(lastid.clip,'clip','SELF','clip'),
+                pipe(lastid.clip,'t5_encoder','SELF','t5_encoder'),
+                pipe(lastid.clip,'max_seq_len','SELF','t5_max_seq_len')
+            ])
+        if(job.initimgObject){ // broken, cos of dimensions (i assume?, test moar)
+            // if we want to import an image use flux_vae_encode , recommend flux-dev model and denoising_start change to 
+            node('flux_vae_encode',{image:{image_name:job.initimgObject.image_name}})
+        }
+        // lora chain
+        if(job.loras?.length>0){
+            for (const l in job.loras) {
+                node('flux_lora_loader',{is_intermediate:true,lora:{base:job.loras[l].model.base,name:job.loras[l].model.name,key:job.loras[l].model.key,hash:job.loras[l].model.hash,type:'lora'},weight:job.loras[l].weight},[pipe(lastid.transformer,'transformer','SELF','transformer')])}} // flux lora loader, chain multiple transformers into each other
+        // also accepts latents and denoise mask , outputs latents
+        node('flux_denoise',{denoising_end:1,denoising_start:0,width:job.width,height:job.height,num_steps:job.steps,guidance:job.scale,use_cache:true,is_intermediate:true},
+            [
+                pipe(lastid.transformer,'transformer','SELF','transformer'),
+                pipe(lastid.conditioning,'conditioning','SELF','positive_text_conditioning'),
+            ])
+        node('flux_vae_decode',{is_intermediate:false,use_cache:true},
+            [
+                pipe(lastid.vae,'vae','SELF','vae'),
+                pipe(lastid.latents,'latents','SELF','latents'),
+                pipe(lastid.merge_metadata,'metadata','SELF','metadata')
+            ]
+        )
+        let dataitems = [job.seed]
+        while(dataitems.length<job.number){dataitems.push(random.seed())}
+        data.push([{node_path:lastid.core_metadata,field_name:'seed',items:dataitems}])
+
+        let noiseIds = Object.values(graph.nodes).filter(i=>i.type==='flux_denoise').map(i=>i.id)
+        for (const id in noiseIds){data[0].push({node_path:noiseIds[id],field_name:'seed',items:dataitems})}
+
+        return {batch:{graph,data,runs:1},prepend:false}
     }
     // Add freeu node https://stable-diffusion-art.com/freeu/
     // current default settings :
@@ -274,20 +338,14 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     if(job.model.base_model==='sdxl'){node('freeu',{is_intermediate:true,b1:1.1,b2:1.2,s1:0.6,s2:0.4,use_cache:true},[pipe('sdxl_model_loader','unet','SELF','unet')])}
     */
 
-    // Tamper with unet and vae if using seamless mode
-    if(job.seamlessx===true||job.seamlessy===true){
-        node('seamless',{is_intermediate:false,use_cache:false,seamless_x:job.seamlessx===true?true:false,seamless_y:job.seamlessy===true?true:false},[pipe(lastid.unet,'unet','SELF','unet'),pipe(lastid.vae,'vae','SELF','vae')])
-    }
-
     if(job.initimgObject){
         debugLog('Adding init img to graph')
         if(job.control==='ipa'){ // todo rework so it can be used independantly of controlnet or i2l , allow model selection
             let ipamodel=(job.model.base==='sdxl')?'ip_adapter_sdxl':'ip_adapter_sd15'
             if(job.ipamodel){ipamodel=job.ipamodel}
-            //debugLog('Looking up ipamodel '+ipamodel+' , turning into object')
             let ipamodelobject=await(modelnameToObject(ipamodel,'ip_adapter'))
             debugLog('Using ip_adapter with input image, model '+ipamodelobject.name)
-            node('ip_adapter',{ip_adapter_model:{base:ipamodelobject.base,name:ipamodelobject.name,key:ipamodelobject.key,hash:ipamodelobject.hash,type:ipamodelobject.type,submodel_type:null},begin_step_percent:job.controlstart?job.controlstart:0,end_step_percent:job.controlend?job.controlend:1,is_intermediate:true,image:{image_name:job.initimgObject.image_name},weight:job.controlweight?job.controlweight:1},[])
+            node('ip_adapter',{ip_adapter_model:{base:ipamodelobject.base,name:ipamodelobject.name,key:ipamodelobject.key,hash:ipamodelobject.hash,type:ipamodelobject.type,submodel_type:null},begin_step_percent:job.controlstart?job.controlstart:0,end_step_percent:job.controlend?job.controlend:1,method:job.ipamethod??'full',is_intermediate:true,image:{image_name:job.initimgObject.image_name},weight:job.controlweight?job.controlweight:1},[])
         // todo need to incorporate t2i as well, copy ipamodel syntax, add a --t2imodel param
         // } else if (job.control==='t2i') {
         //      let t2imodel=(job.model.base_model==='sdxl')?'canny-sdxl':'canny-sd15'
@@ -317,7 +375,6 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
                     },[])
         }
     }
-
     node('clip_skip',{skipped_layers:job.clipskip??0,is_intermediate:true},[pipe(lastid.clip,'clip','SELF','clip')])
     if(lastid.width&&lastid.height){
         node('noise',{use_cpu:true},[pipe(lastid.width,'width','SELF','width'),pipe(lastid.height,'height','SELF','height')])
@@ -336,6 +393,13 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     node('collect',{},[pipe(lastid.metadata,'metadata','SELF','item'),pipe(lastid.core_metadata,'metadata','SELF','item')])
     node('merge_metadata',{},[pipe(lastid.collect,'collection','SELF','collection')])
 
+    // Tamper with unet and vae if using seamless mode
+    if(job.seamlessx===true||job.seamlessy===true){
+        debugLog('Seamless mode enabled:\nunet id before '+lastid.unet+' , vae id before:'+lastid.vae)
+        node('seamless',{is_intermediate:true,use_cache:true,seamless_x:job.seamlessx===true?true:false,seamless_y:job.seamlessy===true?true:false},[pipe(lastid.unet,'unet','SELF','unet'),pipe(lastid.vae,'vae','SELF','vae')])
+        debugLog('unet id after '+lastid.unet+' , vae id after: '+lastid.vae)
+    }
+
     if(['sd-1','sd-2'].includes(job.model.base)){
         node('compel',{prompt:job.positive_prompt},[pipe(lastid.clip,'clip','SELF','clip')])
         node('compel',{prompt:job.negative_prompt},[pipe(lastid.clip,'clip','SELF','clip')])
@@ -345,7 +409,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
             pipe(lastid.noise,'noise','SELF','noise'),
             pipe(lastid.unet,'unet','SELF','unet')
         ]
-    } else {
+    } else if (job.model.base==='sdxl'){
         node('sdxl_compel_prompt',{prompt:job.positive_prompt,original_width:job.width??1024,original_height:job.height??1024,crop_top:0,crop_left:0,target_width:job.width??1024,target_height:job.height??1024,style:job.style??'',is_intermediate:true},[pipe(lastid.clip,'clip','SELF','clip'),pipe(lastid.clip2,'clip2','SELF','clip2')])
         node('sdxl_compel_prompt',{prompt:job.negative_prompt,original_width:job.width??1024,original_height:job.height??1024,crop_top:0,crop_left:0,target_width:job.width??1024,target_height:job.height??1024,style:job.negstyle??'',is_intermediate:true},[pipe(lastid.clip,'clip','SELF','clip'),pipe(lastid.clip2,'clip2','SELF','clip2')])
         p = [
@@ -361,7 +425,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     if(lastid.latents){p.push(pipe(lastid.latents,'latents','SELF','latents'))}
     let denoising_start = 0.0
     if(job.strength&&job.initimgObject&&job.control==='i2l'){denoising_start=1.0-job.strength}
-    node('denoise_latents',{is_intermediate:true,noise:null,steps:job.steps,cfg_scale:job.scale,denoising_start:denoising_start,denoising_end:1.0,scheduler:job.scheduler},p)
+    node('denoise_latents',{is_intermediate:true,noise:null,steps:job.steps,cfg_scale:job.scale,cfg_rescale_multiplier:0,denoising_start:denoising_start,denoising_end:1.0,scheduler:job.scheduler},p)
     // new Hires fix implementation
     // do initial render at basemodel default pixellimit in correct aspect ratio
     // l2i , img_resize to full res , noise at full res , i2l , denoise latents at start 0.55 , l2i
@@ -369,15 +433,14 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         debugLog('Applying hires fix, init width:'+job.hrfwidth+', height:'+job.hrfheight)
         denoising_start = 0.55//1.0 - job.strength??0.55
         debugLog('denoising start is '+denoising_start)
-        node('l2i',{fp32:fp32,is_intermediate:true},[pipe(lastid.latents,'latents','SELF','latents'),pipe('main_model_loader','vae','SELF','vae')])
+        node('l2i',{fp32:fp32,is_intermediate:true},[pipe(lastid.latents,'latents','SELF','latents'),pipe(lastid.vae,'vae','SELF','vae')])
         node('img_resize',{width:job.width,height:job.height,is_intermediate:true},[pipe('l2i','image','SELF','image')])
         node('noise',{seed:job.seed,width:job.width,height:job.height},[])
         if(['sd-1','sd-2'].includes(job.model.base)){
-            debugLog(lastid.vae)
-            node('i2l',{is_intermediate:true},[pipe('img_resize','image','SELF','image'),pipe('main_model_loader','vae','SELF','vae')])
+            node('i2l',{is_intermediate:true},[pipe('img_resize','image','SELF','image'),pipe(lastid.vae,'vae','SELF','vae')])
             p = [pipe('compel','conditioning','SELF','positive_conditioning'),pipe('compel-2','conditioning','SELF','negative_conditioning')]
         } else { // sdxl
-            node('i2l',{is_intermediate:true},[pipe('img_resize','image','SELF','image'),pipe('sdxl_model_loader','vae','SELF','vae')])
+            node('i2l',{is_intermediate:true},[pipe('img_resize','image','SELF','image'),pipe(lastid.vae,'vae','SELF','vae')])
             p = [pipe('sdxl_compel_prompt','conditioning','SELF','positive_conditioning'),pipe('sdxl_compel_prompt-2','conditioning','SELF','negative_conditioning')]
         }
         p.push(pipe(lastid.noise,'noise','SELF','noise'))
@@ -386,15 +449,18 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         if(lastid.ip_adapter){p.push(pipe(lastid.ip_adapter,'ip_adapter','SELF','ip_adapter'))}
         if(lastid.denoise_mask){p.push(pipe(lastid.denoise_mask,'denoise_mask','SELF','denoise_mask'))}
         if(lastid.latents){p.push(pipe(lastid.latents,'latents','SELF','latents'))}
+        debugLog(p)
         node('denoise_latents',{is_intermediate:true,steps:job.steps,cfg_scale:job.scale,scheduler:job.scheduler,denoising_start:denoising_start,denoising_end:1.0},p)
     }
     // final output
+    node('l2i',{tiled:true,fp32:fp32,is_intermediate:false},[pipe(lastid.vae,'vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('merge_metadata','metadata','SELF','metadata')])
+    /*
     if(['sd-1','sd-2'].includes(job.model.base)){
         node('l2i',{tiled:true,fp32:fp32,is_intermediate:false},[pipe(lastid.vae,'vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('merge_metadata','metadata','SELF','metadata')])
     } else {
         node('l2i',{tiled:true,fp32:fp32,is_intermediate:false},[pipe(lastid.vae,'vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe('merge_metadata','metadata','SELF','metadata')])
     }
-
+    */
     //if(job.upscale&&job.upscale===2){node('esrgan',{model_name:'RealESRGAN_x2plus.pth'},[pipe(lastid.image,'image','SELF','image')])}
     let dataitems = [job.seed]
     while(dataitems.length<job.number){dataitems.push(random.seed())}
@@ -418,21 +484,29 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
 const getJobCost = (job) =>{
     // calculate and return a cost float based on job properties
     let cost = 1
-    let pixelStepsBase = 7864320 // based on 512x512x30 default sd-1 render
-    let width = job.width??512
-    let height = job.height??512
-    let steps = job.steps??30
+    //let pixelStepsBase = 7864320 // based on 512x512x30 default sd-1 render
+    let pixelStepsBase = 10485760 // based on 1024x024x10 default lightning render
+    let width = job.width??1024
+    let height = job.height??1024
+    let steps = job.steps??10
     let pixelSteps = width*height*steps
     let number = job.number??1
     cost=(pixelSteps/pixelStepsBase)*cost
     cost=cost*number
     if(job.control==='i2l'&&job.strength){cost=cost*job.strength} // account for reduced steps with img2img
-    if(job.hrf&&job.hrfwidth&&job.hrfheight&&job.strength){
-        cost=cost*(job.hrfwidth*job.hrfheight*(steps*job.strength))/pixelStepsBase // account for 2 pass hiresfix
+    if(job.hrf){ // account for 2 pass hiresfix
+        if(!job.hrfwidth){job.hrfwidth===job.width}
+        if(!job.hrfheight){job.hrfheight===job.height}
+        if(!job.strength){job.strength=config.default.strength}
+        //debugLog('Increase cost for hrf job based on '+job.hrfwidth+' * '+job.hrfheight+' * ('+steps+' * '+job.strength+')) / '+pixelStepsBase)
+        //debugLog('Cost before = '+cost)
+        cost=cost+(job.hrfwidth*job.hrfheight*(steps*job.strength))/pixelStepsBase 
+        //debugLog('Cost after = '+cost)
     }
-    if(job.model.base==='sdxl'){cost=cost+0.45} // increased vram use, load time (higher base res already included earlier)
+    //if(job.model.base==='sdxl'){cost=cost+0.45} // increased vram use, load time (higher base res already included earlier)
+    if(job.model.base==='flux'){cost=cost+1} // increased vram use, load time (higher base res already included earlier)
     if(job.loras&&job.loras.length>0){cost=cost+(job.loras.length*0.25)} // 0.25 for each lora
-    // todo charge for loras, ipa, controlnet
+    // todo charge for ipa, controlnet
     return parseFloat(cost.toFixed(2))
 }
 
@@ -443,6 +517,9 @@ const enqueueBatch = async (host, graph, name='arty') => {
         return response.data.batch.batch_id
     } catch (err) {
         console.error('Error queueing batch',err.data)
+        if(err.response?.statusText){debugLog(err.response.statusText)}
+        debugLog(err.response.data.detail)
+        //debugLog(err.response.data.detail[0].)
         return{error:'Error queueing batch '+err.code}
     }
 }
@@ -529,7 +606,7 @@ function findHostsWithJobLoras(hosts, job) {
 
 const findHost = async(job=null)=>{
     // find host with the required models, embeds, etc that isn't currently busy
-    let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
+    let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled&&h.type==='invoke'})
     if(job===null&&availableHosts.length>0){
         debugLog('No job info supplied, returning random available host')
         return availableHosts[Math.floor(Math.random() * availableHosts.length)]
@@ -579,44 +656,45 @@ const subscribeQueue = async(host,name='arty')=>{
         })
         socket.on('queue_item_status_changed', msg => {
             // queue_id str, queue_item_id int, status str, batch_id uuid, session_id uuid, error, created_at str, updated_at str, started_at str, completed at null, timestamp
-            debugLog(host.name+' '+msg.queue_item?.batch_id?.dim+' '+msg.queue_item?.status)
+            debugLog(host.name+' '+msg.batch_id?.dim+' '+msg.status)
             // resultCache.edit(msg.batch_id,'status',msg.status) // invoke 3.2
-            resultCache.edit(msg.queue_item?.batch_id,'status',msg.queue_item?.status) // invoke 3.3
+            resultCache.edit(msg.batch_id,'status',msg.status) // invoke 3.3
         })
-        socket.on('invocation_started', msg => {debugLog(host.name+' '+msg.queue_batch_id.dim+' started '+msg.node.type)})
+        socket.on('invocation_started', msg => {
+            debugLog(host.name+' '+msg.batch_id+' started '+msg.invocation.type)})
         socket.on('invocation_complete', msg => {
-            debugLog(host.name+' '+msg.queue_batch_id.dim+' finished '+msg.node.type)
-            if(msg.result?.type==='image_output'&&msg.node.is_intermediate){
+            debugLog(host.name+' '+msg.batch_id+' finished '+msg.invocation.type)
+            if(msg.result?.type==='image_output'&&msg.invocation.is_intermediate){
                 debugLog('ignore intermediate image')
             } else {
-                resultCache.addResult(msg.queue_batch_id,msg.result)
+                resultCache.addResult(msg.batch_id,msg.result)
             }            
         })
-        socket.on('generator_progress', msg => {
-            log(host.name+' '+msg.queue_batch_id.dim+' '+msg.order+' : '+msg.step+' / '.dim+msg.total_steps)
-            let buf=null
+        //socket.on('invocation_denoise_progress', msg => {
+        socket.on('invocation_progress', msg => {
+            log(host.name+' '+msg.batch_id.dim+' '+msg.message+' '+msg.percentage*100+'%')
+            //let buf=null
             // decode progress images
             //if(msg.progress_image?.dataURL){buf = Buffer.from(msg.progress_image.dataURL.split(','[1], 'base64'))}
-            resultCache.edit(msg.queue_batch_id,'progress',{
-                step:msg.step,
-                total_steps:msg.total_steps,
-                order:msg.order,
-                progress_image:buf,
-                timestamp:msg.timestamp
+            resultCache.edit(msg.batch_id,'progress',{
+                percentage:msg.percentage,
+                total_steps:msg.invocation.steps,
+                message: msg.message,
+                //image: msg.image.dataURL
             })
         })
         socket.on('model_load_started', msg => {
-            let t = msg.model_config.base+'/'+msg.model_config.name
+            let t = msg.config.base+'/'+msg.config.name
             if(msg.submodel_type){t= t+'/'+msg.submodel_type}
             debugLog(host.name+' loading '+t)
-            resultCache.addResult(msg.queue_batch_id,{type:t})
+            resultCache.addResult(msg.batch_id,{type:t})
         })
         socket.on('model_load_completed', msg => {
-            debugLog(host.name+' loaded: '+msg.model_config.name)
+            debugLog(host.name+' loaded: '+msg.config.name)
         })
         socket.on('graph_execution_state_complete', msg => {
-            // queue_id str, queue_item_id int, queue_batch_id uuid, graph_execution_state_id uuid, timestamp
-            debugLog(host.name+' graph done '.bgGreen+msg.queue_batch_id.dim)
+            // queue_id str, queue_item_id int, batch_id uuid, graph_execution_state_id uuid, timestamp
+            debugLog(host.name+' graph done '.bgGreen+msg.batch_id.dim)
         })
     } catch(err) {
         log('Error with websocket for host '+host.name)
@@ -776,7 +854,7 @@ const auto2invoke = (text)=>{
     return text
 }
 
-const jobFromDream = async(cmd,images=null,tracking=null)=>{
+const jobFromDream = async(cmd,images=null)=>{ //,tracking=null
     // input oldschool !dream format, output job object
     var job = parseArgs(cmd,{boolean:['facemask','invert','hrf','seamlessx','seamlessy','seamless']})//string: ['sampler','text_mask'],boolean: ['seamless','hires_fix']}) // parse arguments //
     // set argument aliases
@@ -791,7 +869,7 @@ const jobFromDream = async(cmd,images=null,tracking=null)=>{
     if(job.n){job.number=job.n;delete job.n}
     if(job.p){job.preset=job.p;delete job.p}
     if(job.sampler){job.scheduler=job.sampler;delete job.sampler}
-    if(tracking){job.tracking=tracking}
+    //if(tracking){job.tracking=tracking}
     // take prompt from what's left
     job.prompt=job._.join(' ')
     if(images){job.initimg=images}
@@ -814,6 +892,7 @@ const jobFromMeta = async(meta,img=null,tracking=null)=>{
     if(meta.invoke.controlend !== null && meta.invoke.controlend !== undefined){job.controlend=meta.invoke.controlend}
     if(meta.invoke.controlweight !== null && meta.invoke.controlweight !== undefined){job.controlweight=meta.invoke.controlweight}
     if(meta.invoke?.ipamodel){job.ipamodel=meta.invoke.ipamodel}
+    if(meta.invoke?.ipamethod){job.ipamethod=meta.invoke.ipamethod}
     if(meta.invoke?.facemask){job.facemask=meta.invoke.facemask;job.control='i2l'}
     if(meta.invoke?.invert){job.facemask=meta.invoke.invert}
     if(meta.invoke.strength !== null && meta.invoke.strength !== undefined){job.strength=meta.invoke.strength}  
@@ -865,14 +944,19 @@ const extractLoras = async (inputString) => {
             m
         }
     })
+    const loraNamesMap = new Map() // Create a Map to store unique Lora names
     let stripped = inputString
     let newloras = []
     for (const lora of loras){
         lora.model = await loranameToObject(lora.name)
         if(!lora.model) break
-        stripped = inputString.replace(lora.m, '')
-        newloras.push({name:lora.name,model:lora.model,weight:lora.weight,key:lora.key,hash:lora.hash,type:lora.type})
+        stripped = stripped.replace(lora.m, '')
+        if (!loraNamesMap.has(lora.name)) {
+            loraNamesMap.set(lora.name, lora)
+            newloras.push({name:lora.name,model:lora.model,weight:lora.weight,key:lora.key,hash:lora.hash,type:lora.type})
+        }
     }
+    // todo do not allow duplicate lora name's, even if they have different weight only use the first one
     return {
         loras: newloras,
         stripped: stripped,
@@ -881,7 +965,7 @@ const extractLoras = async (inputString) => {
 }
 const allUniqueModelsAvailable = async () => {
     // Return an array with all available main models, across all connected & online hosts with no repeats
-    let availableHosts = cluster.filter(h => h.online && !h.disabled)
+    let availableHosts = cluster.filter(h => h.online && !h.disabled && h.type==='invoke')
     let uniqueModelsMap = new Map()
     for (const host of availableHosts) {
         for (const model of host.models) {
@@ -900,7 +984,7 @@ const allUniqueModelsAvailable = async () => {
 }
 const allUniqueLorasAvailable = async () => {
     // Return an array with all available lora models, across all connected & online hosts with no repeats
-    let availableHosts = cluster.filter(h => h.online && !h.disabled)
+    let availableHosts = cluster.filter(h => h.online && !h.disabled&& h.type==='invoke')
     let uniqueLorasMap = new Map()
     for (const host of availableHosts) {
         for (const model of host.lora) {
@@ -922,7 +1006,7 @@ const allUniqueLorasAvailable = async () => {
 
 const allUniqueControlnetsAvailable = async()=>{
     // Return an object with all available controlnet models, across all connected & online hosts //todo : no repeats
-    let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
+    let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled&& h.type==='invoke'})
     let allModels=[]
     for (const h in availableHosts){
         let host=cluster[h]
@@ -936,7 +1020,7 @@ const allUniqueControlnetsAvailable = async()=>{
 
 const allUniqueIpAdaptersAvailable = async()=>{
     // Return an object with all available ip adapter models, across all connected & online hosts //todo : no repeats
-    let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
+    let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled&& h.type==='invoke'})
     let allModels=[]
     for (const h in availableHosts){
         let host=cluster[h]
@@ -950,7 +1034,7 @@ const allUniqueIpAdaptersAvailable = async()=>{
 
 const allUniqueT2iAdaptersAvailable = async()=>{
     // Return an object with all available t2i adapter models, across all connected & online hosts //todo : no repeats
-    let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
+    let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled&& h.type==='invoke'})
     let allModels=[]
     for (const h in availableHosts){
         let host=cluster[h]
@@ -986,17 +1070,19 @@ const validateJob = async(job)=>{
         let el = await extractLoras(job.prompt)
         if(el.error){return {error:el.error}}
         job.loras = el.loras
-        //debugLog('loras inside validatejob')
-        //debugLog(el.loras)
+        debugLog(el.stripped)
+        // todo use the el.stripped value (withLora(etc) removed) when splitting into positive and negative prompts (keep job.prompt intact)
         // Set default model if not selected
-        if(!job.model){
-            job.model=await modelnameToObject(config.default.model)
-        }
+        if(!job.model){job.model=await modelnameToObject(config.default.model)}
         // Upgrade from model string to model object
         if(!isObject(job.model)){job.model=await modelnameToObject(job.model)}
+        // Detect if loras are compatible with main model
+        if(job.loras){for (const l in job.loras){let lo = job.loras[l];if(lo.model.base!==job.model.base){return {error:'Lora '+lo.model.name+' ('+lo.model.base+') is incompatible with main model '+job.model.name+' ('+job.model.base+')'}}}}
+        debugLog(job)
         // split into positive/negative prompts
         const npromptregex = /\[(.*?)\]/g // match content of [square brackets]
-        const npromptmatches = job.prompt?.match(npromptregex)
+        const npromptmatches = el.stripped?.match(npromptregex)
+        //const npromptmatches = job.prompt?.match(npromptregex)
         if(npromptmatches?.length>0){
             job.negative_prompt=npromptmatches.join(' ').replace('[','').replace(']','')
         }else{
@@ -1008,7 +1094,8 @@ const validateJob = async(job)=>{
             }
             debugLog('negative prompt: '+job.negative_prompt)
         }
-        job.positive_prompt=job.prompt?.replace(npromptregex,'')
+        job.positive_prompt=el.stripped?.replace(npromptregex,'')
+        //job.positive_prompt=job.prompt?.replace(npromptregex,'')
         // set defaults if not already set
         if(!job.style){job.style=''}
         if(!job.negstyle){job.negstyle=''}
@@ -1020,6 +1107,9 @@ const validateJob = async(job)=>{
         if(job.model?.base==='sdxl'){
             if(!job.width){job.width=config.default.sdxlwidth??1024}
             if(!job.height){job.height=config.default.sdxlheight??1024}
+        } else if (job.model?.base==='flux'){
+            if(!job.width){job.width=config.default.fluxwidth??1024}
+            if(!job.height){job.height=config.default.fluxheight??1024}
         } else {
             //job.hrf=true // Force HiResFix on all sd1/2 renders
             if(!job.width){job.width=config.default.width??512}
@@ -1044,7 +1134,7 @@ const validateJob = async(job)=>{
         // lscale min 1 max 3 default 1
         //if(!job.lscale||job.lscale<1||job.lscale>3){job.lscale=1}
         if(!job.clipskip){job.clipskip=0}
-        if(!job.upscale){job.upscale=0}
+        if(!job.upscale){job.upscale=0} // remove ? May be best to not upscale inside the standard renders, do afterwards as needed
         // set default init img mode
         // todo support multiple controlnet modes and images
         if(job.initimg||job.images?.length>0){
@@ -1057,8 +1147,9 @@ const validateJob = async(job)=>{
                 if(!job.controlstart){job.controlstart=0}
                 if(!job.controlend){job.controlend=1}
             }
-            if(job.control==='ipa'&&!job.ipamodel){
-                job.ipamodel=(job.model.base==='sdxl')?'ip_adapter_sdxl':'ip_adapter_sd15'
+            if(job.control==='ipa'){
+                if(!job.ipamodel){job.ipamodel=(job.model.base==='sdxl')?'ip_adapter_sdxl':'ip_adapter_sd15'}
+                if(!job.ipamethod){job.ipamethod='full'}
             }
         }
         if(job.hrf){
@@ -1126,13 +1217,14 @@ const textFontImage = async(options,host) => {
     }
 }
 
-const processImage = async(img,host,type,options,tracking) => {
+const processImage = async(img,host,type,options,tracking,creator) => {
     try {
         // todo this should check availability of the chosen preprocessor type on the host
         if(!host) host=await findHost()
         let imgid = getUUID()
         let graph = null
         let initimg = await uploadInitImage(host,img,imgid)
+        let cost = 0
         switch(type){
             case 'esrgan':{
                 let resolution = await imageEdit.getResolution(img)
@@ -1143,6 +1235,323 @@ const processImage = async(img,host,type,options,tracking) => {
                 if(totalPixels>=maxPixels){return {error: 'Image dimensions are too large! Max upscaled pixels = '+maxPixels}}
                 let model_name = options.model_name||RealESRGAN_x2plus.pth
                 graph = {nodes:{esrgan:{'id':'esrgan','type':'esrgan','model_name':model_name,'image':{'image_name':initimg.image_name}}}}
+                cost = 1
+                break
+            }
+            case 'upscalefancy':{
+                // A proper tiled sd1 based upscale method , slow and expensive but quality
+                let resolution = await imageEdit.getResolution(img)
+                let width = resolution?.width
+                let height = resolution?.width
+                let totalPixels = width * height
+                let maxPixels = config.maximum.upscaledPixels ?? 1048576 // 1024x1024, 2048x2048 doesnt fit in 12gb vram
+                if(totalPixels>=maxPixels){return {error: 'Image dimensions are too large! Max upscaled pixels = '+maxPixels}}
+                // need an sd-1 model , make this a config option ?
+                let mainmodel = await modelnameToObject('haveallx')
+                let ipamodel = await modelnameToObject('ip_adapter_sd15','ip_adapter')
+                let tilemodel = await modelnameToObject('control_v11f1e_sd15_tile','controlnet')
+                debugLog(mainmodel)
+                debugLog(ipamodel)
+                debugLog(tilemodel)
+                //graph = {nodes:{esrgan:{'id':'esrgan','type':'esrgan','model_name':model_name,'image':{'image_name':initimg.image_name}}}}
+                graph = {nodes:{
+                                '2ff466b8-5e2a-4d8f-923a-a3884c7ecbc5':{
+                                    'type':'main_model_loader',
+                                    'id':'2ff466b8-5e2a-4d8f-923a-a3884c7ecbc5',
+                                    'model':mainmodel,
+                                    'use_cache':true,
+                                    'is_intermediate':true
+                                },
+                                '287f134f-da8d-41d1-884e-5940e8f7b816':{
+                                    'type':'ip_adapter',
+                                    'id':'287f134f-da8d-41d1-884e-5940e8f7b816',
+                                    'ip_adapter_model':ipamodel,
+                                    'clip_vision_model':'ViT-H',
+                                    'weight':0.2,
+                                    'method':'full',
+                                    'begin_step_percent':0,
+                                    'end_step_percent':1,
+                                    'use_cache':true,
+                                    'is_intermediate':true
+                                },
+                                'b76fe66f-7884-43ad-b72c-fadc81d7a73c':{
+                                    'type':'l2i',
+                                    'id':'b76fe66f-7884-43ad-b72c-fadc81d7a73c',
+                                    'tiled':false,
+                                    'tile_size':0,
+                                    'fp32':false,
+                                    'use_cache':true,
+                                    'is_intermediate':true
+                                },
+                                'd334f2da-016a-4524-9911-bdab85546888':{
+                                    'type':'controlnet',
+                                    'id':'d334f2da-016a-4524-9911-bdab85546888',
+                                    'control_model':tilemodel,
+                                    'control_weight':1,
+                                    'begin_step_percent':0,
+                                    'end_step_percent':1,
+                                    'control_mode':'more_control',
+                                    'resize_mode':'just_resize',
+                                    'use_cache':true,
+                                    'is_intermediate':true
+                                },
+                                '338b883c-3728-4f18-b3a6-6e7190c2f850':{
+                                    'type':'i2l',
+                                    'id':'338b883c-3728-4f18-b3a6-6e7190c2f850',
+                                    'tiled':false,
+                                    'tile_size':0,
+                                    'fp32':false,
+                                    'use_cache':true,
+                                    'is_intermediate':true
+                                },
+                                '947c3f88-0305-4695-8355-df4abac64b1c':{
+                                    'type':'compel',
+                                    'id':'947c3f88-0305-4695-8355-df4abac64b1c',
+                                    'prompt':'',
+                                    'use_cache':true,
+                                    'is_intermediate':true
+                                },
+                                '9b2d8c58-ce8f-4162-a5a1-48de854040d6':{
+                                    'type':'compel',
+                                    'id':'9b2d8c58-ce8f-4162-a5a1-48de854040d6',
+                                    'prompt':'',
+                                    'use_cache':true,
+                                    'is_intermediate':true
+                                },
+                                'b875cae6-d8a3-4fdc-b969-4d53cbd03f9a':{
+                                    'type':'float_math',
+                                    'id':'b875cae6-d8a3-4fdc-b969-4d53cbd03f9a',
+                                    'operation':'DIV',
+                                    'a':0.3,
+                                    'b':3.3,
+                                    'use_cache':true,
+                                    'is_intermediate':true
+                                },
+                                '7dbb756b-7d79-431c-a46d-d8f7b082c127':{
+                                    'type':'float_to_int',
+                                    'id':'7dbb756b-7d79-431c-a46d-d8f7b082c127',
+                                    'multiple':8,
+                                    'method':'Floor',
+                                    'use_cache':true,
+                                    'is_intermediate':true
+                                },
+                                '5ca87ace-edf9-49c7-a424-cd42416b86a7':{
+                                    'type':'image',
+                                    'id':'5ca87ace-edf9-49c7-a424-cd42416b86a7',
+                                    'image':{'image_name':initimg.image_name},
+                                    'use_cache':true,
+                                    'is_intermediate':true
+                                },
+                                'fad15012-0787-43a8-99dd-27f1518b5bc7':{
+                                    'type':'img_scale',
+                                    'id':'fad15012-0787-43a8-99dd-27f1518b5bc7',
+                                    'resample_mode':'lanczos',
+                                    'use_cache':true,
+                                    'is_intermediate':true
+                                },
+                                'b3513fed-ed42-408d-b382-128fdb0de523':{
+                                    'type':'noise',
+                                    'id':'b3513fed-ed42-408d-b382-128fdb0de523',
+                                    'use_cpu':true,
+                                    'use_cache':true,
+                                    'is_intermediate':true,
+                                },
+                                '40de95ee-ebb5-43f7-a31a-299e76c8a5d5':{
+                                    'type':'iterate',
+                                    'id':'40de95ee-ebb5-43f7-a31a-299e76c8a5d5',
+                                    'use_cache':true,
+                                    'is_intermediate':true
+                                },
+                                '857eb5ce-8e5e-4bda-8a33-3e52e57db67b':{
+                                    'type':'tile_to_properties',
+                                    'id':'857eb5ce-8e5e-4bda-8a33-3e52e57db67b',
+                                    'use_cache':true,
+                                    'is_intermediate':true
+                                },
+                                '36d25df7-6408-442b-89e2-b9aba11a72c3':{
+                                    'type':'img_crop',
+                                    'id':'36d25df7-6408-442b-89e2-b9aba11a72c3',
+                                    'use_cache':true,
+                                    'is_intermediate':true
+                                },
+                                '1011539e-85de-4e02-a003-0b22358491b8':{
+                                    'type':'denoise_latents',
+                                    'id':'1011539e-85de-4e02-a003-0b22358491b8',
+                                    'steps':35,
+                                    'cfg_scale':4,
+                                    'denoising_end':1,
+                                    'scheduler':'unipc',
+                                    'cfg_rescale_multiplier':0,
+                                    'use_cache':true,
+                                    'is_intermediate':true
+                                },
+                                'ab6f5dda-4b60-4ddf-99f2-f61fb5937527':{
+                                    'type':'pair_tile_image',
+                                    'id':'ab6f5dda-4b60-4ddf-99f2-f61fb5937527',
+                                    'use_cache':true,
+                                    'is_intermediate':true
+                                },
+                                'ca0d20d1-918f-44e0-8fc3-4704dc41f4da':{
+                                    'type':'collect',
+                                    'id':'ca0d20d1-918f-44e0-8fc3-4704dc41f4da',
+                                    'use_cache':true,
+                                    'is_intermediate':true
+                                },
+                                '7cedc866-2095-4bda-aa15-23f15d6273cb':{
+                                    'type':'merge_tiles_to_image',
+                                    'id':'7cedc866-2095-4bda-aa15-23f15d6273cb',
+                                    'blend_mode':'Seam',
+                                    'blend_amount':32,
+                                    'use_cache':false,
+                                    'is_intermediate':true
+                                },
+                                '234192f1-ee96-49be-a5d1-bad4c52a9012':{
+                                    'type':'save_image',
+                                    'id':'234192f1-ee96-49be-a5d1-bad4c52a9012',
+                                    'use_cache':false,
+                                    'is_intermediate':false
+                                },
+                                '54dd79ec-fb65-45a6-a5d7-f20109f88b49':{
+                                    'type':'crop_latents',
+                                    'id':'54dd79ec-fb65-45a6-a5d7-f20109f88b49',
+                                    'use_cache':true,
+                                    'is_intermediate':true
+                                },
+                                '1f86c8bf-06f9-4e28-abee-02f46f445ac4':{
+                                    'type':'calculate_image_tiles_even_split',
+                                    'id':'1f86c8bf-06f9-4e28-abee-02f46f445ac4',
+                                    'use_cache':true,'is_intermediate':true
+                                },
+                                '86fce904-9dc2-466f-837a-92fe15969b51':{
+                                    'type':'integer',
+                                    'id':'86fce904-9dc2-466f-837a-92fe15969b51',
+                                    'value':2,
+                                    'use_cache':true,
+                                    'is_intermediate':true
+                                },
+                                'f5d9bf3b-2646-4b17-9894-20fd2b4218ea':{
+                                    'type':'float_to_int',
+                                    'id':'f5d9bf3b-2646-4b17-9894-20fd2b4218ea',
+                                    'multiple':8,
+                                    'method':'Floor',
+                                    'use_cache':true,
+                                    'is_intermediate':true
+                                },
+                                '23546dd5-a0ec-4842-9ad0-3857899b607a':{
+                                    'type':'img_crop',
+                                    'id':'23546dd5-a0ec-4842-9ad0-3857899b607a',
+                                    'x':0,
+                                    'y':0,
+                                    'use_cache':true,
+                                    'is_intermediate':true
+                                },
+                                '3f99d25c-6b43-44ec-a61a-c7ff91712621':{
+                                    'type':'unsharp_mask',
+                                    'id':'3f99d25c-6b43-44ec-a61a-c7ff91712621',
+                                    'radius':2,
+                                    'strength':50,
+                                    'use_cache':true,
+                                    'is_intermediate':true
+                                },
+                                '157d5318-fbc1-43e5-9ed4-5bbeda0594b0':{
+                                    'type':'float_math',
+                                    'id':'157d5318-fbc1-43e5-9ed4-5bbeda0594b0',
+                                    'operation':'SUB',
+                                    'a':0.8,
+                                    'use_cache':true,
+                                    'is_intermediate':true
+                                },
+                                '43515ab9-b46b-47db-bb46-7e0273c01d1a':{
+                                    'type':'rand_int',
+                                    'id':'43515ab9-b46b-47db-bb46-7e0273c01d1a',
+                                    'low':0,
+                                    'high':2147483647,
+                                    'use_cache':false,
+                                    'is_intermediate':true
+                                },
+                                'e9b5a7e1-6e8a-4b95-aa7c-c92ba15080bb':{
+                                    'type':'float_to_int',
+                                    'id':'e9b5a7e1-6e8a-4b95-aa7c-c92ba15080bb',
+                                    'multiple':8,
+                                    'method':'Nearest',
+                                    'use_cache':true,
+                                    'is_intermediate':true
+                                },
+                                'f87a3783-ac5c-43f8-8f97-6688a2aefba5':{
+                                    'type':'float_math',
+                                    'id':'f87a3783-ac5c-43f8-8f97-6688a2aefba5',
+                                    'operation':'ADD',
+                                    'use_cache':true,
+                                    'is_intermediate':true
+                                },
+                                'd62d4d15-e03a-4c10-86ba-3e58da98d2a4':{
+                                    'type':'float_math',
+                                    'id':'d62d4d15-e03a-4c10-86ba-3e58da98d2a4',
+                                    'operation':'MUL',
+                                    'b':0.075,
+                                    'use_cache':true,
+                                    'is_intermediate':true
+                                }
+                            },
+                            'edges':[
+                                {'source':{'node_id':'fad15012-0787-43a8-99dd-27f1518b5bc7','field':'width'},'destination':{'node_id':'b3513fed-ed42-408d-b382-128fdb0de523','field':'width'}},
+                                {'source':{'node_id':'fad15012-0787-43a8-99dd-27f1518b5bc7','field':'height'},'destination':{'node_id':'b3513fed-ed42-408d-b382-128fdb0de523','field':'height'}},
+                                {'source':{'node_id':'40de95ee-ebb5-43f7-a31a-299e76c8a5d5','field':'item'},'destination':{'node_id':'857eb5ce-8e5e-4bda-8a33-3e52e57db67b','field':'tile'}},
+                                {'source':{'node_id':'fad15012-0787-43a8-99dd-27f1518b5bc7','field':'image'},'destination':{'node_id':'36d25df7-6408-442b-89e2-b9aba11a72c3','field':'image'}},
+                                {'source':{'node_id':'857eb5ce-8e5e-4bda-8a33-3e52e57db67b','field':'coords_top'},'destination':{'node_id':'36d25df7-6408-442b-89e2-b9aba11a72c3','field':'y'}},
+                                {'source':{'node_id':'857eb5ce-8e5e-4bda-8a33-3e52e57db67b','field':'coords_left'},'destination':{'node_id':'36d25df7-6408-442b-89e2-b9aba11a72c3','field':'x'}},
+                                {'source':{'node_id':'857eb5ce-8e5e-4bda-8a33-3e52e57db67b','field':'width'},'destination':{'node_id':'36d25df7-6408-442b-89e2-b9aba11a72c3','field':'width'}},
+                                {'source':{'node_id':'857eb5ce-8e5e-4bda-8a33-3e52e57db67b','field':'height'},'destination':{'node_id':'36d25df7-6408-442b-89e2-b9aba11a72c3','field':'height'}},
+                                {'source':{'node_id':'9b2d8c58-ce8f-4162-a5a1-48de854040d6','field':'conditioning'},'destination':{'node_id':'1011539e-85de-4e02-a003-0b22358491b8','field':'positive_conditioning'}},
+                                {'source':{'node_id':'947c3f88-0305-4695-8355-df4abac64b1c','field':'conditioning'},'destination':{'node_id':'1011539e-85de-4e02-a003-0b22358491b8','field':'negative_conditioning'}},
+                                {'source':{'node_id':'338b883c-3728-4f18-b3a6-6e7190c2f850','field':'latents'},'destination':{'node_id':'1011539e-85de-4e02-a003-0b22358491b8','field':'latents'}},
+                                {'source':{'node_id':'1011539e-85de-4e02-a003-0b22358491b8','field':'latents'},'destination':{'node_id':'b76fe66f-7884-43ad-b72c-fadc81d7a73c','field':'latents'}},
+                                {'source':{'node_id':'b76fe66f-7884-43ad-b72c-fadc81d7a73c','field':'image'},'destination':{'node_id':'ab6f5dda-4b60-4ddf-99f2-f61fb5937527','field':'image'}},
+                                {'source':{'node_id':'40de95ee-ebb5-43f7-a31a-299e76c8a5d5','field':'item'},'destination':{'node_id':'ab6f5dda-4b60-4ddf-99f2-f61fb5937527','field':'tile'}},
+                                {'source':{'node_id':'ab6f5dda-4b60-4ddf-99f2-f61fb5937527','field':'tile_with_image'},'destination':{'node_id':'ca0d20d1-918f-44e0-8fc3-4704dc41f4da','field':'item'}},
+                                {'source':{'node_id':'ca0d20d1-918f-44e0-8fc3-4704dc41f4da','field':'collection'},'destination':{'node_id':'7cedc866-2095-4bda-aa15-23f15d6273cb','field':'tiles_with_images'}},
+                                {'source':{'node_id':'7cedc866-2095-4bda-aa15-23f15d6273cb','field':'image'},'destination':{'node_id':'234192f1-ee96-49be-a5d1-bad4c52a9012','field':'image'}},
+                                {'source':{'node_id':'b3513fed-ed42-408d-b382-128fdb0de523','field':'noise'},'destination':{'node_id':'54dd79ec-fb65-45a6-a5d7-f20109f88b49','field':'latents'}},
+                                {'source':{'node_id':'857eb5ce-8e5e-4bda-8a33-3e52e57db67b','field':'width'},'destination':{'node_id':'54dd79ec-fb65-45a6-a5d7-f20109f88b49','field':'width'}},
+                                {'source':{'node_id':'857eb5ce-8e5e-4bda-8a33-3e52e57db67b','field':'height'},'destination':{'node_id':'54dd79ec-fb65-45a6-a5d7-f20109f88b49','field':'height'}},
+                                {'source':{'node_id':'857eb5ce-8e5e-4bda-8a33-3e52e57db67b','field':'coords_left'},'destination':{'node_id':'54dd79ec-fb65-45a6-a5d7-f20109f88b49','field':'x'}},
+                                {'source':{'node_id':'857eb5ce-8e5e-4bda-8a33-3e52e57db67b','field':'coords_top'},'destination':{'node_id':'54dd79ec-fb65-45a6-a5d7-f20109f88b49','field':'y'}},
+                                {'source':{'node_id':'54dd79ec-fb65-45a6-a5d7-f20109f88b49','field':'latents'},'destination':{'node_id':'1011539e-85de-4e02-a003-0b22358491b8','field':'noise'}},
+                                {'source':{'node_id':'287f134f-da8d-41d1-884e-5940e8f7b816','field':'ip_adapter'},'destination':{'node_id':'1011539e-85de-4e02-a003-0b22358491b8','field':'ip_adapter'}},
+                                {'source':{'node_id':'36d25df7-6408-442b-89e2-b9aba11a72c3','field':'image'},'destination':{'node_id':'287f134f-da8d-41d1-884e-5940e8f7b816','field':'image'}},
+                                {'source':{'node_id':'1f86c8bf-06f9-4e28-abee-02f46f445ac4','field':'tiles'},'destination':{'node_id':'40de95ee-ebb5-43f7-a31a-299e76c8a5d5','field':'collection'}},
+                                {'source':{'node_id':'fad15012-0787-43a8-99dd-27f1518b5bc7','field':'width'},'destination':{'node_id':'1f86c8bf-06f9-4e28-abee-02f46f445ac4','field':'image_width'}},
+                                {'source':{'node_id':'fad15012-0787-43a8-99dd-27f1518b5bc7','field':'height'},'destination':{'node_id':'1f86c8bf-06f9-4e28-abee-02f46f445ac4','field':'image_height'}},
+                                {'source':{'node_id':'86fce904-9dc2-466f-837a-92fe15969b51','field':'value'},'destination':{'node_id':'fad15012-0787-43a8-99dd-27f1518b5bc7','field':'scale_factor'}},
+                                {'source':{'node_id':'86fce904-9dc2-466f-837a-92fe15969b51','field':'value'},'destination':{'node_id':'1f86c8bf-06f9-4e28-abee-02f46f445ac4','field':'num_tiles_x'}},
+                                {'source':{'node_id':'86fce904-9dc2-466f-837a-92fe15969b51','field':'value'},'destination':{'node_id':'1f86c8bf-06f9-4e28-abee-02f46f445ac4','field':'num_tiles_y'}},
+                                {'source':{'node_id':'2ff466b8-5e2a-4d8f-923a-a3884c7ecbc5','field':'clip'},'destination':{'node_id':'9b2d8c58-ce8f-4162-a5a1-48de854040d6','field':'clip'}},
+                                {'source':{'node_id':'2ff466b8-5e2a-4d8f-923a-a3884c7ecbc5','field':'clip'},'destination':{'node_id':'947c3f88-0305-4695-8355-df4abac64b1c','field':'clip'}},
+                                {'source':{'node_id':'5ca87ace-edf9-49c7-a424-cd42416b86a7','field':'width'},'destination':{'node_id':'f5d9bf3b-2646-4b17-9894-20fd2b4218ea','field':'value'}},
+                                {'source':{'node_id':'5ca87ace-edf9-49c7-a424-cd42416b86a7','field':'height'},'destination':{'node_id':'7dbb756b-7d79-431c-a46d-d8f7b082c127','field':'value'}},
+                                {'source':{'node_id':'f5d9bf3b-2646-4b17-9894-20fd2b4218ea','field':'value'},'destination':{'node_id':'23546dd5-a0ec-4842-9ad0-3857899b607a','field':'width'}},
+                                {'source':{'node_id':'7dbb756b-7d79-431c-a46d-d8f7b082c127','field':'value'},'destination':{'node_id':'23546dd5-a0ec-4842-9ad0-3857899b607a','field':'height'}},
+                                {'source':{'node_id':'23546dd5-a0ec-4842-9ad0-3857899b607a','field':'image'},'destination':{'node_id':'fad15012-0787-43a8-99dd-27f1518b5bc7','field':'image'}},
+                                {'source':{'node_id':'5ca87ace-edf9-49c7-a424-cd42416b86a7','field':'image'},'destination':{'node_id':'23546dd5-a0ec-4842-9ad0-3857899b607a','field':'image'}},
+                                {'source':{'node_id':'d334f2da-016a-4524-9911-bdab85546888','field':'control'},'destination':{'node_id':'1011539e-85de-4e02-a003-0b22358491b8','field':'control'}},
+                                {'source':{'node_id':'36d25df7-6408-442b-89e2-b9aba11a72c3','field':'image'},'destination':{'node_id':'3f99d25c-6b43-44ec-a61a-c7ff91712621','field':'image'}},
+                                {'source':{'node_id':'3f99d25c-6b43-44ec-a61a-c7ff91712621','field':'image'},'destination':{'node_id':'338b883c-3728-4f18-b3a6-6e7190c2f850','field':'image'}},
+                                {'source':{'node_id':'3f99d25c-6b43-44ec-a61a-c7ff91712621','field':'image'},'destination':{'node_id':'d334f2da-016a-4524-9911-bdab85546888','field':'image'}},
+                                {'source':{'node_id':'b875cae6-d8a3-4fdc-b969-4d53cbd03f9a','field':'value'},'destination':{'node_id':'157d5318-fbc1-43e5-9ed4-5bbeda0594b0','field':'b'}},
+                                {'source':{'node_id':'157d5318-fbc1-43e5-9ed4-5bbeda0594b0','field':'value'},'destination':{'node_id':'1011539e-85de-4e02-a003-0b22358491b8','field':'denoising_start'}},
+                                {'source':{'node_id':'43515ab9-b46b-47db-bb46-7e0273c01d1a','field':'value'},'destination':{'node_id':'b3513fed-ed42-408d-b382-128fdb0de523','field':'seed'}},
+                                {'source':{'node_id':'e9b5a7e1-6e8a-4b95-aa7c-c92ba15080bb','field':'value'},'destination':{'node_id':'1f86c8bf-06f9-4e28-abee-02f46f445ac4','field':'overlap'}},
+                                {'source':{'node_id':'23546dd5-a0ec-4842-9ad0-3857899b607a','field':'width'},'destination':{'node_id':'f87a3783-ac5c-43f8-8f97-6688a2aefba5','field':'a'}},
+                                {'source':{'node_id':'23546dd5-a0ec-4842-9ad0-3857899b607a','field':'height'},'destination':{'node_id':'f87a3783-ac5c-43f8-8f97-6688a2aefba5','field':'b'}},
+                                {'source':{'node_id':'f87a3783-ac5c-43f8-8f97-6688a2aefba5','field':'value'},'destination':{'node_id':'d62d4d15-e03a-4c10-86ba-3e58da98d2a4','field':'a'}},
+                                {'source':{'node_id':'d62d4d15-e03a-4c10-86ba-3e58da98d2a4','field':'value'},'destination':{'node_id':'e9b5a7e1-6e8a-4b95-aa7c-c92ba15080bb','field':'value'}},
+                                {'source':{'node_id':'2ff466b8-5e2a-4d8f-923a-a3884c7ecbc5','field':'vae'},'destination':{'node_id':'b76fe66f-7884-43ad-b72c-fadc81d7a73c','field':'vae'}},
+                                {'source':{'node_id':'2ff466b8-5e2a-4d8f-923a-a3884c7ecbc5','field':'vae'},'destination':{'node_id':'338b883c-3728-4f18-b3a6-6e7190c2f850','field':'vae'}},
+                                {'source':{'node_id':'2ff466b8-5e2a-4d8f-923a-a3884c7ecbc5','field':'unet'},'destination':{'node_id':'1011539e-85de-4e02-a003-0b22358491b8','field':'unet'}}
+                            ]
+                        }
+                debugLog(graph)
+                cost = 10
                 break
             }
             case 'openpose':{
@@ -1196,7 +1605,8 @@ const processImage = async(img,host,type,options,tracking) => {
                 // uses custom invokeai node https://github.com/blessedcoolant/invoke_bria_rmbg
                 // to install go to invokeai\nodes and git clone https://github.com/blessedcoolant/invoke_bria_rmbg
                 // would be real nice if we could transplant meta from source image to new image
-                graph = {nodes:{bria_bg_remove:{'id':'bria_bg_remove','type':'bria_bg_remove','is_intermediate':false,'image':{'image_name':initimg.image_name}}}}
+                graph = {nodes:{bria_bg_remove:{'id':'bria_bg_remove','type':'bria_bg_remove','is_intermediate':false,'model':'1.4','image':{'image_name':initimg.image_name}}}}
+                cost = 0.5
                 break
             }
             case 'face':{
@@ -1216,6 +1626,11 @@ const processImage = async(img,host,type,options,tracking) => {
         if(tracking?.type==='discord'){progress.update(tracking.msg,batchId)}
         let images = await batchToImages(host,batchId)
         await deleteImage(host,initimg.image_name)
+        if(config.credits.enabled&&cost>0&&creator?.discordid&&host.ownerid){
+            if(creator.discordid!==host.ownerid){
+                await credits.transfer(creator.discordid,host.ownerid,cost)
+            }
+        }
         if(images.error){return {error:images.error}}
         return {images:images}
     } catch (err) {
@@ -1381,14 +1796,16 @@ const interrogate = async(img,host,options={best_max_flavors:32,mode:'fast',clip
     return {result:results[0].value,options:options}
 }
 
-const nightmarePromptGen = async(host,options={temp:1.8,top_k:40,top_p:0.9,repo_id:'cactusfriend/nightmare-invokeai-prompts',prompt:'arty',split_prompt:false,typical_p:1,instruct_mode:false,max_new_tokens:300,min_new_tokens:30,max_time:10,repetition_penalty:1},tracking,creator)=>{
+const nightmarePromptGen = async(host,options={temp:1.8,top_k:40,top_p:0.9,repo_id:'cactusfriend/nightmare-promptgen-3',prompt:'arty',split_prompt:false,typical_p:1,instruct_mode:false,max_new_tokens:300,min_new_tokens:30,max_time:10,repetition_penalty:1},tracking,creator)=>{
     if(!host) host=await findHost()
     let graph = {nodes:{nightmare_promptgen:{'id':'nightmare_promptgen','is_intermediate':false,'prompt':options.prompt,'repo_id':options.repo_id,'temp':options.temp,'top_k':options.top_k,'top_p':options.top_p,type:'nightmare_promptgen',use_cache:false,typical_p:options.typical_p,instruct_mode:options.instruct_mode,max_new_tokens:options.max_new_tokens,min_new_tokens:options.min_new_tokens,max_time:options.max_time,repetition_penalty:options.repetition_penalty}}}
     let batch = {prepend:false,batch:{data:[],graph:graph,runs:1}}
     try {
         let batchId = await enqueueBatch(host,batch)
         let result = await batchToResult(host,batchId)
-        if(tracking?.type==='discord'){progress.update(tracking.msg,batchId)}
+        if(tracking?.type==='discord'){
+            progress.update(tracking.msg,batchId)
+        }
         return result
     } catch(err) {
         debugLog('Nightmare prompt generator failed to execute');debugLog(err)
@@ -1399,19 +1816,31 @@ const nightmarePromptGen = async(host,options={temp:1.8,top_k:40,top_p:0.9,repo_
 const modelnameToObject = async(modelname,modeltype='main')=>{
     // look up models available on hosts
     let availableHosts=cluster.filter(h=>{return h.online&&!h.disabled})
+    if(availableHosts.length===0){
+        debugLog('No online hosts right now, try again later')
+        throw({error:'No online render hosts right now, try again later'})
+    }
     for (const h in availableHosts){
         let host=cluster[h]
         let model
         if(modeltype==='main'){
             model=host.models.find(m=>{return m.name===modelname})
+        } else if (modeltype==='t5_encoder'){
+            model=host.t5_encoder.find(m=>{return m.name===modelname})
         } else if (modeltype==='ip_adapter'){
             model=host.ip_adapter.find(m=>{return m.name===modelname})
         } else if (modeltype==='controlnet'){
             model=host.controlnet.find(m=>{return m.name===modelname})
         } else if (modeltype==='lora'){
             model=host.lora.find(m=>{return m.name===modelname})
+        } else if (modeltype==='clip_embed'){
+            model=host.clip_embed.find(m=>{return m.name===modelname})
+        } else if (modeltype==='vae'){
+            model=host.vae.find(m=>{return m.name===modelname})
         }
         if(isObject(model)){
+            //debugLog('modelnameToObject found model')
+            //debugLog(model)
             return {
                 key: model.key,
                 hash: model.hash,
@@ -1425,7 +1854,7 @@ const modelnameToObject = async(modelname,modeltype='main')=>{
         }
     }
     debugLog('Unable to find online host with model: '+modelname)
-    throw({error:'Unable to find online host with model: `'+modelname+'`'})
+    throw('Unable to find online host with model: `'+modelname+'`')
 }
 
 loranameToObject = async(loraname)=>{return await modelnameToObject(loraname,'lora')}
@@ -1451,12 +1880,8 @@ getJobStats = ()=>{
 }
 cast = async(job)=>{
     // easy mode, submit job, receive results
-    const context = {
-        job,
-        host:null,
-        batchId:null,
-        images:[]
-    }
+    if(job.error){return job}
+    const context = {job,host:null,batchId:null,images:[]}
     try{
         try{context.host=await findHost(context.job)}catch(err){return {error:err}}
         if(context.job.initimg){
@@ -1475,23 +1900,12 @@ cast = async(job)=>{
         context.batchId = await enqueueBatch(context.host,graph)
         if(!context.batchId||context.batchId?.error){return {error:'Error queuing job '}}
         // Trigger progress update reporting if enabled
-        if(context.job.tracking){
-            if(context.job.tracking?.type==='discord'){progress.update(job.tracking.msg,context.batchId)}
-        }
+        if(context.job.tracking?.type==='discord'){progress.update(job.tracking.msg,context.batchId)}
         context.images = await batchToImages(context.host,context.batchId)
         resultCache.remove(context.batchId)
         if(context.images?.error){return {error:context.images?.error}}
-        // Charge user here
-        if(config.credits.enabled&&job.cost>0&&context.job.creator.discordid&&context.host.ownerid){
-            if(context.job.creator.discordid===context.host.ownerid){
-                // user rendering on own backend, no charge
-            } else {
-                // charge the creator, credit the backend provider
-                await credits.transfer(context.job.creator.discordid,context.host.ownerid,job.cost)
-            }
-        } else {
-            debugLog('No charge')
-        }
+        // if credits enabled, charge the creator, credit the host
+        if(config.credits.enabled&&job.cost>0&&context.job.creator.discordid&&context.host.ownerid){if(context.job.creator.discordid!==context.host.ownerid){await credits.transfer(context.job.creator.discordid,context.host.ownerid,job.cost)}}
         if(context.job.initimgObject)deleteImage(context.host,context.job.initimgObject.image_name) // remove uploaded image after use
         let result = {
             job:context.job,

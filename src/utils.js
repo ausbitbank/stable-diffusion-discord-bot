@@ -8,6 +8,7 @@ const debugLog = (m)=>{if(config.logging.debug){log(m)}}
 const shuffle = (array)=>{for (let i = array.length - 1; i > 0; i--) {let j = Math.floor(Math.random() * (i + 1));[array[i], array[j]] = [array[j], array[i]]}} // fisher-yates shuffle
 const getRandomColorDec=()=>{return Math.floor(Math.random()*16777215)}
 const {imageproxy} = require('./imageproxy')
+const moment = require('moment')
 const partialMatches=(strings,search)=>{
   let results = []
   for(let i=0;i<strings.length;i++){if(searchString(strings[i], search)){results.push(strings[i])}}
@@ -38,29 +39,6 @@ const urlToBuffer = async(url,nocache)=>{
   }
 }
 
-/* Original method
-const urlToBuffer = async(url,nocache)=>{
-    return new Promise((resolve,reject)=>{
-        if(nocache){ axios.get(url,{responseType:'arraybuffer'}).then(res=>{resolve(Buffer.from(res.data))}).catch(err=>{reject(err)})
-        } else {
-        Image.findOne({ where: { url:url } })
-            .then(async(image) => {
-                if (image) { resolve(image.data)
-                } else {
-                    axios.get(url,{responseType:'arraybuffer'})
-                        .then(res=>{
-                            Image.create({url:url,data:Buffer.from(res.data)})
-                            resolve(Buffer.from(res.data))
-                        })
-                        .catch(err=>{reject(err)})
-                }
-            })
-            .catch((error) => {console.error('Error retrieving image data:', error);})
-        }
-    })
-}
-*/
-
 const extractFilenameFromUrl=(url)=>{
   var path = decodeURI(url) // Decode URL if it contains encoded characters
   var lastSlashIndex = path.lastIndexOf('/') // Find the last occurrence of "/"
@@ -79,6 +57,36 @@ const timestamp=()=>{ // returns relative timestamp in discord format as string
   return `<t:${currentTimestamp}:R>`
 }
 
+const relativeTime=(timestamp)=>{
+  var momentObj = moment.unix(timestamp / 1000)
+  return momentObj.fromNow()
+}
+
+const trimText = (text, maxLength) => {
+  let words = text.split(' ')
+  let totalLength = 0
+  let trimmedText = ''
+  for (const word of words) {
+    totalLength += word.length + 1 // +1 for the space
+    trimmedText += word + ' '
+    if (totalLength > maxLength) { // Trim to the last word that fits
+      trimmedText = trimmedText.trim() // remove trailing space
+      break
+    }
+  }
+  if (trimmedText.length > maxLength) { // If the trimmed text is still too long, try to trim by cutting at the end of a word
+    trimmedText = ''
+    let newLength = 0
+    for (const word of words) {
+      newLength += word.length + 1 // +1 for the space
+      if (newLength > maxLength) {break}
+      trimmedText += word + ' '
+    }
+    trimmedText = trimmedText.trim() // remove trailing space
+  }
+  return trimmedText
+}
+
 module.exports = {
     config,
     log,
@@ -95,5 +103,7 @@ module.exports = {
     extractFilenameFromUrl,
     isURL,
     axios,
-    timestamp
+    timestamp,
+    relativeTime,
+    trimText
 }

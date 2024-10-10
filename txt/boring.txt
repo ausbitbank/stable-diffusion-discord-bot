@@ -1,0 +1,1 @@
+withLora(boringRealism_facesV4,0.3) withLora(boringRealism_primaryV4,0.3) withLora(boringRealism_primaryV3,0.3)

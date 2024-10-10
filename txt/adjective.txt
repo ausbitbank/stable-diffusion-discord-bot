@@ -170,7 +170,7 @@ comfortable
 common
 complete
 complex
-concerned 
+concened 
 condemned 
 confused 
 conscious
@@ -503,7 +503,7 @@ insidious
 instinctive 
 intelligent
 interesting
-internal 
+intenal 
 invincible 
 irate 
 irritating
@@ -543,7 +543,7 @@ laughable
 lavish 
 lazy
 lean
-learned 
+leaned 
 left
 legal 
 lethal 
@@ -619,7 +619,7 @@ miscreant
 misty 
 mixed
 moaning 
-modern 
+moden 
 moldy 
 momentous 
 motionless 

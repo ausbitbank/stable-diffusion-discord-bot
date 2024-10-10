@@ -250,7 +250,7 @@ sometimes
 soon 
 speedily 
 stealthily 
-sternly 
+stenly 
 strictly
 successfully
 suddenly 
@@ -321,7 +321,7 @@ worriedly
 wrongly
 yawningly
 yearly 
-yearningly
+yeaningly
 yesterday
 yieldingly
 youthfully	

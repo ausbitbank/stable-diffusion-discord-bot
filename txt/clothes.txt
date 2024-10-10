@@ -147,7 +147,7 @@ coveralls
 cow costume
 cowboy boots
 cowboy hat
-cowboy western
+cowboy westen
 cravat
 criss-cross halter
 crocs
@@ -170,7 +170,7 @@ detached sleeves
 diaper
 dieselpunk
 dinner jacket
-dirndl
+dindl
 dog costume
 dolphin shorts
 drawers
@@ -245,7 +245,7 @@ gym uniform
 habit
 hachimaki
 hair bow
-hair ornament
+hair onament
 hair ribbon
 hairband
 hairclip
@@ -256,7 +256,7 @@ hakama short skirt
 hakama skirt
 halloween costume
 halter top
-halterneck
+halteneck
 hanbok
 handbag
 handkerchief
@@ -618,7 +618,7 @@ toga
 togs
 top coat
 top hat
-torn clothes
+ton clothes
 track suit
 tracksuit
 tracksuit bottoms
@@ -674,7 +674,7 @@ wedding ring
 wedge heels
 weirdpunk
 wellingtons
-western clothes
+westen clothes
 wet suit
 wetsuit
 white tie

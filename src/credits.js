@@ -9,8 +9,14 @@ balance=async(user)=>{
     // first function trigger when interacting with new user
     // accept both job.creator object and plain id
     let userid,username
-    if(isObject(user)){userid=user.discordid;username=user.username}else{userid=user;username=null}
-    debugLog('balance check for userid '+userid+' , username '+username)
+    if(isObject(user)){
+        userid=user.discordid
+        username=user.username
+    }else{
+        userid=user
+        username=null
+    }
+    // This acts as the primary way accounts are created via discord
     let [usr,created] = await User.findOrCreate({where:{discordID: userid},defaults:{credits:defaultCredits,username:username}})
     if(created){debugLog('Created new account '+username+' '+userid)}
     return parseFloat((usr.credits).toFixed(2))
@@ -33,7 +39,7 @@ increment=async(user,amount=1)=>{
 transfer=async(from,to,amount=1)=>{
     await increment(to,amount)
     await decrement(from,amount)
-    debugLog('Credit transferred: +'+amount+' to '+to+' from '+from)
+    //debugLog('Credit transferred: +'+amount+' to '+to+' from '+from)
     return true
 }
 

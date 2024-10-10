@@ -20,7 +20,7 @@ Badger
 Bald Eagle 
 Bandicoot 
 Bangle Tiger 
-Barnacle 
+Banacle 
 Barracuda 
 Basilisk 
 Bass 
@@ -32,7 +32,7 @@ Bee
 Beetle 
 Beluga Whale 
 Bird 
-Big-horned sheep 
+Big-honed sheep 
 Bird of paradise 
 Bison 
 Bilby
@@ -51,7 +51,7 @@ Boar
 Bob-Cat 
 Bonobo 
 Bottle-Nose dolphin 
-Bornean Orang-utan 
+Bonean Orang-utan 
 Boxer dog 
 Brown Bear 
 Buck 
@@ -93,7 +93,7 @@ Cockatoo
 Cockroach 
 Cod 
 Coho 
-Corn Snake 
+Con Snake 
 Cougar 
 Cow 
 Coyote 
@@ -145,7 +145,7 @@ Elephant
 Elephant Seal 
 Elk 
 Emu 
-Erne 
+Ene 
 Falcon 
 Finch 
 Fish 

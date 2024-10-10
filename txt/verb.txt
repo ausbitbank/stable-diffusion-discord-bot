@@ -112,7 +112,7 @@ bubble
 budget
 build
 bump 
-burn 
+bun 
 burst
 bury 
 bust
@@ -168,7 +168,7 @@ compute
 conceive
 concentrate 
 conceptualize
-concern 
+concen 
 conclude
 conduct
 confess 
@@ -271,7 +271,7 @@ drum
 dry 
 dust
 dwell
-earn 
+ean 
 eat
 edited
 educate 
@@ -369,7 +369,7 @@ give
 glow 
 glue
 go
-govern
+goven
 grab 
 graduate
 grate 
@@ -482,7 +482,7 @@ lay
 lead
 lean
 leap
-learn
+lean
 leave
 lecture
 led
@@ -545,7 +545,7 @@ modify
 monitor
 moor 
 motivate
-mourn
+moun
 move 
 mow
 muddle 
@@ -727,7 +727,7 @@ restored
 restructure
 retire 
 retrieve
-return
+retun
 review
 revise
 rhyme 
@@ -965,7 +965,7 @@ trust
 try 
 tug 
 tumble 
-turn 
+tun 
 tutor
 twist 
 type
@@ -997,7 +997,7 @@ walk
 wander 
 want 
 warm 
-warn 
+wan 
 wash
 waste 
 watch 

@@ -1,0 +1,1 @@
+hyperdetailed, unbelievably convincing, award winning photo, withLora(badquality,0.4) withLora(xl_more_art,0.2)

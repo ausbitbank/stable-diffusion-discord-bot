@@ -42,7 +42,7 @@ Aragonese
 Argobba
 Armenians
 Aromanians
-Arrernte
+Arrente
 Assyrians
 Asturians
 Atacama
@@ -55,7 +55,7 @@ Awa
 Awadhis
 Aymara
 Azerbaijanis
-Baharna
+Bahana
 Bahnar
 Bai
 Bakossi
@@ -148,7 +148,7 @@ Circassians
 Cofán
 Comanche
 Copts
-Cornish
+Conish
 Corsicans
 Cree
 Croats
@@ -490,7 +490,7 @@ Nicobarese
 Nivkhs
 Nkole
 Nogais
-Northern Tutchone
+Northen Tutchone
 Norwegians
 Nubians
 Nuer
@@ -530,7 +530,7 @@ Pataxo
 Pedi
 Pende
 Persians
-Pitcairn Islanders
+Pitcain Islanders
 Pitjantjara
 Podlashuks
 Pohnpeian

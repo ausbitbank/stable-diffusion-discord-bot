@@ -69,6 +69,10 @@ userAllowedFeature=async(user,feature)=>{
     debugLog('userAllowedFeature check for '+user.discordid+' feature '+feature)
     let [usr,created] = await User.findOrCreate({where:{discordID: user.discordid},defaults:{username:user.username,credits:config.credits?.default??100}})
     if(!created&&!usr.username){usr.username=user.username}
+    if(usr.banned) {
+        debugLog('Banned user '+usr.username+' attempting to use '+feature)
+        return {error:'Account banned. Email '+(config.branding.email)+' to appeal'}
+    } // check if user is banned
     // todo make this editable via config file
     // Considering making this the default, only llm is feature locked, main difference between tiers is the daily credit recharge amount
     switch(feature) {
@@ -76,17 +80,25 @@ userAllowedFeature=async(user,feature)=>{
         case 'sd-1':// always allow
         case 'sd-2':// 
         case 'sdxl':// 
+        case 'flux':// 
+        case 'llm'://
             return true
-        case 'llm':// llm is members only
-            return usr.tier >= 1
+        //case 'llm':// llm is members only
+        //    return usr.tier >= 1
     }
 }
 userAllowedJob=async(job)=>{
     if(job.error){return job}// is job errored already
     let balance = await credits.balance(job.creator)// do they have the funds
-    if(balance<job.cost){job.error = 'Insufficient :coin:'; return job}
-    let modelAllowed = await userAllowedFeature(job.creator,job.model.base) // check model type allowed
-    if(!modelAllowed){job.error=job.model.base+' is for members only'}
+    if(balance<job.cost){job.error = '*Insufficient* :coin:\nfree credits recharge **twice daily**\n **OR**\n use `/recharge` to get more :coin: **now**'; return job}
+    if(job.model){
+        let modelAllowed = await userAllowedFeature(job.creator,job.model.base) // check model type allowed
+        if(modelAllowed?.error){
+            job.error=modelAllowed.error
+        } else if(!modelAllowed){
+            job.error=job.model.base+' is for members only'
+        }
+    }
     return job
 }
 

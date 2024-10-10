@@ -2,7 +2,9 @@ var cron = require('node-cron')
 const {log,debugLog}=require('./utils')
 const {credits}=require('./credits')
 const {imageproxy} = require('./imageproxy')
-const {invoke}=require('./invoke')
+//const {invoke}=require('./invoke')
+const {payments} = require('./payments')
+
 cron.schedule('0 0,12 * * *',()=>{
     // credit recharge, twice a day
     credits.freeRecharge()
@@ -16,9 +18,15 @@ cron.schedule('0 0,12 * * *',()=>{
 //})
 
 cron.schedule('0 0,12 * * *',()=>{
-    // Purge 24hr old images from image caching proxy
+    // Purge 12hr old images from image caching proxy
     imageproxy.purgeOld()
 })
+
+cron.schedule('*/5 * * * *',()=>{
+    // Check for incoming payments every 5 minutes
+    payments.poll()
+})
+
 module.exports = {
     cron: cron
 }

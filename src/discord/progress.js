@@ -48,20 +48,21 @@ returnProgressMessage = (batchid) =>{
             content+=' '
             if(r.hostname){content+=' on `'+r.hostname+'`'}
             content+='\n'
-            if(['in_progress'].includes(r.status)&&r.progress?.step!==undefined){
-                let percent = (parseInt(r.progress?.step) / parseInt(r.progress?.total_steps))*100
-                content+=emoji(percent/100)+' '+r.progress?.step+' / '+r.progress?.total_steps+' ('+percent.toFixed(0)+'%) '
+            if(r.progress?.message!==undefined&&r.progress?.percentage!==undefined){
+                let percent = (r.progress.percentage*100).toFixed(0) //(parseInt(r.progress?.step) / parseInt(r.progress?.total_steps))*100
+                let message = r.progress.message
+                content+=emoji(percent)+' '+message+' '+percent+'%'
             } else if(r.results.length>0 && r.results[r.results.length-1].type) {
                 content = content + ':floppy_disk: ' + r.results[r.results.length-1].type + '\n'
             }
-            // Cannot edit attachments on an existing message
-            /// Can edit image urls if we have public url
             /*
-            if(r.progress?.progress_image){
-                //debugLog('progress image')
-                //debugLog(r.progress.progress_image)
-                filename='preview-'+getUUID()+'.png'
-                file=[{file:r.progress.progress_image,name:filename}]
+            if(r.progress.image!==undefined){
+                // urlencode the dataURL to bypass discord restrictions on dataurls
+                // still doesn't work, url is too big for discord reee
+                imageurl='https://images.weserv.nl/?url='+encodeURIComponent(r.progress.image)
+                shortener_url = "http://tinyurl.com/api-create.php"
+                response = axios.get(shortener_url, params={"url": imageurl})
+                content = content + '\n'
             }
             */
         let components = [{type:1,components:[{type:2,style:4,label:'Cancel',custom_id:'cancelBatch-'+batchid,emoji:{name:'🗑️',id:null},disabled:false}]}]

@@ -2,9 +2,9 @@
     "discordBotKey":"",
     "topggKey":"",
     "tipccKey":"",
-    "adminID":0,
+    "adminID":"0",
     "cluster":[
-        {"url":"http://127.0.0.1:9090","name":"primary","deleteAfterRender":false,"disabled":false,"online":true,"ownerid":1234567890}
+        {"url":"http://127.0.0.1:9090","name":"primary","deleteAfterRender":false,"disabled":false,"online":true,"ownerid":"1234567890","type":"invoke"}
     ],
     "branding":{
         "botOwner":"ausbitbank",
@@ -84,6 +84,7 @@
         "max_tokens":-1,
         "model":"neuralbeagle",
         "apiKey":"none",
+        "scrapeUrls":false,
         "personas":[
             {"name":"assistant","prompt":"You are a helpful AI assistant, respond to user requests to the best of your ability"},
             {"name":"sassy","prompt":"As an AI with a sassy personality, respond in a clever, snarky, playfully insulting and entertaining manner while remaining true to the context of the question or statement"},
@@ -93,5 +94,61 @@
             {"name":"doctor","prompt":"I want you to act as a doctor and come up with creative treatments for illnesses or diseases. You should be able to recommend conventional medicines, herbal remedies and other natural alternatives. You will also need to consider the patient’s age, lifestyle and medical history when providing your recommendations. "},
             {"name":"prompt-improver","prompt":"I want you to act as a prompt generator for an artificial intelligence program. Your job is to provide detailed and creative descriptions that will inspire unique and interesting images from the AI. Keep in mind that the AI is capable of understanding a wide range of language and can interpret abstract concepts, so feel free to be as imaginative and descriptive as possible. For example, you could describe a scene from a futuristic city, or a surreal landscape filled with strange creatures. The more detailed and imaginative your description, the more interesting the resulting image will be. Here is your first prompt: "}
         ]
+    },
+    "presets":{
+        "sd1": {
+            "description": "Low quality, fastest (haveallx)",
+            "scale": 3,
+            "model": "haveallx",
+            "steps": 30,
+            "width": 512,
+            "height": 512
+        },
+        "lightning": {
+            "description": "Medium quality, fast (forrealxl)",
+            "scale": 1.8,
+            "model": "forrealxl",
+            "steps": 10,
+            "width": 1024,
+            "height": 1024
+        },
+        "sdxl": {
+            "description": "Best quality, slowest (haveall)",
+            "scale": 3,
+            "model": "haveall",
+            "steps": 30,
+            "width": 1024,
+            "height": 1024
+        },
+        "composition": {
+            "description": "Copy composition from image attachment or reply",
+            "scale": 2,
+            "model": "forrealxl",
+            "steps": 15,
+            "width": 1024,
+            "height": 1024,
+            "ipamodel": "ip_plus_composition_sdxl",
+            "ipamethod": "full"
+        },
+        "face": {
+            "description": "Copy face from image attachment or reply",
+            "scale": 2,
+            "model": "forrealxl",
+            "steps": 15,
+            "width": 1024,
+            "height": 1024,
+            "ipamodel": "ip-adapter-plus-face_sdxl_vit-h",
+            "ipamethod": "full"
+        },
+        "style": {
+            "description": "Copy style from image attachment or reply",
+            "scale": 2,
+            "model": "forrealxl",
+            "steps": 15,
+            "width": 1024,
+            "height": 1024,
+            "ipamodel": "ip_adapter_sdxl",
+            "ipamethod": "style"
+        },
     }
 }

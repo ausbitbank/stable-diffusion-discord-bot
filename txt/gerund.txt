@@ -112,7 +112,7 @@ bubbling
 budgeting 
 building 
 bumping 
-burning 
+buning 
 bursting 
 burying 
 busting 
@@ -168,7 +168,7 @@ computing
 conceiving 
 concentrating 
 conceptualizing 
-concerning 
+concening 
 concluding 
 conducting 
 confessing 
@@ -271,7 +271,7 @@ drumming
 drying 
 dusting 
 dwelling 
-earning 
+eaning 
 eating 
 editing 
 educating 
@@ -369,7 +369,7 @@ giving
 glowing 
 gluing 
 going 
-governing 
+govening 
 grabbing 
 graduating 
 grating 
@@ -482,7 +482,7 @@ laying
 leading 
 leaning 
 leaping 
-learning 
+leaning 
 leavening 
 lecturing 
 lading 
@@ -545,7 +545,7 @@ modifying
 monitoring 
 mooring 
 motivating 
-mourning 
+mouning 
 moving 
 mowing 
 muddling 
@@ -727,7 +727,7 @@ restore ding
 restructuring 
 retiring 
 retrieving 
-returning 
+retuning 
 reviewing 
 revising 
 rhyming 
@@ -965,7 +965,7 @@ trusting
 trying 
 tugging 
 tumbling 
-turning 
+tuning 
 tutoring 
 twisting 
 typing 
@@ -997,7 +997,7 @@ walking
 wandering 
 wanting 
 warming 
-warning 
+waning 
 washing 
 wasting 
 watching 
