@@ -1408,6 +1408,27 @@ let commands = [
                     }
                 ],files:[result.images]}
         }
+    },
+    {
+        name: 'refreshcluster',
+        description: 'Refresh the list of backend hosts and available models/loras/etc',
+        permissionLevel: 'admin',
+        aliases: ['refreshcluster', 'rc'],
+        prefix: '!!!',
+        command: async (args, msg, creator) => {
+            const result = await invoke.refreshCluster()
+            return {
+                messages: [{
+                    content: '',
+                    embeds: [{
+                        description: ':arrows_counterclockwise: Cluster Refresh Results:\n\n' + result,
+                        color: getRandomColorDec()
+                    }],
+                    messageReference: { message_id: msg.id }
+                }],
+                files: []
+            }
+        }
     }
 ]
 
@@ -1829,7 +1850,7 @@ imageResultMessage = async(userid,img,result,meta,cid)=>{
                 let od = (meta.invoke.ipamodel===o) ? 'Selected' : null
                 cnwo.push({value:o,label:od,label:o})
             }
-            newmsg.components.push({type:1,components:[{type: 3,custom_id:'edit-x-ipamodel',placeholder:'Ip Adapter: '+meta.invoke.ipamodel,min_values:1,max_values:1,options:cnwo}]})
+            if(cnwo.length>0){newmsg.components.push({type:1,components:[{type: 3,custom_id:'edit-x-ipamodel',placeholder:'Ip Adapter: '+meta.invoke.ipamodel,min_values:1,max_values:1,options:cnwo}]})}
         } else { // otherwise assume control is the name of a controlnet
             let controltypes = await invoke.allUniqueControlnetsAvailable()
             controltypes = controltypes.filter(o=>o.base===basemodel).map(o=>o.name)
@@ -1838,7 +1859,7 @@ imageResultMessage = async(userid,img,result,meta,cid)=>{
                 let od = (meta.invoke.control===o) ? 'Selected' : null
                 cnwo.push({value:o,label:od,label:o})
             }
-            newmsg.components.push({type:1,components:[{type: 3,custom_id:'edit-x-control',placeholder:'Controlnet: '+meta.invoke.control,min_values:1,max_values:1,options:cnwo}]})
+            if(cnwo.length>0){newmsg.components.push({type:1,components:[{type: 3,custom_id:'edit-x-control',placeholder:'Controlnet: '+meta.invoke.control,min_values:1,max_values:1,options:cnwo}]})}
         }
     }
     return newmsg
