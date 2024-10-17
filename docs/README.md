@@ -1,6 +1,8 @@
 ![stable-diffusion-discord-bot](https://github.com/ausbitbank/stable-diffusion-discord-bot/assets/1692203/ab84734b-1c40-4216-8c5b-14cecc93f69d)
 
-A discord bot built to interface with the [InvokeAI](https://github.com/invoke-ai/InvokeAI) fork of stable-diffusion.
+# Stable Diffusion Discord Bot
+
+A powerful Discord bot that interfaces with [InvokeAI](https://github.com/invoke-ai/InvokeAI), bringing advanced AI image generation capabilities to your server.
 
 [![top.gg](https://top.gg/api/widget/servers/973484171534172170.svg)](https://top.gg/bot/973484171534172170)
 ![discord](https://img.shields.io/discord/419390618209353730?style=plastic)
@@ -9,54 +11,82 @@ A discord bot built to interface with the [InvokeAI](https://github.com/invoke-a
 ![last commit](https://img.shields.io/github/last-commit/ausbitbank/stable-diffusion-discord-bot/arty2-invoke4-WIP?style=plastic)
 [![twitter](https://img.shields.io/twitter/follow/ausbitbank?style=social)](https://twitter.com/ausbitbank)
 
-This branch is a work in progress for a major rewrite of the arty project. 
+## 🚧 Development Status
 
-It still has a long way to go before it's ready for public use and should be considered an alpha test at best.
+This branch represents a major rewrite of the Arty project and is currently in alpha stage. It's compatible with `invokeai 5.2.0` but is not yet ready for public use.
 
-It's currently compatible with `invokeai 5.2.0`.
+## ✨ Features
 
-**Working:**
-- Oldschool `!dream prompt` + parameters
-- Supports multiple Invoke3 backends on local network (no direct file access required)
-- Building node graphs from job requests,submitting,tracking,posting to discord
-- Refresh button starting renders using png metadata alone (no job db required!)
-- Input images can be used as sources for image to latent, controlnet, ip_adapter
-- Tweak menu with models, aspect ratio, scale, steps, sampler, strength
-- Remove background using custom invokeai node
-- websocket job progress tracking, discord status updates for invoke cluster queue info
-- LLM integration (/chat , /describe , prompt improvement)
+- Classic `!dream prompt` command with parameter support
+- Multi-backend support for Invoke over local networks
+- Advanced node graph generation and job tracking
+- Refresh functionality using PNG metadata
+- Versatile input image handling (image to latent, controlnet, ip_adapter)
+- Customizable settings menu (models, aspect ratio, scale, steps, sampler, strength)
+- Background removal using custom InvokeAI node
+- Real-time job progress tracking via WebSocket
+- Discord status updates for Invoke cluster queue information
+- LLM integration for chat, image description, and prompt improvement
 
-**Setup:**
+## 🚀 Getting Started
 
-- `git clone -b dev https://github.com/ausbitbank/stable-diffusion-discord-bot/`
-- `cd stable-diffusion-discord-bot`
-- `mv .\config\config.json.example .\config\config.json`
-- Edit config.json, you need at least a `discordBotKey`, `adminID`, to set a default model and check the cluster url 
-- If you want to run the bot in docker, modify config.cluster.url to `http://host.docker.internal:9090`
+### Prerequisites
 
-**Install custom invokeai nodes for advanced functionality**
-- Enter your the nodes folder within your invokeai install `cd invokeai\nodes`
-- `git clone https://github.com/gogurtenjoyer/nightmare-promptgen`
-- `git clone https://github.com/blessedcoolant/invoke_bria_rmbg`
-- `git clone https://github.com/mickr777/textfontimage`
-- `git clone https://github.com/helix4u/interrogate_node`
-- Enter the "invokeai developers console" or enter the python venv for invoke and `pip install clip-interrogator`
+- Node.js
+- npm
+- Git
+- Docker (optional)
 
-**Launch natively:**
-- `npm install`
-- `npm start`
+### Installation
 
-**OR Launch with docker:**
-- `docker-compose up --build` 
+1. Clone the repository:
+   ```
+   git clone -b dev https://github.com/ausbitbank/stable-diffusion-discord-bot/
+   cd stable-diffusion-discord-bot
+   ```
 
+2. Set up the configuration:
+   ```
+   mv .\config\config.json.example .\config\config.json
+   ```
+   Edit `config.json` and set at least `discordBotKey`, `adminID`, and check the cluster URL.
 
-**Patches/Pull request are greatly appreciated!**
------------------------
+3. Install custom InvokeAI nodes:
+   ```
+   cd invokeai\nodes
+   git clone https://github.com/gogurtenjoyer/nightmare-promptgen
+   git clone https://github.com/blessedcoolant/invoke_bria_rmbg
+   git clone https://github.com/mickr777/textfontimage
+   git clone https://github.com/helix4u/interrogate_node
+   ```
 
-If you have any questions you can find me (ausbitbank) in ![my discord here]([https://discord.gg/DSdK9KRJxq](https://discord.gg/ausbit-s-stuff-and-things-419390618209353730))
+4. Install additional dependencies:
+   ```
+   pip install clip-interrogator
+   ```
 
-You can test out the bot in any of the #artspam channels or by DM'ing
+### Running the Bot
 
-## Star History
+#### Native Launch
+
+```
+npm install
+npm start
+```
+
+#### Docker Launch
+```
+docker-compose up --build
+```
+
+## 🤝 Contributing
+
+Patches and pull requests are greatly appreciated! Feel free to contribute to the project.
+
+## 📬 Support
+
+If you have any questions, join our [Discord server](https://discord.gg/ausbit-s-stuff-and-things-419390618209353730) or DM the bot directly.
+
+## ⭐ Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=ausbitbank/stable-diffusion-discord-bot&type=Date)](https://star-history.com/#ausbitbank/stable-diffusion-discord-bot&Date)
