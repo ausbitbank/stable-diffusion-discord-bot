@@ -89,6 +89,47 @@ const initHost=async(host)=>{
     }
 }
 
+const refreshCluster = async () => {
+    let initmsg = ''
+    for (const d in cluster) {
+        let c = cluster[d]
+        if (c.online && c.type === 'invoke') {
+            try {
+                const [version, models, lora, ti, vae, controlnet, ip_adapter, t2i_adapter, t5_encoder, clip_embed, cfg] = await Promise.all([
+                    getVersion(c),
+                    getModels(c, 'main'),
+                    getModels(c, 'lora'),
+                    getModels(c, 'embedding'),
+                    getModels(c, 'vae'),
+                    getModels(c, 'controlnet'),
+                    getModels(c, 'ip_adapter'),
+                    getModels(c, 't2i_adapter'),
+                    getModels(c, 't5_encoder'),
+                    getModels(c, 'clip_embed'),
+                    getConfig(c)
+                ])
+                
+                c.version = version
+                c.models = models
+                c.lora = lora
+                c.ti = ti
+                c.vae = vae
+                c.controlnet = controlnet
+                c.ip_adapter = ip_adapter
+                c.t2i_adapter = t2i_adapter
+                c.t5_encoder = t5_encoder
+                c.clip_embed = clip_embed
+                c.config = cfg
+                
+                initmsg += `Refreshed ${c.name}: ${c.models.length} models, ${c.lora.length} loras\n`
+            } catch (err) {
+                initmsg += `Failed to refresh ${c.name}: ${err}\n`
+            }
+        }
+    }
+    return initmsg
+}
+
 buildWorkflowFromJob = (job)=>{
     let essentials = {}
     let keys = Object.keys(job)
@@ -143,6 +184,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         if(['t2i_adapter'].includes(type)){lastid.t2i_adapter=newid}
         if(['flux_text_encoder'].includes(type)){lastid.conditioning=newid}
         if(['flux_lora_loader','flux_model_loader'].includes(type)){lastid.transformer=newid}
+        if(['flux_vae_encode'].includes(type)){lastid.height=newid;lastid.width=newid;lastid.latents=newid}
         edges?.forEach(e=>{
             if(!validUUID(e.destination.node_id)){ // not already plumbed with a valid UUID
                 if(e.destination.node_id==='SELF'){ e.destination.node_id=newid
@@ -296,33 +338,50 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
                 pipe(lastid.clip,'max_seq_len','SELF','t5_max_seq_len')
             ])
         if(job.initimgObject){ // broken, cos of dimensions (i assume?, test moar)
-            // if we want to import an image use flux_vae_encode , recommend flux-dev model and denoising_start change to 
-            node('flux_vae_encode',{image:{image_name:job.initimgObject.image_name}})
+            // todo Add selector for flux controlnets
+            // if we want to import an image use flux_vae_encode , recommend flux-fusion 8 steps start denoise 0.125 end 1
+            node('flux_vae_encode',{image:{image_name:job.initimgObject.image_name}},[pipe(lastid.vae,'vae','SELF','vae')])
+            // todo need to copy width and height output to flux denoise or this will fail
         }
         // lora chain
         if(job.loras?.length>0){
             for (const l in job.loras) {
                 node('flux_lora_loader',{is_intermediate:true,lora:{base:job.loras[l].model.base,name:job.loras[l].model.name,key:job.loras[l].model.key,hash:job.loras[l].model.hash,type:'lora'},weight:job.loras[l].weight},[pipe(lastid.transformer,'transformer','SELF','transformer')])}} // flux lora loader, chain multiple transformers into each other
         // also accepts latents and denoise mask , outputs latents
-        node('flux_denoise',{denoising_end:1,denoising_start:0,width:job.width,height:job.height,num_steps:job.steps,guidance:job.scale,use_cache:true,is_intermediate:true},
-            [
+        let fluxdenoisepipes = [
                 pipe(lastid.transformer,'transformer','SELF','transformer'),
                 pipe(lastid.conditioning,'conditioning','SELF','positive_text_conditioning'),
-            ])
-        node('flux_vae_decode',{is_intermediate:false,use_cache:true},
-            [
-                pipe(lastid.vae,'vae','SELF','vae'),
-                pipe(lastid.latents,'latents','SELF','latents'),
-                pipe(lastid.merge_metadata,'metadata','SELF','metadata')
-            ]
-        )
+                pipe(lastid.vae,'vae','SELF','controlnet_vae') // invoke 5.2rc1
+        ]
+        let fluxdenoiseoptions = {
+            denoising_end:job.controlend??1,
+            denoising_start:job.controlstart??0,
+            num_steps:job.steps,
+            guidance:job.scale,
+            use_cache:true,
+            is_intermediate:true
+        }
+        if(lastid.width&&lastid.height&&lastid.latents){
+            debugLog('Adding flux input image\n')
+            debugLog(job.initimgObject)
+            //fluxdenoisepipes.push(pipe(lastid.width,'width','SELF','width'))
+            //fluxdenoisepipes.push(pipe(lastid.height,'height','SELF','height'))
+            fluxdenoiseoptions.width = job.width
+            fluxdenoiseoptions.height = job.height
+            fluxdenoisepipes.push(pipe(lastid.latents,'latents','SELF','latents'))
+        }// else {
+        //    fluxdenoiseoptions.width = job.width
+        //    fluxdenoiseoptions.height = job.height
+        //}
+        node('flux_denoise',fluxdenoiseoptions,fluxdenoisepipes)
+        node('flux_vae_decode',{is_intermediate:false,use_cache:true},[pipe(lastid.vae,'vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe(lastid.merge_metadata,'metadata','SELF','metadata')])
         let dataitems = [job.seed]
         while(dataitems.length<job.number){dataitems.push(random.seed())}
         data.push([{node_path:lastid.core_metadata,field_name:'seed',items:dataitems}])
 
         let noiseIds = Object.values(graph.nodes).filter(i=>i.type==='flux_denoise').map(i=>i.id)
         for (const id in noiseIds){data[0].push({node_path:noiseIds[id],field_name:'seed',items:dataitems})}
-
+        debugLog(graph)
         return {batch:{graph,data,runs:1},prepend:false}
     }
     // Add freeu node https://stable-diffusion-art.com/freeu/
@@ -1942,6 +2001,7 @@ module.exports = {
         nightmarePromptGen,
         interrogate,
         handfix,
-        faceCrop
+        faceCrop,
+        refreshCluster
     }
 }
