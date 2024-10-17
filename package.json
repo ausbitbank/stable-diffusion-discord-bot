@@ -55,6 +55,7 @@
     "dotenv": "^16.4.5",
     "duck-duck-scrape": "^2.2.5",
     "duckduckgo-images-api": "^1.0.5",
+    "ejs": "^3.1.10",
     "eris": "abalabahaha/eris#dev",
     "exifreader": "^4.23.1",
     "express": "^4.19.2",
