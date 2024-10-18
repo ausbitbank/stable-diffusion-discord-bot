@@ -27,7 +27,7 @@ const User = db.define('User', {
         unique: true
     },
     discordID: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.STRING,  // Changed from INTEGER to STRING
         allowNull: true,
         unique: true,
     },
@@ -54,10 +54,10 @@ const User = db.define('User', {
         defaultValue:false
     },
     hash: {
-        type: DataTypes.BLOB
+        type: DataTypes.STRING
     },
     salt: {
-        type: DataTypes.BLOB
+        type: DataTypes.STRING
     }
 })
 
@@ -161,9 +161,10 @@ const Pin = db.define('Pin',{
         primaryKey:true,
         autoIncrement:true
     },
-    cid:{
+    cid: {
         type: DataTypes.STRING,
-        allowNull:false,
+        allowNull: false,
+        unique: true  // Add this to ensure uniqueness
     },
     user:{
         type:DataTypes.INTEGER,
@@ -248,14 +249,15 @@ User.hasMany(Payment, {
     as: 'payments'
 })
 
-Moderation.belongsTo(Pin,{
-    foreignKey:'cid',
-    targetKey: 'cid',
+Moderation.belongsTo(Pin, {
+    foreignKey: 'cid',
+    targetKey: 'cid',  // Change this from 'id' to 'cid'
     as: 'pin'
 })
 
 Pin.hasMany(Moderation, {
-    foreignKey:'cid',
+    foreignKey: 'cid',
+    sourceKey: 'cid',  // Add this line
     as: 'moderations'
 })
 
