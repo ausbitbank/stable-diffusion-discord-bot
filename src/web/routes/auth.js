@@ -3,16 +3,17 @@ const passport = require('passport')
 const crypto = require('crypto')
 const {db,User} = require('../../db')
 const {config} = require('../../utils')
-const app = express()
+const router = express.Router()
+const csrf = require('csurf')
 
 // Inject session messages
-app.use(function(req, res, next) {
+router.use(function(req, res, next) {
     console.log('Inject session messages into res.locals.messages')
     var msgs = req.session.messages || []
     res.locals.messages = msgs
     res.locals.hasMessages = !! msgs.length
     req.session.messages = []
-    if(req.baseUrl === '/login') { // just checking if we are on the initial get or post route
+    if(req.baseUrl === '/login') {
         req.session.save(() => {
             next()
         })
@@ -24,10 +25,10 @@ app.use(function(req, res, next) {
 // auth / sessions / CSRF
 
 const cookieParser = require('cookie-parser')
-app.use(cookieParser())
+router.use(cookieParser())
 
 const ensureLogIn = require('connect-ensure-login').ensureLoggedIn
-app.use(require('connect-multiparty')())
+router.use(require('connect-multiparty')())
 
 
 // Moved this here from the db setup in case thats the problem
@@ -39,18 +40,27 @@ passportLocalSequelize.attachToUser(User, {
 })
 
 passport.use(User.createStrategy())
-passport.serializeUser(User.serializeUser())
-passport.deserializeUser(User.deserializeUser())
+passport.serializeUser((user, done) => {
+  done(null, user.id);
+});
 
-const csrf = require('csurf')
-app.use(csrf())
-//app.use(csrf({cookie:true}))
+passport.deserializeUser((id, done) => {
+  User.findByPk(id)
+    .then(user => {
+      done(null, user);
+    })
+    .catch(err => {
+      done(err, null);
+    });
+});
 
-// Inject csrftoken
-app.use(function(req, res, next) {
-    res.locals.csrfToken = req.csrfToken()
-    next()
-})
+// Replace the existing CSRF middleware with this
+const csrfProtection = csrf({ cookie: true })
+router.use(csrfProtection)
+router.use((req, res, next) => {
+    res.locals.csrfToken = req.csrfToken();
+    next();
+});
 
 /* Configure session management.
  *
@@ -73,12 +83,10 @@ app.use(function(req, res, next) {
 // https://www.npmjs.com/package/passport-local-sequelize
 
 
-var router = express.Router()
-
 router.get('/login', function(req, res, next) {
     console.log(req.session)
     console.log(req.session.messages)
-    res.render('login',{csrfToken: res.locals.csrfToken,tokenField:'csrf-token'})
+    res.render('login')
 })
 
 router.post('/login/password', passport.authenticate('local', {
@@ -89,10 +97,10 @@ router.post('/login/password', passport.authenticate('local', {
 
 router.post('/logout', function(req, res, next) {
     req.logout(function(err) {
-        if (err) { return next(err) }
-        res.redirect('/')
-    })
-})
+        if (err) { return next(err); }
+        res.redirect('/');
+    });
+});
 
 router.get('/signup', function(req, res, next) {
     res.render('signup', {csrfToken: res.locals.csrfToken,tokenField:'csrf-token'})
@@ -121,5 +129,42 @@ router.post('/signup', function (req, res, next) {
         //.catch(err => {if (err) { return next(err) }})
     })
 })
+
+// Configure Discord Strategy
+const DiscordStrategy = require('passport-discord').Strategy;
+passport.use(new DiscordStrategy({
+    clientID: config.discord.clientId,
+    clientSecret: config.discord.clientSecret,
+    callbackURL: config.discord.callbackURL,
+    scope: ['identify', 'email']
+  },
+  function(accessToken, refreshToken, profile, cb) {
+    User.findOrCreate({ 
+      where: { discordId: profile.id },
+      defaults: {
+        username: profile.username,
+        email: profile.email,
+        credits: config.credits.default || 100,
+        hash: '', // Add a default value
+        salt: ''  // Add a default value
+      }
+    }).then(([user, created]) => {
+      return cb(null, user);
+    }).catch(err => {
+      return cb(err);
+    });
+  }
+));
+
+// Add Discord login routes
+router.get('/auth/discord', passport.authenticate('discord'));
+
+router.get('/auth/discord/callback', 
+  passport.authenticate('discord', { failureRedirect: '/login' }),
+  function(req, res) {
+    // Successful authentication, redirect home.
+    res.redirect('/');
+  }
+);
 
 module.exports = router

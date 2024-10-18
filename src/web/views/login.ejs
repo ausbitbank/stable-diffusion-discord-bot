@@ -1,5 +1,5 @@
 <%- include('header'); %>
-            <h1>Sign In</h1>
+            <h1>Login</h1>
             <% if (locals.hasMessages) { %>
             <section class="messages">
                 <% messages.forEach(function(message) { %>
@@ -24,9 +24,11 @@
                     <label for="current-password">Password</label>
                     <input id="current-password" name="password" type="password" autocomplete="current-password" required>
                 </section>
-                <input type="hidden" name="csrf-token" value="<%- csrfToken %>">
+                <input type="hidden" name="_csrf" value="<%- csrfToken %>">
                 <button type="submit">Sign in</button>
             </form>
+            <hr>
+            <a href="/auth/discord" class="button">Login with Discord</a>
             <hr>
             <p class="help">Don't have an account? <a href="/signup">Sign up</a></p>
 <%- include('footer'); %>

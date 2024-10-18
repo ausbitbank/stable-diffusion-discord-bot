@@ -12,7 +12,24 @@
         <script src="/js/client.js"></script>
     </head>
     <body>
-        <div class="header">
-            <a href="/"><%= locals.headerText %></a>
-        </div>
         <div class="container">
+            <header>
+                <h1><a href="/"><%= locals.headerText %></a></h1>
+                <nav>
+                    <ul>
+                        <li><a href="/">Home</a></li>
+                        <% if (locals.user) { %>
+                            <li>Welcome, <a href="/@<%= locals.user.username %>"><%= locals.user.username %></a></li>
+                            <li>
+                                <form action="/logout" method="post">
+                                    <input type="hidden" name="_csrf" value="<%= locals.csrfToken %>">
+                                    <button type="submit">Logout</button>
+                                </form>
+                            </li>
+                        <% } else { %>
+                            <li><a href="/login">Login</a></li>
+                            <li><a href="/signup">Sign Up</a></li>
+                        <% } %>
+                    </ul>
+                </nav>
+            </header>

@@ -7,6 +7,7 @@ const {ipfs}=require('../ipfs')
 const {mod}=require('../mod')
 const http = require('http')
 const url = require('url')
+const cookieParser = require('cookie-parser');
 
 let host = config.web.ip??"127.0.0.1"
 let port = config.web.port??"42069"
@@ -33,9 +34,22 @@ app.use(compression())
 
 const session = require('express-session')
 const passport = require('passport')
-app.use(session({ secret: config.web.sessionsecret,resave:false,saveUninitialized:false }))
+const csrf = require('csurf')
+const csrfProtection = csrf({ cookie: true })
+
+// Use cookieParser middleware
+app.use(cookieParser())
+
+app.use(session({ secret: config.web.sessionsecret, resave: false, saveUninitialized: false }))
 app.use(passport.initialize())
 app.use(passport.session())
+
+// CSRF protection
+app.use(csrfProtection)
+app.use((req, res, next) => {
+  res.locals.csrfToken = req.csrfToken();
+  next();
+});
 
 // helmet security middleware https://github.com/helmetjs/helmet
 // Blocks internal scripts, breaks site. Need to rework where scripts are inserted in templates
@@ -53,6 +67,7 @@ app.use(passport.session())
 // Inject global branding options
 app.use(function(req, res, next) {
   res.locals.headerText = config.web.headerText
+  res.locals.user = req.user // Add this line to make user available in all views
   next()
 })
 
@@ -64,8 +79,8 @@ app.set('view engine', 'ejs');
 app.use(express.static(path.join(__dirname, 'public')))
 
 // Auth routing
-let routeauth = require('./routes/auth')
-app.use('/',routeauth)
+const authRoutes = require('./routes/auth')
+app.use('/', authRoutes)
 
 app.use(function(req, res, next) {
   console.log('Post auth session:')
@@ -106,6 +121,12 @@ app.use('/',routeipfs)
 // Error 404
 let route404 = require('./routes/404')
 app.use('/',route404)
+
+// Add this after your passport middleware setup
+app.use((req, res, next) => {
+  res.locals.user = req.user;
+  next();
+});
 
 const init = async()=>{
   log('Starting web interface on http://'+host+':'+port)
