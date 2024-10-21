@@ -18,6 +18,7 @@ const {qrcode} = require('../qrcode')
 const {comfyui} = require('../comfyui')
 const DDG = require('duck-duck-scrape')
 const { image_search } = require('duckduckgo-images-api')
+const {civitai} = require('../civitai')
 
 // Process discord text message commands
 let commands = [
@@ -1703,13 +1704,19 @@ imageResultMessage = async(userid,img,result,meta,cid)=>{
     if(meta.invoke?.scheduler){t+=' :eye: '+meta.invoke.scheduler}
     if(meta.invoke?.seed){t+=' :game_die: '+meta.invoke.seed}
     if(meta.invoke?.scale){t+=' :scales: '+meta.invoke.scale}
-    if(meta.invoke?.model){t+=' :floppy_disk: '+meta.invoke.model?.name}
+    if(meta.invoke?.model){
+        let modellink = await civitai.hashToUrl(meta.invoke.model.hash)
+        t+=' :floppy_disk: ['+meta.invoke.model?.name+']('+modellink+')'
+    }
     if(meta.invoke?.clipskip){t+=' :clipboard: '+meta.invoke.clipskip}
     if(meta.invoke?.strength){t+=' :muscle: '+meta.invoke.strength}
     if(meta.invoke?.lscale&&meta.invoke?.lscale!==1){t+=' :mag_right: '+meta.invoke.lscale}
     if(meta.invoke?.loras?.length>0){
         t+=' :pill: '
-        for (const l in meta.invoke?.loras){t+=meta.invoke.loras[l].model.name+'('+meta.invoke.loras[l].weight+') '}
+        for (const l in meta.invoke?.loras){
+            let loralink = await civitai.hashToUrl(meta.invoke.loras[l].model.hash)
+            t+='['+meta.invoke.loras[l].model.name+']('+loralink+')('+meta.invoke.loras[l].weight+') '
+        }
     }
     if(meta.invoke?.inputImageUrl){t+=' :paperclip: [img]('+meta.invoke.inputImageUrl+')'}
     if(meta.invoke?.control){t+=' :video_game: '+meta.invoke.control}
