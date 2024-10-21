@@ -293,7 +293,7 @@ let commands = [
         description: 'Display tweak menu, as a message only visible to the requester',
         permissionLevel: 'all',
         aliases: ['tweak'],
-        command: async (interaction,creator)=>{
+        command: async (interaction,creator)=>{ 
             let msgid=interaction.message.id
             let tweakmsg = {
                 content: ':test_tube: **Tweak Menu**',
@@ -304,28 +304,27 @@ let commands = [
                         components:[
                             {type: 2, style: 1, label: 'Aspect Ratio', custom_id: 'chooseAspectRatio-'+msgid, emoji: { name: '📐', id: null}, disabled: false },
                             {type: 2, style: 1, label: 'Models', custom_id: 'chooseModel-'+msgid, emoji: { name: '💾', id: null}, disabled: false },
-                            //{type: 2, style: 1, label: 'Textual Inversions', custom_id: 'chooseTi-'+msgid, emoji: { name: '💊', id: null}, disabled: true },
-                            //{type: 2, style: 1, label: 'Loras', custom_id: 'chooseLora-'+msgid, emoji: { name: '💊', id: null}, disabled: true },
-                            //{type: 2, style: 1, label: 'Control', custom_id: 'chooseControl-'+msgid, emoji: { name: '🎮', id: null}, disabled: true },
-                    ]},
+                            {type: 2, style: 1, label: 'Loras', custom_id: 'chooseLora-'+msgid, emoji: { name: '💊', id: null}, disabled: false },
+                            {type: 2, style: 1, label: 'Sampler', custom_id: 'chooseSampler-'+msgid, emoji: { name: '👁️', id: null}, disabled: false },
+                        ]
+                    },
                     {
                         type:1,
                         components:[
-                            //{type: 2, style: 1, label: 'Resolution', custom_id: 'chooseResolution-'+msgid, emoji: { name: '📏', id: null}, disabled: true },
                             {type: 2, style: 1, label: 'Scale', custom_id: 'editScale-'+msgid, emoji: { name: '⚖️', id: null}, disabled: false },
                             {type: 2, style: 1, label: 'Steps', custom_id: 'editSteps-'+msgid, emoji: { name: '♻️', id: null}, disabled: false },
                             {type: 2, style: 1, label: 'Strength', custom_id: 'editStrength-'+msgid, emoji: { name: '💪', id: null}, disabled: false },
-                            {type: 2, style: 1, label: 'Sampler', custom_id: 'chooseSampler-'+msgid, emoji: { name: '👁️', id: null}, disabled: false }
-                    ]},
+                        ]
+                    },
                     {
                         type:1,
                         components:[
                             {type: 2, style: 1, label: 'Remove Background', custom_id: 'removeBackground-'+msgid, emoji: { name: '🪄', id: null}, disabled: false },
                             {type: 2, style: 1, label: 'Upscale', custom_id: 'upscale-'+msgid, emoji: { name: '🪄', id: null}, disabled: false }
-                    ]}
+                        ]
+                    }
                 ]
             }
-            // todo Add dropdown menus for presets from config file
             if(config.presets){
                 let options = []
                 for (const p in config.presets){
@@ -352,163 +351,312 @@ let commands = [
                 }
                 tweakmsg.components.unshift(dropdown)
             }
-            
             interaction.createMessage(tweakmsg)
         }
     },
-{
-    name: 'chooseModel',
-    description: 'Select a model from a dialog and apply it to an image',
-    permissionLevel: 'all',
-    aliases: ['chooseModel'],
-    command: async (interaction,creator) => {
-        // todo make a general purpose function that pages data as needed = 5 dropdowns per page / 25 options per dropdown 
-        let msgid = interaction.data.custom_id.split('-')[1]
-        let models = await invoke.allUniqueModelsAvailable()
-        if (interaction.data.values) {
-            if (!interaction.acknowledged) {
-                await interaction?.acknowledge()
-            }
-            let newmodelname = interaction.data.values[0]
-            debugLog('Changing model to ' + newmodelname)
-            let trackingmsg = await bot.createMessage(interaction.channel.id, { content: ':saluting_face: Changing model to ' + newmodelname+' '+timestamp(), embeds: [], components: [] })
-            let channelid = interaction.channel.id
-            let sourcemsg = await bot.getMessage(channelid, msgid)
-            let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
-            let newmodel = models.find(m => m.name === newmodelname) // undefined ?
-            if (meta.invoke?.model?.base !== newmodel?.base) { // changing base model class (sd1 to sdxl etc)
-                let ar = await aspectRatio.resToRatio(meta.invoke?.width, meta.invoke?.height)
-                let newpixels = 0
-                if(newmodel.base==='sdxl'){ // 1 megapixel sdxl
-                    newpixels = 1048576
-                } else if (newmodel.base==='flux'){ // 2 megapixel flux
-                    newpixels = 1920000
-                } else { // sd1/sd2
-                    newpixels = 262144
-                }
-                //let newpixels = newmodel?.base === 'sdxl' ? 1048576 : 262144 // 1024x1024 for sdxl, 512x512 for sd1/2
-                let newres = await aspectRatio.ratioToRes(ar, newpixels)
-                if (meta.invoke && newmodel) {
-                    meta.invoke.width = newres?.width
-                    meta.invoke.height = newres?.height
-                }
-                // unset ipamodel when switching base class, leave control set to ipa so it autodetects new default ipa for base class
-                if(meta.invoke.control==='ipa'&&meta.invoke.ipamodel){delete meta.invoke.ipamodel;delete meta.invoke.control}
-            }
-            if (meta.invoke) {
-                meta.invoke.model = newmodelname
-            }
-            let img = null
-            if (meta.invoke?.inputImageUrl) {
-                img = await urlToBuffer(meta.invoke.inputImageUrl)
-            }
-            //let result = await invoke.jobFromMeta(meta, img, { type: 'discord', msg: trackingmsg })
-            let job = await invoke.jobFromMeta(meta, img, { type: 'discord', msg: trackingmsg })
-            job.creator = await getCreatorInfoFromInteraction(interaction)
-            job = await auth.userAllowedJob(job)
-            let result = await invoke.cast(job)
-            if (meta.invoke?.inputImageUrl && !result.error && result.images?.length > 0) {
-                result.images[0].buffer = await exif.modify(result.images[0].buffer, 'arty', 'inputImageUrl', meta.invoke.inputImageUrl)
-            }
-            let newmsg = sourcemsg
-            newmsg.member = interaction.member
-            return messageCommands.returnMessageResult(newmsg, result,creator)
-        }
-        let categories = {
-            'sd-1': [],
-            'sd-2': [],
-            'sdxl': [],
-            'flux': []
-        }
-        for (const i in models) {
-            let m = models[i]
-            if (m.type === 'main') {
-                switch (m.base) {
-                    case 'sd-1': {
-                        categories['sd-1'].push({
-                            label: m.name?.substring(0, 50),
-                            value: m.name,
-                            description: m.description?.substring(0, 50),
-                            emoji: null
-                        })
-                        break
-                    }
-                    case 'sd-2': {
-                        categories['sd-2'].push({
-                            label: m.name?.substring(0, 50),
-                            value: m.name,
-                            description: m.description?.substring(0, 50),
-                            emoji: null
-                        })
-                        break
-                    }
-                    case 'sdxl': {
-                        categories['sdxl'].push({
-                            label: m.name?.substring(0, 50),
-                            value: m.name,
-                            description: m.description?.substring(0, 50),
-                            emoji: null
-                        })
-                        break
-                    }
-                    case 'flux': {
-                        categories['flux'].push({
-                            label: m.name?.substring(0, 50),
-                            value: m.name,
-                            description: m.description?.substring(0, 50),
-                            emoji: null
-                        })
-                        break
-                    }
-                }
-            }
-        }
+    {
+        name: 'chooseLora',
+        description: 'Select a lora from a dialog and apply it to the current render',
+        permissionLevel: 'all',
+        aliases: ['chooseLora'],
+        command: async (interaction, creator) => {
+            let msgid = interaction.data.custom_id.split('-')[1];
+            let sourcemsg = await bot.getMessage(interaction.channel.id, msgid);
+            let meta = await messageCommands.extractMetadataFromMessage(sourcemsg);
+            let models = await invoke.allUniqueModelsAvailable();
+            let currentModelBase = meta?.invoke?.model?.base;
+            let loras = await invoke.allUniqueLorasAvailable();
+            let availableLoras = loras.filter(l => l.base === currentModelBase);
+            const itemsPerPage = 25;
+            const totalPages = Math.ceil(availableLoras.length / itemsPerPage);
+            let currentPage = 0;
 
-        let components = []
-        let dropdownCount = 0
-        let optionsCount = 0
-        let options = []
+            const getLoraOptions = (page) => {
+                const start = page * itemsPerPage;
+                const end = start + itemsPerPage;
+                return availableLoras.slice(start, end).map(lora => ({
+                    label: lora.name,
+                    value: lora.name,
+                    description: lora.description || 'No description available',
+                    emoji: null
+                }));
+            };
 
-        for (const category in categories) {
-            const categoryOptions = categories[category]
-            let dropdownIndex = 1 // start from 1 for first dropdown
-            for (let i = 0; i < categoryOptions.length; i++) {
-                options.push(categoryOptions[i])
-                optionsCount++
-                if (optionsCount === 25 || (i === categoryOptions.length - 1 && optionsCount > 0)) {
-                    const dropdownLabel = dropdownIndex === 1 ? `${category} models` : `${category} models ${dropdownIndex}`;
-                    let menu = {
+            const updateDialog = async (page) => {
+                const options = getLoraOptions(page);
+                let dialog = {
+                    content: `:lora: **Select a Lora for ${currentModelBase}**\n` +
+                             `There are ${availableLoras.length} loras available.\n` +
+                             `Page ${page + 1} of ${totalPages}`,
+                    flags: 64,
+                    components: [{
                         type: 1,
                         components: [{
                             type: 3,
-                            custom_id: `chooseModel-${msgid}-${category}-${dropdownIndex}`,
-                            placeholder: dropdownLabel,
+                            custom_id: 'applyLora-' + msgid,
+                            placeholder: 'Choose a lora',
                             min_values: 1,
                             max_values: 1,
                             options: options
                         }]
-                    };
-                    components.push(menu);
-                    options = []
-                    optionsCount = 0
-                    dropdownCount++
-                    dropdownIndex++
+                    }]
+                };
+
+                // Add pagination buttons
+                const paginationComponents = [];
+                if (page > 0) {
+                    paginationComponents.push({
+                        type: 2,
+                        style: 1,
+                        label: 'Previous',
+                        custom_id: `previousLora-${msgid}-${page - 1}`,
+                        disabled: false
+                    });
                 }
+                if (page < totalPages - 1) {
+                    paginationComponents.push({
+                        type: 2,
+                        style: 1,
+                        label: 'Next',
+                        custom_id: `nextLora-${msgid}-${page + 1}`,
+                        disabled: false
+                    });
+                }
+                if (paginationComponents.length > 0) {
+                    dialog.components.push({
+                        type: 1,
+                        components: paginationComponents
+                    });
+                }
+
+                await interaction.editParent(dialog); // Update the existing message
+            };
+
+            // Acknowledge the interaction only once
+            if (!interaction.acknowledged) {
+                await interaction.acknowledge(); // Acknowledge the interaction
             }
-        }
-        let dialog = {
-            content: ':floppy_disk: **Model Menu**\nUse this menu to change the model/checkpoint being used, to give your image a specific style',
-            flags: 64,
-            components: components.slice(0, 5) // Limit to 5 dropdown menus per message
-        }
-        try {
-            interaction.editParent(dialog)
-        } catch (err) {
-            log(err)
-            return { error: err }
-        }
+
+            await updateDialog(currentPage); // Show the first page
+
+            // Handle pagination button interactions
+            bot.on('interactionCreate', async (interaction) => {
+                if (interaction.data.custom_id?.startsWith('previousLora-') || interaction.data.custom_id?.startsWith('nextLora-')) {
+                    const page = parseInt(interaction.data.custom_id.split('-')[2]);
+                    await updateDialog(page);
+                    return; // Prevent further processing
+                }
+                if (interaction.data.custom_id?.startsWith('applyLora-')) {
+                    return; // Prevent further processing
+                }
+            });
         }
     },
+    {
+        name: 'applyLora',
+        description: 'Apply the selected lora to the current render',
+        permissionLevel: 'all',
+        aliases: ['applyLora'],
+        command: async (interaction, creator) => {
+            let selectedLora = interaction.data.values[0]; // Get the selected Lora name
+            let msgid = interaction.data.custom_id.split('-')[1]; // Get the message ID
+            let sourcemsg = await bot.getMessage(interaction.channel.id, msgid); // Get the original message
+            let meta = await messageCommands.extractMetadataFromMessage(sourcemsg); // Extract metadata
+
+            // Extract the current prompt
+            let currentPrompt = meta.invoke?.prompt || '';
+
+            // Append the Lora to the prompt
+            let updatedPrompt = `withLora(${selectedLora},0.9) ${selectedLora.replace(/_/g, " ")} ${currentPrompt}`;
+
+            // Update the metadata with the new prompt
+            meta.invoke.prompt = updatedPrompt;
+
+            // Acknowledge the interaction immediately
+            await interaction.acknowledge();
+
+            // Create a tracking message
+            let trackingmsg = await bot.createMessage(interaction.channel.id, {
+                content: `:saluting_face: Applying Lora: ${selectedLora}...`,
+            });
+
+            // Re-invoke the job with the updated metadata
+            let img = null;
+            if (meta.invoke?.inputImageUrl) {
+                img = await urlToBuffer(meta.invoke.inputImageUrl);
+            }
+            let job = await invoke.jobFromMeta(meta, img, { type: 'discord', msg: trackingmsg });
+            job.creator = await getCreatorInfoFromInteraction(interaction);
+            job = await auth.userAllowedJob(job);
+            let result = await invoke.cast(job);
+
+            // Handle the result and return the message result
+            if (result.error) {
+                return messageCommands.returnMessageResult(sourcemsg, { error: `Error applying Lora: ${result.error}` }, creator);
+            }
+
+            // Send the resulting image back to Discord
+            if (result.images && result.images.length > 0) {
+                let buf = result.images[0]?.buffer;
+                return messageCommands.returnMessageResult(sourcemsg,result,creator)
+            } else {
+                return messageCommands.returnMessageResult(sourcemsg, { content: `Applied Lora: ${selectedLora}, but no image was generated.`, flags: 64 }, creator);
+            }
+        }
+    },
+    {
+        name: 'chooseModel',
+        description: 'Select a model from a dialog and apply it to an image',
+        permissionLevel: 'all',
+        aliases: ['chooseModel'],
+        command: async (interaction,creator) => {
+            // todo make a general purpose function that pages data as needed = 5 dropdowns per page / 25 options per dropdown 
+            let msgid = interaction.data.custom_id.split('-')[1]
+            let models = await invoke.allUniqueModelsAvailable()
+            if (interaction.data.values) {
+                if (!interaction.acknowledged) {
+                    await interaction?.acknowledge()
+                }
+                let newmodelname = interaction.data.values[0]
+                debugLog('Changing model to ' + newmodelname)
+                let trackingmsg = await bot.createMessage(interaction.channel.id, { content: ':saluting_face: Changing model to ' + newmodelname+' '+timestamp(), embeds: [], components: [] })
+                let channelid = interaction.channel.id
+                let sourcemsg = await bot.getMessage(channelid, msgid)
+                let meta = await messageCommands.extractMetadataFromMessage(sourcemsg)
+                let newmodel = models.find(m => m.name === newmodelname) // undefined ?
+                if (meta.invoke?.model?.base !== newmodel?.base) { // changing base model class (sd1 to sdxl etc)
+                    let ar = await aspectRatio.resToRatio(meta.invoke?.width, meta.invoke?.height)
+                    let newpixels = 0
+                    if(newmodel.base==='sdxl'){ // 1 megapixel sdxl
+                        newpixels = 1048576
+                    } else if (newmodel.base==='flux'){ // 2 megapixel flux
+                        newpixels = 1920000
+                    } else { // sd1/sd2
+                        newpixels = 262144
+                    }
+                    //let newpixels = newmodel?.base === 'sdxl' ? 1048576 : 262144 // 1024x1024 for sdxl, 512x512 for sd1/2
+                    let newres = await aspectRatio.ratioToRes(ar, newpixels)
+                    if (meta.invoke && newmodel) {
+                        meta.invoke.width = newres?.width
+                        meta.invoke.height = newres?.height
+                    }
+                    // unset ipamodel when switching base class, leave control set to ipa so it autodetects new default ipa for base class
+                    if(meta.invoke.control==='ipa'&&meta.invoke.ipamodel){delete meta.invoke.ipamodel;delete meta.invoke.control}
+                }
+                if (meta.invoke) {
+                    meta.invoke.model = newmodelname
+                }
+                let img = null
+                if (meta.invoke?.inputImageUrl) {
+                    img = await urlToBuffer(meta.invoke.inputImageUrl)
+                }
+                //let result = await invoke.jobFromMeta(meta, img, { type: 'discord', msg: trackingmsg })
+                let job = await invoke.jobFromMeta(meta, img, { type: 'discord', msg: trackingmsg })
+                job.creator = await getCreatorInfoFromInteraction(interaction)
+                job = await auth.userAllowedJob(job)
+                let result = await invoke.cast(job)
+                if (meta.invoke?.inputImageUrl && !result.error && result.images?.length > 0) {
+                    result.images[0].buffer = await exif.modify(result.images[0].buffer, 'arty', 'inputImageUrl', meta.invoke.inputImageUrl)
+                }
+                let newmsg = sourcemsg
+                newmsg.member = interaction.member
+                return messageCommands.returnMessageResult(newmsg, result,creator)
+            }
+            let categories = {
+                'sd-1': [],
+                'sd-2': [],
+                'sdxl': [],
+                'flux': []
+            }
+            for (const i in models) {
+                let m = models[i]
+                if (m.type === 'main') {
+                    switch (m.base) {
+                        case 'sd-1': {
+                            categories['sd-1'].push({
+                                label: m.name?.substring(0, 50),
+                                value: m.name,
+                                description: m.description?.substring(0, 50),
+                                emoji: null
+                            })
+                            break
+                        }
+                        case 'sd-2': {
+                            categories['sd-2'].push({
+                                label: m.name?.substring(0, 50),
+                                value: m.name,
+                                description: m.description?.substring(0, 50),
+                                emoji: null
+                            })
+                            break
+                        }
+                        case 'sdxl': {
+                            categories['sdxl'].push({
+                                label: m.name?.substring(0, 50),
+                                value: m.name,
+                                description: m.description?.substring(0, 50),
+                                emoji: null
+                            })
+                            break
+                        }
+                        case 'flux': {
+                            categories['flux'].push({
+                                label: m.name?.substring(0, 50),
+                                value: m.name,
+                                description: m.description?.substring(0, 50),
+                                emoji: null
+                            })
+                            break
+                        }
+                    }
+                }
+            }
+
+            let components = []
+            let dropdownCount = 0
+            let optionsCount = 0
+            let options = []
+
+            for (const category in categories) {
+                const categoryOptions = categories[category]
+                let dropdownIndex = 1 // start from 1 for first dropdown
+                for (let i = 0; i < categoryOptions.length; i++) {
+                    options.push(categoryOptions[i])
+                    optionsCount++
+                    if (optionsCount === 25 || (i === categoryOptions.length - 1 && optionsCount > 0)) {
+                        const dropdownLabel = dropdownIndex === 1 ? `${category} models` : `${category} models ${dropdownIndex}`;
+                        let menu = {
+                            type: 1,
+                            components: [{
+                                type: 3,
+                                custom_id: `chooseModel-${msgid}-${category}-${dropdownIndex}`,
+                                placeholder: dropdownLabel,
+                                min_values: 1,
+                                max_values: 1,
+                                options: options
+                            }]
+                        };
+                        components.push(menu);
+                        options = []
+                        optionsCount = 0
+                        dropdownCount++
+                        dropdownIndex++
+                    }
+                }
+            }
+            let dialog = {
+                content: ':floppy_disk: **Model Menu**\nUse this menu to change the model/checkpoint being used, to give your image a specific style',
+                flags: 64,
+                components: components.slice(0, 5) // Limit to 5 dropdown menus per message
+            }
+            try {
+                interaction.editParent(dialog)
+            } catch (err) {
+                log(err)
+                return { error: err }
+            }
+            }
+        },
     {
         name: 'chooseControl',
         description: 'Add, remove and configure control adapters',
@@ -817,65 +965,71 @@ getCreatorInfoFromInteraction = async(interaction)=>{
     return {discordid:discordid,username:username,channelid:channelid,guildid:guildid}
 }
 
-parseCommand = async(interaction)=>{
-    let creator = await getCreatorInfoFromInteraction(interaction)
-    if(!auth.check(creator.discordid,creator.guildid,creator.channelid)){return}
-    let command = interaction.data.custom_id.split('-')[0]
-    if(prefixes.includes(command)){
-        commands.forEach(c=>{
-            c.aliases.forEach(async a=>{
-                if(command===a){
-                    try{
+parseCommand = async(interaction) => {
+    // Check if the interaction is a pagination request
+    if (interaction.data.custom_id.startsWith('previousLora-') || interaction.data.custom_id.startsWith('nextLora-')) {
+        return; // Skip command parsing for pagination requests
+    }
+
+    let creator = await getCreatorInfoFromInteraction(interaction);
+    if (!auth.check(creator.discordid, creator.guildid, creator.channelid)) { return; }
+    let command = interaction.data.custom_id.split('-')[0];
+    if (prefixes.includes(command)) {
+        commands.forEach(c => {
+            c.aliases.forEach(async a => {
+                if (command === a) {
+                    try {
                         // todo multi-tier permissions system
-                        switch(c.permissionLevel){
-                            case 'all':{break} // k fine
-                            case 'admin':{
-                                if(parseInt(creator.discordid)!==config.adminID){
-                                    log('Denied admin command for '+creator.username)
-                                    return
+                        switch (c.permissionLevel) {
+                            case 'all': { break; } // k fine
+                            case 'admin': {
+                                if (parseInt(creator.discordid) !== config.adminID) {
+                                    log('Denied admin command for ' + creator.username);
+                                    return;
                                 }
-                                break
+                                break;
                             }
-                            case 'creator':{
+                            case 'creator': {
                                 // todo need creator discord id
-                                break
+                                break;
                             }
                         }
-                        log(c.name+' triggered by '+creator.username+' in '+creator.channelid+' ('+creator.guildid||'DM'+')')
-                        let result
-                        try{result = await c.command(interaction,creator)
-                        } catch(err){log(err)}
-                        let messages = result?.messages
-                        let files = result?.files
-                        let error = result?.error
-                        if(error){
-                            log('Error: '.bgRed+' '+error)
-                            interaction.createMessage({title:':warning: Error',content:error})
-                            return
+                        log(c.name + ' triggered by ' + creator.username + ' in ' + creator.channelid + ' (' + creator.guildid || 'DM' + ')');
+                        let result;
+                        try {
+                            result = await c.command(interaction, creator);
+                        } catch (err) { log(err); }
+                        let messages = result?.messages;
+                        let files = result?.files;
+                        let error = result?.error;
+                        if (error) {
+                            log('Error: '.bgRed + ' ' + error);
+                            interaction.createMessage({ title: ':warning: Error', content: error });
+                            return;
                         }
-                        if(!Array.isArray(messages)){messages=[messages]}
-                        if(!Array.isArray(files)){files=[files]}
-                        // unpack messages array and send each msg seperately
+                        if (!Array.isArray(messages)) { messages = [messages]; }
+                        if (!Array.isArray(files)) { files = [files]; }
+                        // unpack messages array and send each msg separately
                         // if we have a file for each message, pair them up
                         // if we have multi messages and 1 file, attach to first message only
-                        // todo If there are more files then there are messages attempt to bundle all files on first message
-                        messages.forEach(message=>{
-                            if(files.length>0)file=files.shift() // grab the top file
-                            if(message&&file){
-                                chat(creator.channelid,message,file) // Send message with attachment
-                            }else if(message){
-                                chat(creator.channelid,message) // Send message, no attachment
+                        // todo If there are more files than there are messages attempt to bundle all files on first message
+                        messages.forEach(message => {
+                            if (files.length > 0) file = files.shift(); // grab the top file
+                            if (message && file) {
+                                chat(creator.channelid, message, file); // Send message with attachment
+                            } else if (message) {
+                                chat(creator.channelid, message); // Send message, no attachment
                             }
-                        })
-                    }catch(e){log('error in componentCommands\\parseCmd');log(e)}
+                        });
+                    } catch (e) { log('error in componentCommands\\parseCmd'); log(e); }
                 }
-            })
-        })
+            });
+        });
     } else {
-        return interaction.createMessage({content:'Command does not exist', flags:64}).catch((e) => {
-            log('command does not exist'.bgRed)
-            log(e)
-        })
+        return interaction.createMessage({ content: 'Command does not exist', flags: 64 }).catch((e) => {
+            log('command does not exist'.bgRed);
+            log(e);
+        });
     }
 }
 
@@ -886,3 +1040,4 @@ module.exports = {
         parseCommand
     }
 }
+

@@ -211,38 +211,6 @@ let commands = [
         }
     },
     {
-        name:'superprompt',
-        description:'Improve prompts with superprompt t5 prompt model',
-        permissionLevel:'all',
-        aliases:['t5','p','superprompt'],
-        prefix:'!',
-        command: async(args,msg,creator)=>{
-            // Requires custom node v1.4 https://github.com/gogurtenjoyer/nightmare-promptgen
-            // Do NOT allow repo_id to be directly set by user or you deserve what happens next
-            // Superprompt t5 model: roborovski/superprompt-v1  
-            let options = parseArgs(args,{})
-            let prompt = options._.join(' ')
-            let parsedOptions = {
-                prompt:'Expand the following prompt to add more detail: '+prompt,
-                temp:options.temp??1,
-                top_k:options.top_k??40,
-                top_p:options.top_p??0.9,
-                repo_id:'roborovski/superprompt-v1',
-                instruct_mode:true,
-                max_new_tokens:300,
-                max_time:10,
-                repetition_penaly:1,
-                typical_p:1,
-                use_cache:false
-            }
-            let trackingmsg = await bot.createMessage(creator.channelid,{content:':saluting_face: Improving prompt '+timestamp()})
-            let response = await invoke.nightmarePromptGen(null,parsedOptions,{type:'discord',msg:trackingmsg})
-            let newMsg = {content:':brain: **Generated prompt:**',embeds:[],messageReference:{message_id:msg.id}}
-            for (let answer in response){newMsg.embeds.push({description:response[answer].prompt,color:getRandomColorDec()})}
-            return {messages:[newMsg],files:[]}
-        }
-    },
-    {
         name: 'depth',
         description: 'Return a depth map of an input image',
         permissionLevel: 'all',
@@ -1436,71 +1404,57 @@ let commands = [
 let prefixes=[]
 commands.forEach(c=>{c.aliases.forEach(a=>{prefixes.push(c.prefix+a)})})
 
-parseMsg=async(msg,selfid=null)=>{
-    // normalise values between responses in channel and DM
-    let creator = getCreatorInfoFromMsg(msg)
-    if(!auth.check(creator.discordid,creator.guildid,creator.channelid)){return} // if not authorised, ignore
-    if(msg.length===0||msg.content.length===0){return} // if empty message (or just an image) ignore
-    let firstword = msg.content.split(' ')[0].toLowerCase()
-    if(selfid&&(firstword==='<@'+selfid+'>')){ // todo parse @mention as first word as a command
-        debugLog('@mentioned by '+creator.username+' , replace with !dream')
-        firstword='!dream'
+parseMsg = async (msg, selfid = null) => {
+    let creator = getCreatorInfoFromMsg(msg);
+    if (!auth.check(creator.discordid, creator.guildid, creator.channelid)) return; // If not authorized, ignore
+    if (!msg.content || msg.content.length === 0) return; // If empty message ignore
+
+    let firstword = msg.content.split(' ')[0].toLowerCase();
+    if (selfid && (firstword === `<@${selfid}>`)) {
+        debugLog(`@mentioned by ${creator.username}, replace with !dream`);
+        firstword = '!dream';
     }
-    if(prefixes.includes(firstword)){
-        commands.forEach(c=>{
-            c.aliases.forEach(async a=>{
-                if(firstword===c.prefix+a){
-                    let args=msg.content.split(' ')
-                    args.shift() // only pass on the message without the prefix and command
-                    // check permissionLevel
-                    switch(c.permissionLevel){
-                        case 'all':{break} // k fine
-                        case 'admin':{
-                            if(creator.discordid.toString()!==config.adminID.toString()){
-                                log('Denied admin command for '+username)
-                                return
-                            }
-                            break
-                        }
+
+    if (prefixes.includes(firstword)) {
+        for (const c of commands) {
+            for (const a of c.aliases) {
+                if (firstword === c.prefix + a) {
+                    let args = msg.content.split(' ');
+                    args.shift(); // Remove prefix and command
+
+                    // Check permissionLevel
+                    if (c.permissionLevel === 'admin' && creator.discordid.toString() !== config.adminID.toString()) {
+                        log(`Denied admin command for ${creator.username}`);
+                        return;
                     }
-                    log(c.name+' triggered by '+creator.username+' in '+msg.channel.name??creator.channelid+' ('+creator.guildid+')')
-                    try{
-                        let result = await c.command(args,msg,creator)
-                        let messages = result?.messages
-                        let files = result?.files
-                        let error = result?.error
-                        if(error){
-                            log('Error: '.bgRed+' '+error)
-                            debugLog(error.toString())
-                            chat(creator.channelid,{content:'<@'+creator.discordid+'>', embeds:[{title:':warning: Error',description:error.toString(),color:getRandomColorDec()}]})
-                            if(result?.tracking?.msg){result.tracking.msg.delete()} // delete tracking message for failed job
-                            return
+
+                    log(`${c.name} triggered by ${creator.username} in ${msg.channel.name ?? creator.channelid} (${creator.guildid})`);
+                    try {
+                        let result = await c.command(args, msg, creator);
+                        let { messages = [], files = [], error } = result || {};
+
+                        if (error) {
+                            log(`Error: ${error}`);
+                            debugLog(error.toString());
+                            chat(creator.channelid, { content: `<@${creator.discordid}>`, embeds: [{ title: ':warning: Error', description: error.toString(), color: getRandomColorDec() }] });
+                            if (result?.tracking?.msg) { result.tracking.msg.delete(); }
+                            return;
                         }
-                        if(!Array.isArray(messages)){messages=[messages]}
-                        if(!Array.isArray(files)){files=[files]}
-                        // unpack messages array and send each msg seperately
-                        // if we have a file for each message, pair them up
-                        // if we have multi messages and 1 file, attach to first message only
-                        // if there are more files then there are messages attempt to bundle all files on first message
-                        messages.forEach((message,index)=>{
-                            let file
-                            if(index===0&&files.length>messages.length){
-                                file=files
-                            } else if(files.length>0) {
-                                file=files.shift()// grab the top file
+
+                        // Send messages and files
+                        for (let index = 0; index < messages.length; index++) {
+                            let message = messages[index];
+                            let file = (index === 0 && files.length > messages.length) ? files : files.shift();
+                            if (message) {
+                                chat(creator.channelid, message, file); // Send message with attachment
                             }
-                            if(message&&file){
-                                chat(creator.channelid,message,file) // Send message with attachment
-                            }else if(message){
-                                chat(creator.channelid,message) // Send message, no attachment
-                            }
-                        })
+                        }
                     } catch (err) {
-                        log(err)
+                        log(err);
                     }
                 }
-            })
-        })
+            }
+        }
     }
 }
 
@@ -1836,6 +1790,25 @@ imageResultMessage = async(userid,img,result,meta,cid)=>{
             cnwo.push({value:(o/100).toFixed(2),description:od,label:o+'%'})
         }
         newmsg.components.push({type:1,components:[{type: 3,custom_id:'edit-x-controlend',placeholder:'Controlnet end at '+(parseFloat(meta.invoke.controlend)*100).toFixed(0)+'%',min_values:1,max_values:1,options:cnwo}]})
+    }
+    if(meta.invoke?.inputImageUrl&&meta.invoke?.control&&meta.invoke?.controlstart&&meta.invoke?.control==='i2l'){
+        let cnwo = []
+        for (const i in cnwos){
+            let o = cnwos[i]
+            let od = (parseFloat(meta.invoke.controlstart).toFixed(2)===(o/100).toFixed(2)) ? 'Selected' : null
+            cnwo.push({value:(o/100).toFixed(2),description:od,label:o+'%'})
+        }
+        newmsg.components.push({type:1,components:[{type: 3,custom_id:'edit-x-controlstart',placeholder:'Denoise start at '+(parseFloat(meta.invoke.controlstart)*100).toFixed(0)+'%',min_values:1,max_values:1,options:cnwo}]})
+    }
+    // same for controlend
+    if(meta.invoke?.inputImageUrl&&meta.invoke?.control&&meta.invoke?.controlend&&meta.invoke?.control==='i2l'){
+        let cnwo = []
+        for (const i in cnwos){
+            let o = cnwos[i]
+            let od = (parseFloat(meta.invoke.controlend).toFixed(2)===(o/100).toFixed(2)) ? 'Selected' : null
+            cnwo.push({value:(o/100).toFixed(2),description:od,label:o+'%'})
+        }
+        newmsg.components.push({type:1,components:[{type: 3,custom_id:'edit-x-controlend',placeholder:'Denoise end at '+(parseFloat(meta.invoke.controlend)*100).toFixed(0)+'%',min_values:1,max_values:1,options:cnwo}]})
     }
     // get all available controlnet modes and ipa types for base model
     if(meta.invoke?.inputImageUrl&&meta.invoke?.control){
