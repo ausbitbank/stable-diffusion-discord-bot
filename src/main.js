@@ -26,13 +26,21 @@ process.on('unhandledRejection', (reason, promise) => {log(`Unhandled Rejection 
 process.on('uncaughtException', (err) => {log('Uncaught exception:');log(err)})
 global.handleSynchronousException = err => {log('Unhandled synchronous exception:');log(err)}
 
-init=async()=>{
-  await ipfs.init() // initialize ipfs node
-  discord.botInit() // Start discord listeners
-  if(config.web.enabled){ // initialize admin web interface if enabled
-    const {web}=require('./web/web')
-    web.init()
-  }
+init = async () => {
+    log('Initializing IPFS node...') // Log before initializing IPFS
+    await ipfs.init() // initialize ipfs node
+    log('IPFS node initialized.') // Log after IPFS initialization
+
+    log('Starting Discord listeners...') // Log before starting Discord
+    await discord.botInit() // Start discord listeners
+    log('Discord listeners started.') // Log after Discord initialization
+
+    if (config.web.enabled) { // initialize admin web interface if enabled
+        log('Initializing admin web interface...') // Log before web interface initialization
+        const { web } = require('./web/web')
+        await web.init() // Ensure this is asynchronous if it has async operations
+        log('Admin web interface initialized.') // Log after web interface initialization
+    }
 }
 
 init()
