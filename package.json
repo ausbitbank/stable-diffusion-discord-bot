@@ -62,7 +62,7 @@
     "sequelize": "^6.37.4",
     "sharp": "^0.32.6",
     "socket.io-client": "^4.7.5",
-    "stripe": "^15.6.0",
+    "stripe": "^17.2.1",
     "sqlite3": "^5.1.7",
     "ws": "^8.17.1"
   }
