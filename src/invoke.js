@@ -149,6 +149,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
     }
     let data = []
     let lastid={unet:null,clip:null,vae:null,latents:null,noise:null,image:null,width:null,height:null,controlnet:null,mask:null,denoise_mask:null,width:null,height:null,metadata:null,merge_metadata:null,core_metadata:null,metadata_item:null,ip_adapter:null,t2i_adapter:null,collect:null,string:null,transformer:null}
+    const closestMultipleOf16 = num => Math.round(num / 16) * 16
     let pipe = (fromnode,fromfield,tonode,tofield)=>{
         //debugLog('pipe from '+fromnode+' field '+fromfield+' to '+tonode+' field '+tofield)
         return {source:{node_id:fromnode,field:fromfield},destination:{node_id:tonode,field:tofield}}
@@ -171,7 +172,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         if(['t2l','ttl','lscale','l2l','i2l','denoise_latents','lresize','flux_denoise'].includes(type)){lastid.latents=newid}
         if(['noise'].includes(type)){lastid.noise=newid}
         if(['controlnet'].includes(type)){lastid.control=newid}
-        if(['openpose_image_processor','l2i','face_mask_detection'].includes(type)){lastid.image=newid}
+        if(['openpose_image_processor','l2i','face_mask_detection','img_resize'].includes(type)){lastid.image=newid}
         if(['face_mask_detection'].includes(type)){lastid.mask=newid,lastid.width=newid;lastid.height=newid}
         if(['create_denoise_mask'].includes(type)){lastid.denoise_mask=newid}
         if(['core_metadata'].includes(type)){lastid.core_metadata=newid}
@@ -185,6 +186,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         if(['flux_text_encoder'].includes(type)){lastid.conditioning=newid}
         if(['flux_lora_loader','flux_model_loader'].includes(type)){lastid.transformer=newid}
         if(['flux_vae_encode'].includes(type)){lastid.height=newid;lastid.width=newid;lastid.latents=newid}
+        if(['img_resize'].includes(type)){lastid.height=newid;lastid.width=newid}
         edges?.forEach(e=>{
             if(!validUUID(e.destination.node_id)){ // not already plumbed with a valid UUID
                 if(e.destination.node_id==='SELF'){ e.destination.node_id=newid
@@ -340,7 +342,11 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         if(job.initimgObject){ // broken, cos of dimensions (i assume?, test moar)
             // todo Add selector for flux controlnets
             // if we want to import an image use flux_vae_encode , recommend flux-fusion 8 steps start denoise 0.125 end 1
-            node('flux_vae_encode',{image:{image_name:job.initimgObject.image_name}},[pipe(lastid.vae,'vae','SELF','vae')])
+            //
+            debugLog('Adding nodes for flux input image')
+            node('img_resize',{image:{image_name:job.initimgObject.image_name},width:closestMultipleOf16(job.width),height:closestMultipleOf16(job.height),resample_mode:'bicubic',use_cache:true,is_intermediate:true})
+            node('flux_vae_encode',{},[pipe(lastid.image,'image','SELF','image'),pipe(lastid.vae,'vae','SELF','vae')])
+            //node('flux_vae_encode',{image:{image_name:job.initimgObject.image_name}},[pipe(lastid.vae,'vae','SELF','vae')])
             // todo need to copy width and height output to flux denoise or this will fail
         }
         // lora chain
@@ -359,20 +365,17 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
             num_steps:job.steps,
             guidance:job.scale,
             use_cache:true,
-            is_intermediate:true
+            is_intermediate:true,
+            width:closestMultipleOf16(job.width),
+            height:closestMultipleOf16(job.height)
         }
-        if(lastid.width&&lastid.height&&lastid.latents){
-            debugLog('Adding flux input image\n')
-            debugLog(job.initimgObject)
-            //fluxdenoisepipes.push(pipe(lastid.width,'width','SELF','width'))
-            //fluxdenoisepipes.push(pipe(lastid.height,'height','SELF','height'))
-            fluxdenoiseoptions.width = job.width
-            fluxdenoiseoptions.height = job.height
+        if(lastid.latents){
+            debugLog('Adding flux input image')
+            //fluxdenoiseoptions.width = closestMultipleOf16(job.width)
+            //fluxdenoiseoptions.height = closestMultipleOf16(job.height)
             fluxdenoisepipes.push(pipe(lastid.latents,'latents','SELF','latents'))
-        }// else {
-        //    fluxdenoiseoptions.width = job.width
-        //    fluxdenoiseoptions.height = job.height
-        //}
+        }
+        debugLog('flux res '+fluxdenoiseoptions.width+' x '+fluxdenoiseoptions.height)
         node('flux_denoise',fluxdenoiseoptions,fluxdenoisepipes)
         node('flux_vae_decode',{is_intermediate:false,use_cache:true},[pipe(lastid.vae,'vae','SELF','vae'),pipe(lastid.latents,'latents','SELF','latents'),pipe(lastid.merge_metadata,'metadata','SELF','metadata')])
         let dataitems = [job.seed]
@@ -1198,16 +1201,29 @@ const validateJob = async(job)=>{
         // todo support multiple controlnet modes and images
         if(job.initimg||job.images?.length>0){
             // if no controlmode is set, set one from config default, same for controlresize and controlmode
-            if(!job.control){job.control=config.default.controlmode||'i2l'}
+            if(!job.control){
+                if(job.model.base==='flux'){ // hardcode flux to revert to i2l for now
+                    job.control='i2l'
+                    if(!job.controlstart){job.controlstart=0.125}
+                    if(!job.controlend){job.controlend=1}
+                } else {
+                    job.control=config.default.controlmode||'i2l'
+                }
+            }
             if(job.control!=='i2l'){
                 if(!job.controlresize||['just_resize','crop_resize','fill_resize'].includes(job.controlresize)===false){job.controlresize='just_resize'}//else{job.controlresize='just_resize'}
                 if(!job.controlmode||['balanced','more_prompt','more_control','unbalanced'].includes(job.controlmode)===false){job.controlmode='balanced'}
                 if(!job.controlweight){job.controlweight=1}
-                if(!job.controlstart){job.controlstart=0}
+                if(!job.controlstart){job.controlstart=0.15}
                 if(!job.controlend){job.controlend=1}
             }
             if(job.control==='ipa'){
-                if(!job.ipamodel){job.ipamodel=(job.model.base==='sdxl')?'ip_adapter_sdxl':'ip_adapter_sd15'}
+                if(!job.ipamodel){
+                    if(job.model.base==='sdxl'){job.ipamodel='ip_adapter_sdxl'}
+                    if(job.model.base==='sd1'){job.ipamodel='ip_adapter_sd15'}
+                    if(job.model.base==='flux'){job.ipamodel='ip_adapter_flux'} // does not exist, will not work, placeholder
+                    //job.ipamodel=(job.model.base==='sdxl')?'ip_adapter_sdxl':'ip_adapter_sd15'
+                }
                 if(!job.ipamethod){job.ipamethod='full'}
             }
         }
