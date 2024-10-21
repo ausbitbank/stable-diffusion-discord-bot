@@ -34,7 +34,7 @@
     "crypto": "^1.0.1",
     "csurf": "^1.11.0",
     "datastore-fs": "^9.1.8",
-    "debounce": "^2.0.0",
+    "debounce": "^2.2.0",
     "duck-duck-scrape": "^2.2.5",
     "duckduckgo-images-api": "^1.0.5",
     "ejs": "^3.1.10",
