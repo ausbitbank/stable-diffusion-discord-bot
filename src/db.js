@@ -215,6 +215,19 @@ const Job = db.define('Job',{
     }
 })
 
+// Cached civitai model ids
+const CivitaiModel = db.define('civitaimodels', {
+    hash: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true // Ensure uniqueness for hash
+    },
+    modelId: {
+        type: DataTypes.STRING,
+        allowNull: false
+    }
+});
+
 // Define associations
 Moderation.belongsTo(User, {
     foreignKey: 'user',
@@ -284,5 +297,6 @@ module.exports = {
     Pin,
     Moderation,
     Op,
-    Sequelize
+    Sequelize,
+    CivitaiModel
 }
