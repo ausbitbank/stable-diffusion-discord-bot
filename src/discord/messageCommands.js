@@ -1706,7 +1706,11 @@ imageResultMessage = async(userid,img,result,meta,cid)=>{
     if(meta.invoke?.scale){t+=' :scales: '+meta.invoke.scale}
     if(meta.invoke?.model){
         let modellink = await civitai.hashToUrl(meta.invoke.model.hash)
-        t+=' :floppy_disk: ['+meta.invoke.model?.name+']('+modellink+')'
+        if(modellink){
+            t+=' :floppy_disk: ['+meta.invoke.model?.name+']('+modellink+')'
+        } else {
+            t+=' :floppy_disk: '+meta.invoke.model?.name
+        }
     }
     if(meta.invoke?.clipskip){t+=' :clipboard: '+meta.invoke.clipskip}
     if(meta.invoke?.strength){t+=' :muscle: '+meta.invoke.strength}
@@ -1715,7 +1719,11 @@ imageResultMessage = async(userid,img,result,meta,cid)=>{
         t+=' :pill: '
         for (const l in meta.invoke?.loras){
             let loralink = await civitai.hashToUrl(meta.invoke.loras[l].model.hash)
-            t+='['+meta.invoke.loras[l].model.name+']('+loralink+')('+meta.invoke.loras[l].weight+') '
+            if(loralink){
+                t+='['+meta.invoke.loras[l].model.name+']('+loralink+')('+meta.invoke.loras[l].weight+') '
+            } else {
+                t+=meta.invoke.loras[l].model.name+' ('+meta.invoke.loras[l].weight+') '
+            }
         }
     }
     if(meta.invoke?.inputImageUrl){t+=' :paperclip: [img]('+meta.invoke.inputImageUrl+')'}
