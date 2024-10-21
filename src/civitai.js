@@ -3,8 +3,13 @@ const axios = require('./utils').axios; // Import axios
 
 async function fetchModelData(hash) {
     const strippedhash = hash.replace('blake3:', ''); // Remove the prefix
-    const apiresponse = await axios.get(`https://civitai.com/api/v1/model-versions/by-hash/${strippedhash}`);
-    return apiresponse.data; // Return the data from the API response
+    try {
+        const apiresponse = await axios.get(`https://civitai.com/api/v1/model-versions/by-hash/${strippedhash}`);
+        return apiresponse?.data; // Return the data from the API response
+    } catch (error) {
+        //console.error(`Error fetching model data for hash ${hash}:`, error);
+        return null; // Return null if there's an error
+    }
 }
 
 async function hashToModelId(hash) {
@@ -16,7 +21,12 @@ async function hashToModelId(hash) {
     }
     // If not found in cache, fetch from API
     let data = await fetchModelData(strippedhash);
-    let modelId = data.modelId;
+    if (!data) {
+        console.warn(`Model data not found for hash ${strippedhash}`);
+        await CivitaiModel.create({ hash: strippedhash, modelId: null }); // Save null result to db to stop future lookups
+        return null; // Return null if model data is not found
+    }
+    let modelId = data?.modelId;
     // Cache the result in the database
     await CivitaiModel.create({ hash: strippedhash, modelId });
     return modelId; // Return the fetched modelId
@@ -24,8 +34,11 @@ async function hashToModelId(hash) {
 
 async function hashToUrl(hash){
     let modelId = await hashToModelId(hash)
-    let url = 'https://civitai.com/models/'+modelId
-    return url
+    let url
+    if(modelId!==null){
+        url = 'https://civitai.com/models/'+modelId
+        return url
+    } else {return null}
 }
 
 module.exports = {

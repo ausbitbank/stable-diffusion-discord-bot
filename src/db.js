@@ -224,7 +224,7 @@ const CivitaiModel = db.define('civitaimodels', {
     },
     modelId: {
         type: DataTypes.STRING,
-        allowNull: false
+        allowNull: true
     }
 });
 
