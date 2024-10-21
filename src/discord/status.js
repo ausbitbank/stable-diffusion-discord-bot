@@ -24,8 +24,9 @@ get = async()=>{
         let js = invoke.jobStats()
         let msg = 'Guilds: '+bot.guilds.size
         //debugLog('rc length: '+rc.length)
+        js.total = js.pending + js.progress
         if (js.pending>0||js.progress>0){
-            msg=msg+', Jobs: '+js.progress+'/'+js.pending+', Hosts: '+hosts
+            msg=msg+', Jobs: '+js.total+', Hosts: '+hosts
             busyStatusArr=[
                 {type:0,name:' in '+msg}
             ]
