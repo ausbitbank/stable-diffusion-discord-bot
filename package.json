@@ -60,7 +60,7 @@
     "png-chunks-extract": "^1.0.0",
     "qrcode": "^1.5.3",
     "sequelize": "^6.37.4",
-    "sharp": "^0.32.6",
+    "sharp": "^0.33.5",
     "socket.io-client": "^4.7.5",
     "stripe": "^15.6.0",
     "sqlite3": "^5.1.7",
