@@ -51,7 +51,7 @@
     "express-session": "^1.18.0",
     "file-type": "^19.0.0",
     "form-data": "^4.0.0",
-    "helia": "^2.0.3",
+    "helia": "^5.1.0",
     "hive-uri": "^0.2.5",
     "jimp": "^0.22.12",
     "minimist": "^1.2.8",
