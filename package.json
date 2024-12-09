@@ -58,7 +58,7 @@
     "moment": "^2.30.1",
     "node-cron": "^3.0.3",
     "node-datachannel": "0.5.2",
-    "node-domexception": "1.0.0",
+    "node-domexception": "2.0.1",
     "openai": "^4.46.1",
     "passport": "^0.7.0",
     "passport-discord": "^0.1.4",
