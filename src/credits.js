@@ -24,21 +24,21 @@ balance=async(user)=>{
 decrement=async(user,amount=1)=>{
     let usr = await User.findOne({where:{discordID:user}})
     await usr.decrement('credits',{by:amount})
-    debugLog('Credit removed: -'+amount+' from '+user)
+    debugLog('Credit removed: -'+amount+' from '+user+' , remaining '+(usr.credits-amount))
     return true
 }
 
 increment=async(user,amount=1)=>{
     let usr = await User.findOne({where:{discordID:user}})
     await usr.increment('credits',{by:amount})
-    debugLog('Credit added: +'+amount+' to '+user)
+    debugLog('Credit added: +'+amount+' to '+user+', now has '+usr.credits+amount)
     return true
 }
 
 transfer=async(from,to,amount=1)=>{
     await increment(to,amount)
     await decrement(from,amount)
-    //debugLog('Credit transferred: +'+amount+' to '+to+' from '+from)
+    debugLog('Credit transferred: +'+amount+' to '+to+' from '+from)
     return true
 }
 

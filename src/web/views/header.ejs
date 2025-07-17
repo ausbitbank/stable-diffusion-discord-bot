@@ -10,12 +10,19 @@
         <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
         <link rel="manifest" href="/site.webmanifest" />
         <script src="/js/client.js"></script>
+        <!-- Bootstrap CSS -->
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+        <!-- Font Awesome -->
+        <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" rel="stylesheet">
+        <!-- Bootstrap JS and Popper.js -->
+        <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/umd/popper.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.min.js"></script>
     </head>
     <body>
         <div class="container">
-            <header>
+            <header class="header">
                 <h1><a href="/"><%= locals.headerText %></a></h1>
-                <nav>
+                <nav class="nav-bar">
                     <ul>
                         <li><a href="/">Home</a></li>
                         <% if (locals.user) { %>
@@ -28,8 +35,16 @@
                             </li>
                         <% } else { %>
                             <li><a href="/login">Login</a></li>
-                            <li><a href="/signup">Sign Up</a></li>
                         <% } %>
                     </ul>
                 </nav>
+                <button id="theme-toggle" aria-label="Toggle Dark/Light Mode">
+                    <span class="icon day-icon"></span>
+                </button>
             </header>
+            <footer class="footer">
+                <!-- Footer content here -->
+            </footer>
+        </div>
+    </body>
+</html>

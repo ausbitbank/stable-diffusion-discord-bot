@@ -1,9 +1,10 @@
-
 ul[role='list'], ol[role='list']{list-style: none; }
 html:focus-within{scroll-behavior: smooth; }
 a:not([class]){text-decoration-skip-ink: auto; }
 input, button, textarea, select{font: inherit; }
 body, html{
+    margin: 0;
+    padding: 0;
     height: 100%; 
     scroll-behavior: smooth; 
 }
@@ -117,10 +118,43 @@ h1,h2,h3,h4,h5,h6{text-align:center;margin-bottom:0.5em}
 /*.extraframe {}*/
 
 .header {
-  padding:20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: #1B262C;
+  padding: 10px 20px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  z-index: 1000;
 }
 
-footer {
+.nav-bar {
+  margin: 0 20px;
+}
+
+.nav-bar ul {
+  display: flex;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.nav-bar li {
+  margin-left: 20px;
+}
+
+.nav-bar a {
+  color: #BBE1FA;
+  text-decoration: none;
+}
+
+.nav-bar a:hover {
+  color: #0F4C75;
+}
+
+.footer {
   clear:both;
   bottom:0px;
   width:100%;
@@ -129,6 +163,7 @@ footer {
   padding:1rem;
   font-size:1.2em;
   border-top:1px solid #1B262C;
+  margin-top: 60px;
 }
 .footer a:hover {
   transform: scale(1.3);
@@ -426,4 +461,318 @@ option:hover {
 
 .icon-github:before {
   content: "\eab0";
+}
+
+/* Dark Mode Styles */
+body.dark-mode {
+    background-color: #121212;
+    color: #E0E0E0;
+}
+
+.container.dark-mode {
+    background-color: #1E1E1E;
+}
+
+a.dark-mode {
+    color: #BB86FC;
+}
+
+.footer.dark-mode {
+    background-color: #1E1E1E;
+}
+
+/* Light Mode Styles */
+body.light-mode {
+    background-color: #FFFFFF;
+    color: #000000;
+}
+
+.container.light-mode {
+    background-color: #F5F5F5;
+}
+
+a.light-mode {
+    color: #6200EE;
+}
+
+.footer.light-mode {
+    background-color: #F5F5F5;
+}
+
+/* Toggle Button Styles */
+#theme-toggle {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #BBE1FA;
+    font-size: 1.5rem;
+    margin-left: 20px;
+}
+
+.icon-sun:before {
+    content: "\e902";
+    font-family: 'artyicons';
+}
+
+/* Day and Night Icons */
+.icon {
+  width: 40px; /* Adjust size as needed */
+  height: 40px; /* Adjust size as needed */
+  border-radius: 50%;
+  position: relative;
+  overflow: hidden;
+}
+
+.day-icon {
+  background: #87CEEB; /* Light blue for day */
+}
+
+.day-icon::after {
+  content: '';
+  position: absolute;
+  top: 20%;
+  left: 20%;
+  width: 60%;
+  height: 60%;
+  background: #FFD700; /* Gold for sun */
+  border-radius: 50%;
+  box-shadow: 0 0 20px #FFD700;
+}
+
+.night-icon {
+  background: #191970; /* Dark blue for night */
+}
+
+.night-icon::after {
+  content: '';
+  position: absolute;
+  top: 20%;
+  left: 20%;
+  width: 60%;
+  height: 60%;
+  background: #F4F4F4; /* Light color for moon */
+  border-radius: 50%;
+  box-shadow: 0 0 20px #F4F4F4;
+}
+
+.night-icon::before {
+  content: '';
+  position: absolute;
+  top: 15%;
+  left: 30%;
+  width: 60%;
+  height: 60%;
+  background: #191970; /* Dark blue for night */
+  border-radius: 50%;
+}
+
+.message-attachments {
+    margin-top: 5px;
+}
+
+.table-responsive {
+    margin-bottom: 2rem;
+}
+
+.pagination {
+    margin-top: 2rem;
+}
+
+.message-attachments, .message-embeds {
+    border-top: 1px solid #eee;
+    padding-top: 0.5rem;
+}
+
+.attachment-item, .embed-item {
+    transition: all 0.2s ease;
+}
+
+.attachment-thumbnail, .embed-thumbnail, .embed-image {
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    transition: all 0.2s ease;
+}
+
+.attachment-thumbnail:hover, .embed-thumbnail:hover, .embed-image:hover {
+    transform: scale(1.02);
+    box-shadow: 0 3px 6px rgba(0,0,0,0.15);
+}
+
+.attachment-link {
+    text-decoration: none;
+    color: inherit;
+}
+
+.attachment-link:hover {
+    color: #0d6efd;
+}
+
+.embed-item {
+    background-color: #f8f9fa;
+    border-color: #dee2e6 !important;
+}
+
+.embed-title {
+    color: #1a1a1a;
+}
+
+.embed-description {
+    color: #666;
+    font-size: 0.9em;
+}
+
+.live-container {
+    padding: 20px;
+    background: #1a1a1a;
+    min-height: 100vh;
+}
+
+.guild-filter-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1000;
+    width: 200px;
+    background: rgba(0, 0, 0, 0.8);
+    padding: 10px;
+    border-radius: 8px;
+}
+
+.media-wall {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+    padding-top: 60px;
+}
+
+.media-item {
+    background: #2a2a2a;
+    border-radius: 8px;
+    overflow: hidden;
+    transition: transform 0.2s;
+}
+
+.media-item:hover {
+    transform: scale(1.02);
+}
+
+.media-content {
+    width: 100%;
+    aspect-ratio: 16/9;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+}
+
+.media-content img,
+.media-content video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.media-info {
+    padding: 10px;
+    color: #fff;
+    font-size: 0.9em;
+    background: rgba(0, 0, 0, 0.5);
+}
+
+.media-links a {
+    color: #fff;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+
+.media-links a:hover {
+    opacity: 1;
+}
+
+.guild-name {
+    font-weight: bold;
+    max-width: 70%;
+}
+
+.timestamp {
+    color: #aaa;
+}
+
+/* Modal styles */
+.modal-content.bg-dark {
+    background-color: rgba(0, 0, 0, 0.9) !important;
+}
+
+.modal-body img,
+.modal-body video {
+    max-height: 90vh;
+    margin: 0 auto;
+}
+
+/* Dark mode form controls */
+.dark-input {
+    background-color: #2a2a2a;
+    border-color: #3282B8;
+    color: #BBE1FA;
+}
+
+.dark-input:focus {
+    background-color: #2a2a2a;
+    border-color: #3282B8;
+    color: #BBE1FA;
+    box-shadow: 0 0 0 0.25rem rgba(50, 130, 184, 0.25);
+}
+
+.dark-select {
+    background-color: #2a2a2a;
+    border-color: #3282B8;
+    color: #BBE1FA;
+}
+
+/* Table styles */
+.table-dark {
+    background-color: #1a1a1a;
+    color: #BBE1FA;
+}
+
+.table-dark td, 
+.table-dark th {
+    border-color: #3282B8;
+}
+
+.table-dark.table-hover tbody tr:hover {
+    background-color: #2a2a2a;
+}
+
+/* Message content styling */
+.message-content {
+    max-width: 500px;
+    word-break: break-word;
+}
+
+/* Pagination dark mode */
+.pagination .page-link.bg-dark {
+    background-color: #2a2a2a !important;
+    border-color: #3282B8;
+    color: #BBE1FA;
+}
+
+.pagination .page-item.active .page-link.bg-dark {
+    background-color: #3282B8 !important;
+    border-color: #3282B8;
+}
+
+/* Auto-refresh toggle styling */
+.form-check-input {
+    background-color: #2a2a2a;
+    border-color: #3282B8;
+}
+
+.form-check-input:checked {
+    background-color: #3282B8;
+    border-color: #3282B8;
+}
+
+.form-check-label {
+    color: #BBE1FA;
 }

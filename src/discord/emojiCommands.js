@@ -65,7 +65,7 @@ var commands = [
                     (reactedmsg.mentions&&reactedmsg.mentions[0]?.id===reactor.user?.id)||
                     (reactor.user?.id===reactedmsg.member?.id)){
                         debugLog('Removing bad result from '+reactedmsg?.member?.username+' triggered by '+reactor?.user?.username??reactor?.id)
-                        reactedmsg.delete().catch(()=>{})
+                        reactedmsg.delete().catch((err)=>{debugLog(err)})
                 } else {
                     debugLog('not removing result, not triggered by creator or admin')
                     debugLog(reactedmsg.reactions)

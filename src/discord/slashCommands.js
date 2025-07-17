@@ -201,22 +201,22 @@ var slashCommands = [
       }
     }
   },
-  {
-    name:'describe',
-    description:'Describe an image',
-    cooldown:500,
-    options:[
-      {type: 11, name: 'image', description: 'image to describe', required: true},
+  //{
+   // name:'describe',
+    //description:'Describe an image',
+    //cooldown:500,
+    //options:[
+    //  {type: 11, name: 'image', description: 'image to describe', required: true},
       //{type: 3, name: 'clip', description: 'clip model to use', required: false,choices:[{name:'ViT-L-14/openai',value:'ViT-L-14/openai'},{name:'ViT-H-14/laion2b_s32b_b79k',value:'ViT-H-14/laion2b_s32b_b79k'},{name:'ViT-bigG-14/laion2b_s39b_b160k',value:'ViT-bigG-14/laion2b_s39b_b160k'}]},
       //{type: 3, name: 'caption', description: 'caption model to use', required: false,choices:[{name:'blip-base',value:'blip-base'},{name:'blip-large',value:'blip-large'},{name:'blip2-2.7b',value:'blip2-2.7b'},{name:'blip2-flan-t5-xl',value:'blip2-flan-t5-xl'},{name:'git-large-coco',value:'git-large-coco'}]}
-    ],
-    execute: async(i)=>{
-      if(i?.acknowledged===false){i.acknowledge()}
-      if (i.data.resolved?.attachments){
-        let imgurl = i.data.resolved.attachments[i.data.options[0].value].content_type.startsWith('image/') ? i.data.resolved.attachments[i.data.options[0].value].url : null
-        let img = await urlToBuffer(imgurl)
-        if(!img){return {error:'No image attached'}}
-        let interrogateOptions={best_max_flavors:32,mode:'fast',clip_model:'ViT-L-14/openai',caption_model:'blip-large',low_vram:true}
+    //],
+    //execute: async(i)=>{
+     // if(i?.acknowledged===false){i.acknowledge()}
+      //if (i.data.resolved?.attachments){
+       // let imgurl = i.data.resolved.attachments[i.data.options[0].value].content_type.startsWith('image/') ? i.data.resolved.attachments[i.data.options[0].value].url : null
+        //let img = await urlToBuffer(imgurl)
+        //if(!img){return {error:'No image attached'}}
+        //let interrogateOptions={best_max_flavors:32,mode:'fast',clip_model:'ViT-L-14/openai',caption_model:'blip-large',low_vram:true}
         /* Removed options, larger models use too much vram for most consumer cards
         for (const arg in i.data.options){
           let a = i.data.options[arg]
@@ -229,18 +229,18 @@ var slashCommands = [
           }
         }
         */
-        let result = await invoke.interrogate(img,undefined,interrogateOptions)
+        //let result = await invoke.interrogate(img,undefined,interrogateOptions)
         //result.result=result.result.replace('(^|\s)(arafed)\b','') // remove arafed as a whole word or from start of string
-        result.result=result.result.replace(/(^|\s)(arafed|araffe)\b/g, '') // remove arafed as a whole word or from start of string
-        let options = result.options
-        let newMsg = {
-            content:':eyes: Image scanned with `'+options.clip_model+'`, captioned by `'+options.caption_model+'`:',
-            embeds:[{description:result.result,color:getRandomColorDec(),thumbnail:{url:imgurl}}]
-        }
-        i.createMessage(newMsg)
-      }
-    }
-  },
+        //result.result=result.result.replace(/(^|\s)(arafed|araffe)\b/g, '') // remove arafed as a whole word or from start of string
+        //let options = result.options
+        //let newMsg = {
+        //    content:':eyes: Image scanned with `'+options.clip_model+'`, captioned by `'+options.caption_model+'`:',
+        //    embeds:[{description:result.result,color:getRandomColorDec(),thumbnail:{url:imgurl}}]
+        //}
+        //i.createMessage(newMsg)
+      //}
+    //}
+  //},
   {
     name: 'help',
     description: 'Learn how to use this bot',

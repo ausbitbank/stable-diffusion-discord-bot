@@ -26,7 +26,7 @@ load=async(buf)=>{
         let model = meta?.model
         let clipskip = meta?.clip_skip
         let loras=meta?.loras
-        let control, controlweight, controlstart, controlend, ipamodel, ipamethod, facemask, strength, lscale, invert, hrf, hrfwidth, hrfheight, prompt, cost = null
+        let control, controlweight, controlstart, controlend, ipamodel, ipamethod, facemask, strength, lscale, invert, hrf, hrfwidth, hrfheight, prompt, rdf, cost = null
         let creator = {}
         try{
             //debugLog(exif.invokeai_metadata.value)
@@ -77,6 +77,7 @@ load=async(buf)=>{
         if(exif.arty){
             let arty = JSON.parse(exif.arty.value)
             inputImageUrl=arty.inputImageUrl
+            rdf = arty.rdf
         }
         let graph = exif?.invokeai_graph?.value ? exif.invokeai_graph.value : undefined
         results = {
@@ -115,7 +116,8 @@ load=async(buf)=>{
                 hrfwidth,
                 seamlessx,
                 seamlessy,
-                creator
+                creator,
+                rdf
             },
             graph
         }

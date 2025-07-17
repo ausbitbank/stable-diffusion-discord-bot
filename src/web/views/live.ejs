@@ -1,0 +1,405 @@
+<%- include('header') %>
+
+<!-- Modal for full-size media -->
+<div class="modal fade" id="mediaModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content bg-dark">
+            <div class="modal-header border-secondary">
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div id="modalContent" class="text-center p-3"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="live-container">
+    <div class="guild-filter-container">
+        <select id="guildFilter" class="form-select dark-select">
+            <option value="">All Guilds</option>
+            <% guilds.forEach(guild => { %>
+                <option value="<%= guild.id %>" <%= currentGuildId == guild.id ? 'selected' : '' %>>
+                    <%= guild.name %>
+                </option>
+            <% }) %>
+        </select>
+    </div>
+
+    <div id="mediaWall" class="media-wall">
+        <!-- Initial media items will be loaded here -->
+    </div>
+</div>
+
+<template id="mediaItemTemplate">
+    <div class="media-item">
+        <div class="media-content"></div>
+        <div class="media-info">
+            <div class="d-flex justify-content-between align-items-center">
+                <span class="guild-name text-truncate"></span>
+                <div class="media-links">
+                    <a href="#" class="view-full me-2" title="View Full Size">
+                        <i class="fas fa-expand"></i>
+                    </a>
+                    <a href="#" class="view-context" title="View in Logs">
+                        <i class="fas fa-comments"></i>
+                    </a>
+                </div>
+            </div>
+            <small class="timestamp text-light"></small>
+        </div>
+    </div>
+</template>
+
+<script>
+let lastTimestamp = null;
+const mediaWall = document.getElementById('mediaWall');
+const template = document.getElementById('mediaItemTemplate');
+const guildFilter = document.getElementById('guildFilter');
+const displayedMessages = new Set();
+
+// Initialize Bootstrap modal
+const modalElement = document.getElementById('mediaModal');
+const modal = new bootstrap.Modal(modalElement);
+
+// Function to load initial media
+function loadInitialMedia(messages) {
+    if (!Array.isArray(messages)) return;
+
+    // Clear existing content
+    mediaWall.innerHTML = '';
+    displayedMessages.clear();
+
+    // Sort messages by timestamp, newest first
+    messages.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    messages.forEach(message => {
+        if (!displayedMessages.has(message.id)) {
+            addMediaToWall(message);
+        }
+    });
+
+    if (messages.length > 0) {
+        lastTimestamp = messages[0].timestamp;
+    }
+}
+
+// Function to check if the URL is media content
+function isMediaContent(url, embed) {
+    if (url) {
+        // Handle voice messages and audio files
+        if (url.includes('voice-message.ogg') || url.match(/\.(mp3|wav|ogg)$/i)) {
+            return true;
+        }
+
+        // Handle video files
+        if (url.match(/\.(mp4|webm|mov)$/i)) {
+            return true;
+        }
+
+        // Handle images
+        if (url.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
+            return true;
+        }
+
+        // Check for Discord CDN links
+        if (url.includes('media.discordapp.net') || url.includes('cdn.discordapp.com')) {
+            return true;
+        }
+    }
+
+    // Check for embeds
+    if (embed?.type === 'video' || embed?.provider?.name === 'YouTube') return true;
+    if (embed?.type === 'rich' && (embed?.image || embed?.thumbnail)) return true;
+
+    return false;
+}
+
+// Function to get media type
+function getMediaType(url) {
+    if (url.includes('voice-message.ogg') || url.match(/\.(mp3|wav|ogg)$/i)) {
+        return 'audio';
+    }
+    if (url.match(/\.(mp4|webm|mov)$/i)) {
+        return 'video';
+    }
+    return 'image';
+}
+
+// Function to create media elements
+function createMediaElement(item) {
+    if (item.type === 'youtube' && item.videoId) {
+        const iframe = document.createElement('iframe');
+        iframe.src = `https://www.youtube.com/embed/${item.videoId}`;
+        iframe.width = '100%';
+        iframe.height = '100%';
+        iframe.frameBorder = '0';
+        iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+        iframe.allowFullscreen = true;
+        return iframe;
+    }
+
+    if (item.type === 'audio') {
+        const container = document.createElement('div');
+        container.className = 'audio-container';
+
+        const audio = document.createElement('audio');
+        audio.src = item.url;
+        audio.controls = true;
+        audio.className = 'dark-audio';
+        audio.preload = 'metadata';
+
+        container.appendChild(audio);
+        return container;
+    }
+
+    if (item.type === 'video') {
+        const video = document.createElement('video');
+        video.src = item.url;
+        video.controls = true;
+        video.playsInline = true;
+        video.preload = 'metadata';
+        video.className = 'media-video';
+        return video;
+    }
+
+    // Default to image
+    const img = document.createElement('img');
+    img.src = item.url;
+    img.loading = 'lazy';
+    return img;
+}
+
+// Function to add media to the wall
+function addMediaToWall(message) {
+    if (displayedMessages.has(message.id)) return;
+
+    const mediaItems = [];
+
+    // Process attachments
+    if (message.attachments) {
+        const attachments = typeof message.attachments === 'string'
+            ? JSON.parse(message.attachments)
+            : message.attachments;
+
+        if (Array.isArray(attachments)) {
+            attachments.forEach(attachment => {
+                if (isMediaContent(attachment.url)) {
+                    mediaItems.push({
+                        url: attachment.proxy_url || attachment.url,
+                        type: getMediaType(attachment.url)
+                    });
+                }
+            });
+        }
+    }
+
+    // Process embeds
+    if (message.embeds) {
+        const embeds = typeof message.embeds === 'string'
+            ? JSON.parse(message.embeds)
+            : message.embeds;
+
+        if (Array.isArray(embeds)) {
+            embeds.forEach(embed => {
+                if (embed.type === 'video' || embed.provider?.name === 'YouTube') {
+                    const videoId = embed.video?.url?.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/)?.[1];
+                    if (videoId) {
+                        mediaItems.push({
+                            url: embed.video?.url || embed.url,
+                            type: 'youtube',
+                            videoId: videoId
+                        });
+                    }
+                }
+                if (embed.image?.url) {
+                    mediaItems.push({
+                        url: embed.image.proxy_url || embed.image.url,
+                        type: 'image'
+                    });
+                }
+                if (embed.thumbnail?.url) {
+                    mediaItems.push({
+                        url: embed.thumbnail.proxy_url || embed.thumbnail.url,
+                        type: 'image'
+                    });
+                }
+            });
+        }
+    }
+
+    if (mediaItems.length > 0) {
+        displayedMessages.add(message.id);
+
+        mediaItems.forEach(item => {
+            const clone = template.content.cloneNode(true);
+            const mediaContent = clone.querySelector('.media-content');
+            const guildName = clone.querySelector('.guild-name');
+            const timestamp = clone.querySelector('.timestamp');
+            const viewContext = clone.querySelector('.view-context');
+            const viewFull = clone.querySelector('.view-full');
+
+            const mediaElement = createMediaElement(item);
+            mediaContent.appendChild(mediaElement);
+
+            guildName.textContent = message.guild?.name || 'Unknown Guild';
+            timestamp.textContent = new Date(message.timestamp).toLocaleString();
+            viewContext.href = `/logs?channelId=${message.channelId}`;
+
+            // Add click handler for full-size view
+            viewFull.addEventListener('click', (e) => {
+                e.preventDefault();
+                const modalContent = document.getElementById('modalContent');
+                modalContent.innerHTML = '';
+                const fullSizeElement = createMediaElement(item);
+                if (fullSizeElement.tagName === 'VIDEO') {
+                    fullSizeElement.style.maxHeight = '80vh';
+                    fullSizeElement.style.maxWidth = '100%';
+                }
+                modalContent.appendChild(fullSizeElement);
+                modal.show();
+            });
+
+            mediaWall.insertBefore(clone, mediaWall.firstChild);
+        });
+    }
+}
+
+// Poll for new media
+async function pollNewMedia() {
+    try {
+        const guildId = guildFilter.value;
+        const params = new URLSearchParams({
+            lastTimestamp: lastTimestamp || '',
+            guildId: guildId
+        });
+
+        const response = await fetch(`/api/live-media?${params}`);
+        const newMessages = await response.json();
+
+        if (newMessages.length > 0) {
+            // Sort new messages by timestamp, newest first
+            newMessages.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+            newMessages.forEach(message => {
+                if (!displayedMessages.has(message.id)) {
+                    addMediaToWall(message);
+                }
+            });
+
+            if (newMessages.length > 0) {
+                lastTimestamp = newMessages[0].timestamp;
+            }
+        }
+    } catch (error) {
+        console.error('Error polling for new media:', error);
+    }
+}
+
+// Guild filter change handler
+guildFilter.addEventListener('change', async (e) => {
+    const guildId = e.target.value;
+    window.location.href = `/live${guildId ? `?guildId=${guildId}` : ''}`;
+});
+
+// Start with initial messages
+loadInitialMedia(<%- JSON.stringify(messages) %>);
+
+// Poll for new media every 5 seconds
+setInterval(pollNewMedia, 5000);
+</script>
+
+<style>
+.media-wall {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1rem;
+    padding: 1rem;
+}
+
+.media-item {
+    background: #2a2a2a;
+    border-radius: 8px;
+    overflow: hidden;
+    break-inside: avoid;
+}
+
+.media-content {
+    position: relative;
+    padding-bottom: 56.25%; /* 16:9 aspect ratio */
+    height: 0;
+    overflow: hidden;
+}
+
+.media-content img,
+.media-content video,
+.media-content iframe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.media-content .audio-container {
+    position: relative;
+    padding: 1rem;
+    height: auto;
+    min-height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #1B262C;
+}
+
+.dark-audio {
+    width: 100%;
+    background-color: #2f3136;
+    border-radius: 4px;
+    padding: 10px;
+}
+
+.media-video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.timestamp {
+    color: #BBE1FA !important;
+    opacity: 0.8;
+}
+
+/* Modal styles */
+.modal-content.bg-dark {
+    background-color: #1B262C !important;
+}
+
+.modal-header {
+    padding: 0.5rem 1rem;
+}
+
+.modal-body {
+    padding: 1rem;
+}
+
+#modalContent {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 200px;
+}
+
+/* Audio player color overrides */
+audio::-webkit-media-controls-panel {
+    background-color: #2f3136;
+}
+
+audio::-webkit-media-controls-current-time-display,
+audio::-webkit-media-controls-time-remaining-display {
+    color: #BBE1FA;
+}
+</style>
+
+<%- include('footer') %> 

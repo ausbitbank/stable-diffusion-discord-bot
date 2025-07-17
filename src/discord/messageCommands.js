@@ -126,10 +126,11 @@ let commands = [
                 newprompt+='\nFile attachment '+txtObject.filename+' :\n```'+txtObject.txt+'\n```'
             }
             */
-            // allow replying to a message, insert the message text into the request
-            let img,imgurl
+            let img
             let imgres = await extractImageAndUrlFromMessageOrReply(msg)
             if(imgres&&imgres?.img){img=imgres.img}else{img=null}
+            // allow replying to a message, insert the message text into the request
+            /* Disabled, only take image from replied messages
             if(msg.messageReference?.messageID){
                 let sourcemsg = await bot.getMessage(creator.channelid,msg.messageReference.messageID)
                 if (sourcemsg.embeds[0]?.description.length > 0) {
@@ -138,7 +139,9 @@ let commands = [
                     newprompt = sourcemsg.content + '\n' + newprompt
                 }
             }
-            let initResponse = '<@'+creator.discordid+'> :thought_balloon: `'+newprompt.substr(0,500)+'` '+timestamp()
+            */
+            let initResponse = '<@'+creator.discordid+'> :thought_balloon: '
+            if(newprompt.length>0){initResponse += '`'+newprompt.substr(0,500)+'` '}
             let stream
             try{
                 stream = await llm.chatStream(newprompt,null,img)
@@ -197,7 +200,8 @@ let commands = [
             })
             stream.on('finalMessage',(finalmsg)=>{
                 done=true
-                log('Finished LLM response: '+finalmsg.content)
+                debugLog('Finished LLM response: ')
+                debugLog(finalmsg)
             })
             stream.on('error', (error)=>{
                 log('LLM Stream error:')
@@ -701,12 +705,25 @@ let commands = [
                 messageReference:{message_id:msg.id}
             }
             let basemodels = ['sd-1','sd-2','sdxl','flux']
+            // let modellink = await civitai.hashToUrl(meta.invoke.model.hash)
             for (const modeltype in basemodels){
                 let filteredModels = models.filter(obj=>obj.base===basemodels[modeltype])
                 let marr=[]
                 for (const m in filteredModels){
                     let model = filteredModels[m]
-                    marr.push(model.name)
+                    let modellink = null
+                    /*
+                    try {
+                        modellink = await civitai.hashToUrl(model.hash)
+                    } catch (err) {
+                        debugLog(modellink)
+                    }
+                    */
+                    if(modellink){
+                        marr.push('['+modellink+']('+model.name+')')
+                    } else {
+                        marr.push(model.name)
+                    }
                 }
                 if(marr.length>0){
                     let newdlg = {color:getRandomColorDec(),description:'**'+basemodels[modeltype]+' loras**:\n'+marr.join('\n')}
@@ -1698,6 +1715,7 @@ getAvatarUrl = async(userId)=>{
 
 imageResultMessage = async(userid,img,result,meta,cid)=>{
     let p=meta?.invoke?.prompt??'Unable to extract prompt'
+    p=Buffer.from(p, 'utf-8').toString('utf-8')
     let cost = meta.invoke?.cost??null
     //if(result.job.negative_prompt){p=p+' ['+result.job.negative_prompt+']'}
     let t=''
@@ -1737,6 +1755,7 @@ imageResultMessage = async(userid,img,result,meta,cid)=>{
     if(meta.invoke?.controlweight){t+=',w:'+meta.invoke.controlweight}
     if(meta.invoke?.controlstart){t+=',s:'+meta.invoke.controlstart}
     if(meta.invoke?.controlend){t+=',e:'+meta.invoke.controlend}
+    if(meta.invoke?.rdf){t+=',rdf:'+meta.invoke.rdf}
     if(meta.invoke?.facemask){t+=' :performing_arts: facemask'}
     if(meta.invoke?.invert){t+=' inverted'}
     if(meta.invoke?.hrf){t+=' :telescope: hrf'}
@@ -1791,7 +1810,7 @@ imageResultMessage = async(userid,img,result,meta,cid)=>{
     // same for controlstart
     // todo the controlstart check is failing, this never displays
     // faulty logic, meta.invoke.controlstart returns false if value is 0
-    if(meta.invoke?.inputImageUrl&&meta.invoke?.control&&meta.invoke?.controlstart&&meta.invoke?.control!=='i2l'){
+    if(meta.invoke?.inputImageUrl&&meta.invoke?.control&&meta.invoke?.controlstart&&meta.invoke?.control!=='i2l'&&meta.invoke?.control!=='redux'){
         let cnwo = []
         for (const i in cnwos){
             let o = cnwos[i]
@@ -1801,7 +1820,7 @@ imageResultMessage = async(userid,img,result,meta,cid)=>{
         newmsg.components.push({type:1,components:[{type: 3,custom_id:'edit-x-controlstart',placeholder:'Controlnet start at '+(parseFloat(meta.invoke.controlstart)*100).toFixed(0)+'%',min_values:1,max_values:1,options:cnwo}]})
     }
     // same for controlend
-    if(meta.invoke?.inputImageUrl&&meta.invoke?.control&&meta.invoke?.controlend&&meta.invoke?.control!=='i2l'){
+    if(meta.invoke?.inputImageUrl&&meta.invoke?.control&&meta.invoke?.controlend&&meta.invoke?.control!=='i2l'&&meta.invoke?.control!=='redux'){
         let cnwo = []
         for (const i in cnwos){
             let o = cnwos[i]
@@ -1809,6 +1828,15 @@ imageResultMessage = async(userid,img,result,meta,cid)=>{
             cnwo.push({value:(o/100).toFixed(2),description:od,label:o+'%'})
         }
         newmsg.components.push({type:1,components:[{type: 3,custom_id:'edit-x-controlend',placeholder:'Controlnet end at '+(parseFloat(meta.invoke.controlend)*100).toFixed(0)+'%',min_values:1,max_values:1,options:cnwo}]})
+    }
+    // If using flux redux with a defined redux downsampling factor, add a dropdown for that too
+    if(meta.invoke?.inputImageUrl&&meta.invoke?.control==='redux'&&meta.invoke?.rdf){
+        let cnwo = [
+            {value:1,description:'Slight image variation (loras work)',label:'1'},
+            {value:2,description:'Image editing (prompt+loras)',label:'2'},
+            {value:3,description:'Image style reference (minimal influence)',label:'3'}
+        ]
+        newmsg.components.push({type:1,components:[{type:3,custom_id:'edit-x-rdf',placeholder:'Redux Downsample Factor',min_values:1,max_values:1,options:cnwo}]})
     }
     // get all available controlnet modes and ipa types for base model
     if(meta.invoke?.inputImageUrl&&meta.invoke?.control){

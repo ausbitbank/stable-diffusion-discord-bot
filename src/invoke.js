@@ -42,7 +42,7 @@ const initHost=async(host)=>{
         //host.online=false // do not disable during sync or jobs will fail
         // todo update for invoke4 v2 models api, reduce to single call and filter afterwards
         // since invoke4 no controlnets or embeddings are visible ?
-        const [version, models, lora, ti, vae, controlnet, ip_adapter, t2i_adapter, t5_encoder, clip_embed, cfg] = await Promise.all(
+        const [version, models, lora, ti, vae, controlnet, ip_adapter, t2i_adapter, t5_encoder, clip_embed, redux, siglip, cfg] = await Promise.all(
             [
                 getVersion(host),
                 getModels(host,'main'),
@@ -54,6 +54,8 @@ const initHost=async(host)=>{
                 getModels(host,'t2i_adapter'),
                 getModels(host,'t5_encoder'),
                 getModels(host,'clip_embed'),
+                getModels(host,'flux_redux'),
+                getModels(host,'siglip'),
                 getConfig(host)
             ])
         host.version = version
@@ -66,6 +68,8 @@ const initHost=async(host)=>{
         host.t2i_adapter = t2i_adapter
         host.t5_encoder = t5_encoder
         host.clip_embed = clip_embed
+        host.redux = redux
+        host.siglip = siglip
         host.config = cfg
         host.activeJob = null // unused
         if(host.socket){host.socket.close();host.socket=null}// Close the existing socket connection, if any
@@ -188,6 +192,8 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         if(['flux_lora_loader','flux_model_loader'].includes(type)){lastid.transformer=newid}
         if(['flux_vae_encode'].includes(type)){lastid.height=newid;lastid.width=newid;lastid.latents=newid}
         if(['img_resize'].includes(type)){lastid.height=newid;lastid.width=newid}
+        if(['flux_redux'].includes(type)){lastid.redux=newid}
+        if(['flux_kontext'].includes(type)){lastid.kontext=newid}
         edges?.forEach(e=>{
             if(!validUUID(e.destination.node_id)){ // not already plumbed with a valid UUID
                 if(e.destination.node_id==='SELF'){ e.destination.node_id=newid
@@ -316,10 +322,10 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
             }
         }
     } else if (job.model.base==='flux'){
-        let fluxt5 = await modelnameToObject('t5_bnb_int8_quantized_encoder','t5_encoder') // edit me
-        let clip_embed_model = await modelnameToObject('clip-vit-large-patch14','clip_embed') // edit me - clip from invoke flux starter models
+        let fluxt5 = await modelnameToObject(config.default.fluxt5||'t5_bnb_int8_quantized_encoder','t5_encoder') // edit me
+        let clip_embed_model = await modelnameToObject(config.default.fluxclip||'clip-vit-large-patch14','clip_embed') // edit me - clip from invoke flux starter models
         //let clip_embed_model = await modelnameToObject('CLIP-GmP-ViT-L-14','clip_embed') // updated clip from https://huggingface.co/zer0int/CLIP-GmP-ViT-L-14
-        let vae_model = await modelnameToObject('FLUX.1-schnell_ae','vae')
+        let vae_model = await modelnameToObject(config.default.fluxvae||'FLUX.1-schnell_ae','vae')
         // insert job metadata into string, pipe to metadata_item, pipe to metadata , pipe to collect alongside core_metadata output, into merge_metadata as final meta output
         node('string',{value:buildWorkflowFromJob(job)})
         node('metadata_item',{label:'arty'},[pipe(lastid.string,'value','SELF','value')])
@@ -348,8 +354,19 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
             // todo need to copy width and height output to flux denoise or this will fail
         } else if (job.initimgObject&&job.control==='ipa'){
             // flux ip adapter model should be set when validating job
-            let ip_adapter_model = await modelnameToObject('ip_adapter_flux','ip_adapter') // todo improve this via autodetect or config option
+            let ip_adapter_model = await modelnameToObject(config.fluxipa||'ip_adapter_flux','ip_adapter')
             node('flux_ip_adapter',{image:{image_name:job.initimgObject.image_name},ip_adapter_model,clip_vision_model:'ViT-L',weight:job.controlweight,begin_step_percent:job.controlstart,end_step_percent:job.controlend,use_cache:true,is_intermediate:true})
+        } else if (job.initimgObject&&job.control==='redux'){
+            debugLog('building flux redux workflow')
+            // gather model objects for redux and siglip
+            let redux_model = await modelnameToObject(config.default.fluxredux||'FLUX Redux','flux_redux')
+            // let siglip_model = await modelnameToObject('SigLIP - google/siglip-so400m-patch14-384','siglip') // parameter removed in invoke update
+            // node outputs conditioning
+            debugLog('flux redux downsampling factor: '+job.rdf)
+            node('flux_redux', {image:{image_name:job.initimgObject.image_name},redux_model,downsampling_factor:job.rdf||2,downsampling_function:'area',weight:job.controlweight||1})
+        } else if (job.initimgObject&&job.control==='kontext'){
+            debugLog('building flux kontext workflow')
+            node('flux_kontext', {image:{image_name:job.initimgObject.image_name}})//,[pipe(lastid.kontext,'kontext_cond','SELF','kontext_conditioning')])
         } else if (job.initimgObject&&job.control){
             // load controlnet
             let control_model = await modelnameToObject(job.control,'controlnet')
@@ -397,6 +414,13 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
             fluxdenoisepipes.push(pipe(lastid.ip_adapter,'ip_adapter','SELF','ip_adapter'))
         } else if (job.initimgObject&&lastid.control){
             fluxdenoisepipes.push(pipe(lastid.control,'control','SELF','control'))
+        } else if (job.initimgObject&&job.control==='redux'){
+            // need to hook up redux conditioning output into the denoise redux_conditioning pipe (need exact names)
+            // flux_redux node output called "redux_cond" , flux_denoise input called "redux_conditioning"
+            debugLog('attempting to add redux conditioning pipe with id '+lastid.redux)
+            fluxdenoisepipes.push(pipe(lastid.redux,'redux_cond','SELF','redux_conditioning'))
+        } else if (job.initimgObject&&job.control==='kontext'){
+            fluxdenoisepipes.push(pipe(lastid.kontext,'kontext_cond','SELF','kontext_conditioning'))
         }
         //if(job.scale>1){
         // always add negative text conditioning // todo investigate deeper (flux-dev only ? At what scales is it useful?)
@@ -669,7 +693,7 @@ const cancelBatch = async(batchid,host=null,name='arty')=>{
             let result = resultCache.get(batchid)
             // find host by hostname from cluster array
             host = cluster.find(h=>{return h.name===result?.hostname})
-            if(!host.url){
+            if(!host||!host.url){
                 log('Unable to find active job to cancel')
                 return
             }
@@ -1010,6 +1034,7 @@ const jobFromMeta = async(meta,img=null,tracking=null)=>{
     if(meta.invoke?.seed){job.seed=meta.invoke.seed} // Bugfix, actually listen to seed from image and change seed within "refresh" functions
     if(meta.invoke?.seamlessx){job.seamlessx=meta.invoke.seamlessx}
     if(meta.invoke?.seamlessy){job.seamlessy=meta.invoke.seamlessy}
+    if(meta.invoke?.rdf){job.rdf=meta.invoke.rdf}
     if(meta.invoke?.preset){job.preset=meta.invoke.preset}
     job.steps = meta.invoke?.steps??config.default.steps
     // todo need to look at job.model.base and use sdxl width/height defaults if not already in meta.invoke
@@ -1253,6 +1278,7 @@ const validateJob = async(job)=>{
                 if(!job.controlstart){job.controlstart=0}
                 if(!job.controlend){job.controlend=1}
             }
+            if(job.control==='redux'){if(!job.rdf){job.rdf=2}}
             if(job.control==='ipa'){
                 if(!job.ipamodel){
                     if(job.model.base==='sdxl'){job.ipamodel='ip_adapter_sdxl'}
@@ -1949,7 +1975,12 @@ const modelnameToObject = async(modelname,modeltype='main')=>{
             model=host.clip_embed.find(m=>{return m.name===modelname})
         } else if (modeltype==='vae'){
             model=host.vae.find(m=>{return m.name===modelname})
+        } else if (modeltype==='flux_redux'){
+            model=host.redux.find(m=>{return m.name===modelname})
+        } else if (modeltype==='siglip'){
+            model=host.siglip.find(m=>{return m.name===modelname})
         }
+        
         if(isObject(model)){
             //debugLog('modelnameToObject found model')
             //debugLog(model)
@@ -2013,14 +2044,18 @@ cast = async(job)=>{
         if(!context.batchId||context.batchId?.error){
             return {error:'Error queuing job '}
         }
+        // if credits enabled, charge the creator, credit the host
+        if(config.credits.enabled&&job.cost>0&&context.job.creator.discordid&&context.host.ownerid){
+            if(context.job.creator.discordid!==context.host.ownerid){
+                await credits.transfer(context.job.creator.discordid,context.host.ownerid,job.cost)
+            }
+        }
         if(context.job.tracking?.type==='discord'){
             progress.update(job.tracking.msg,context.batchId,context.job.creator)
         }
         context.images = await batchToImages(context.host,context.batchId)
         resultCache.remove(context.batchId)
         if(context.images?.error){return {error:context.images?.error}}
-        // if credits enabled, charge the creator, credit the host
-        if(config.credits.enabled&&job.cost>0&&context.job.creator.discordid&&context.host.ownerid){if(context.job.creator.discordid!==context.host.ownerid){await credits.transfer(context.job.creator.discordid,context.host.ownerid,job.cost)}}
         if(context.job.initimgObject)deleteImage(context.host,context.job.initimgObject.image_name) // remove uploaded image after use
         let result = {
             job:context.job,

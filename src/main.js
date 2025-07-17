@@ -27,6 +27,7 @@ process.on('uncaughtException', (err) => {log('Uncaught exception:');log(err)})
 global.handleSynchronousException = err => {log('Unhandled synchronous exception:');log(err)}
 
 init = async () => {
+
     log('Initializing IPFS node...') // Log before initializing IPFS
     await ipfs.init() // initialize ipfs node
     log('IPFS node initialized.') // Log after IPFS initialization

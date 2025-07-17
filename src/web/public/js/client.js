@@ -197,3 +197,57 @@ const pageclick = (pagingId)=>{
         }
     })
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+    const toggleButton = document.getElementById('theme-toggle');
+    const currentTheme = localStorage.getItem('theme') || 'dark';
+
+    // Apply the current theme
+    document.body.classList.add(currentTheme + '-mode');
+    document.querySelector('.container').classList.add(currentTheme + '-mode');
+    
+    // Check if footer exists before applying classes
+    const footer = document.querySelector('.footer');
+    if (footer) {
+        footer.classList.add(currentTheme + '-mode');
+    }
+
+    // Apply classes to links
+    document.querySelectorAll('a').forEach(link => {
+        link.classList.add(currentTheme + '-mode');
+    });
+
+    // Define icon classes
+    const dayIconClass = 'day-icon';
+    const nightIconClass = 'night-icon';
+
+    // Set the initial icon based on the current theme
+    toggleButton.querySelector('span').classList.add(currentTheme === 'dark' ? nightIconClass : dayIconClass);
+
+    toggleButton.addEventListener('click', () => {
+        const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+        document.body.classList.toggle('dark-mode');
+        document.body.classList.toggle('light-mode');
+        document.querySelector('.container').classList.toggle('dark-mode');
+        document.querySelector('.container').classList.toggle('light-mode');
+
+        // Check if footer exists before toggling classes
+        if (footer) {
+            footer.classList.toggle('dark-mode');
+            footer.classList.toggle('light-mode');
+        }
+
+        // Apply classes to links
+        document.querySelectorAll('a').forEach(link => {
+            link.classList.toggle('dark-mode');
+            link.classList.toggle('light-mode');
+        });
+
+        // Update the icon based on the new theme
+        toggleButton.querySelector('span').classList.toggle(dayIconClass);
+        toggleButton.querySelector('span').classList.toggle(nightIconClass);
+
+        // Save the new theme in local storage
+        localStorage.setItem('theme', newTheme);
+    });
+});

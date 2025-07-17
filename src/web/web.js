@@ -22,9 +22,6 @@ app.use(express.json())
 app.use(express.urlencoded({extended: true}))
 
 
-// web request logging
-//const morgan = require('morgan')
-//app.use(morgan('combined'))
 // todo configure to log to specific file for traffic stats / most viewed images etc
 
 // response compression
@@ -83,8 +80,8 @@ const authRoutes = require('./routes/auth')
 app.use('/', authRoutes)
 
 app.use(function(req, res, next) {
-  console.log('Post auth session:')
-  console.log(req.session)
+  // console.log('Post auth session:')
+  // console.log(req.session)
   next()
 })
 
@@ -117,8 +114,15 @@ app.use('/',routemoderation)
 let routeipfs = require('./routes/ipfs')
 app.use('/',routeipfs)
 
+// Logs route
+let routelogs = require('./routes/logs')
+app.use('/', routelogs)
 
-// Error 404
+// Live log view
+let routelive = require('./routes/live')
+app.use('/', routelive)
+
+// Error 404 - This should always be last
 let route404 = require('./routes/404')
 app.use('/',route404)
 
@@ -132,6 +136,9 @@ const init = async()=>{
   log('Starting web interface on http://'+host+':'+port)
   await app.listen({port:port,host:host})
 }
+
+//const maskRoutes = require('./routes/mask');
+//app.use('/', maskRoutes); // Register the mask routes
 
 module.exports = {
     web:{

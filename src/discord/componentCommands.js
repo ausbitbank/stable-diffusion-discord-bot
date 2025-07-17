@@ -53,8 +53,8 @@ let commands = [
             let key = null
             try{
                 key = interaction.data.custom_id.split('-')[2]??interaction.data?.components[0]?.components[0]?.custom_id
-            } catch (err) {debugLog(err)}
-            if(!key){
+            } catch (err) {
+                debugLog(err)
                 // todo arty1 templates are sending edit component commands with no key or interaction.data.components
                 // Send update notice and tell to use /dream ?
                 debugLog('Someone trying to use an old arty1 template ?')
@@ -453,25 +453,41 @@ let commands = [
         permissionLevel: 'all',
         aliases: ['applyLora'],
         command: async (interaction, creator) => {
-            let selectedLora = interaction.data.values[0];
+            let selectedLora = interaction.data.values[0]; // Name string
             let msgid = interaction.data.custom_id.split('-')[1]; // Get the message ID
             let sourcemsg = await bot.getMessage(interaction.channel.id, msgid); // Get the original message
             let meta = await messageCommands.extractMetadataFromMessage(sourcemsg); // Extract metadata
-
             // Extract the current prompt
             let currentPrompt = meta.invoke?.prompt || '';
+            // The default weight to apply a lora at
+            let loraweight = config.default.loraweight ?? 0.8;
+            // The keywords for this specific lora are saved as the lora name itself , underscores become spaces
+            let lorakeywords = selectedLora.replace(/_/g, " ");
+            // The withLora(name,weight) tag
+            let withlora = `withLora(${selectedLora},${loraweight})`;
+            let updatedPrompt = currentPrompt;
+            // Is the lora keyword already in the prompt? If not add it
+            if (!currentPrompt.includes(lorakeywords)) {
+                updatedPrompt = lorakeywords + ' ' + currentPrompt;
+            }
 
-            // Append the Lora to the prompt
-            let updatedPrompt = `withLora(${selectedLora},0.9) ${selectedLora.replace(/_/g, " ")} ${currentPrompt}`;
-
+            // Check if the withLora tag is already included in the prompt, regardless of weight
+            const withLoraRegex = new RegExp(`withLora\\(${selectedLora},\\s*\\d*\\.?\\d*\\)`);
+            if (!withLoraRegex.test(currentPrompt)) {
+                // If the Lora keywords were added, add the withLora tag after them
+                if (updatedPrompt !== currentPrompt) {
+                    updatedPrompt = lorakeywords + ' ' + currentPrompt + ' ' + withlora;
+                } else {
+                    // If the Lora keywords were already present, just add the withLora tag
+                    updatedPrompt = currentPrompt + ' ' + withlora;
+                }
+            }
             // Update the metadata with the new prompt
             meta.invoke.prompt = updatedPrompt;
-
             // Create a tracking message
             let trackingmsg = await bot.createMessage(interaction.channel.id, {
                 content: `:saluting_face: Applying Lora: ${selectedLora}...`,
             });
-
             // Re-invoke the job with the updated metadata
             let img = null;
             if (meta.invoke?.inputImageUrl) {
@@ -481,16 +497,14 @@ let commands = [
             job.creator = await getCreatorInfoFromInteraction(interaction);
             job = await auth.userAllowedJob(job);
             let result = await invoke.cast(job);
-
             // Handle the result and return the message result
             if (result.error) {
                 return messageCommands.returnMessageResult(sourcemsg, { error: `Error applying Lora: ${result.error}` }, creator);
             }
-
             // Send the resulting image back to Discord
             if (result.images && result.images.length > 0) {
                 let buf = result.images[0]?.buffer;
-                return messageCommands.returnMessageResult(sourcemsg,result,creator)
+                return messageCommands.returnMessageResult(sourcemsg, result, creator);
             } else {
                 return messageCommands.returnMessageResult(sourcemsg, { content: `Applied Lora: ${selectedLora}, but no image was generated.`, flags: 64 }, creator);
             }

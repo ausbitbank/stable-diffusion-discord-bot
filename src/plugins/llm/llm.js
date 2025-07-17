@@ -144,11 +144,11 @@ async function chatStream(prompt,systemprompt,buffer=false,model=null,visionmode
         keep_alive:'0s', // not working in ollama windows, supposed to unload model after use
         choices: [{finish_reason: 'stop',index: 0}] // Get a warning in log from openrouter.ai api, failing to suppress it with this 
     }
-    // if image in message, download, convert to base64
-    // .toString('base64')
+    // if image in message, use vision model
     if(buffer&&visionmodel){
         try{
             let b64 = buffer.toString('base64')
+            // todo image filetype should be detected, not hardcoded png
             let imgdata = {
                 type:'image_url',
                 image_url:{
@@ -159,8 +159,8 @@ async function chatStream(prompt,systemprompt,buffer=false,model=null,visionmode
             data.messages[1].content=[imgdata,{type:'text',text:prompt}]
             data.model=visionmodel
         } catch (err) {
-            log('Error in llm buffer conversion')
             log(err)
+            return {error:'Error in llm buffer conversion'}
         }
     }
     try {
@@ -168,7 +168,7 @@ async function chatStream(prompt,systemprompt,buffer=false,model=null,visionmode
         return stream
     } catch (err) {
         console.log(err)
-        return {error:'Unable to connect to LLM server'}
+        return {error:err}
     }
 }
 

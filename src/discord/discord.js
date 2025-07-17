@@ -12,7 +12,7 @@ var colors = require('colors')
 const {auth}=require('./auth')
 const {emojiCommands} = require("./emojiCommands")
 const {status} = require('./status')
-const {db,Image} = require("../db")
+const {db,Image,Message,Guild,Channel} = require("../db")
 let inviteLink = ''
 
 chat=async(channel,msg,file=null,retry=0)=>{
@@ -39,7 +39,7 @@ chat=async(channel,msg,file=null,retry=0)=>{
 
 chatFail=async(error,channel,msg,file=null,retry=0)=>{
   debugLog('caught error posting to discord:'.bgRed.black)
-  debugLog(error.message)
+  if(error.message){debugLog(error.message)}
   if(error.message?.includes('Request timed out')&&retry<2){
     retry++
     debugLog('Retry send attempt '+retry)

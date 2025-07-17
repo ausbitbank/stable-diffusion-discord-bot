@@ -1,0 +1,67 @@
+<%- include('header'); %>
+<div id="masking-container">
+    <canvas id="maskCanvas"></canvas>
+    <button id="submitMask">Generate Mask</button>
+</div>
+<%- include('footer'); %>
+
+<script>
+    const imageUrl = '<%= imageUrl %>'; // Get the image URL passed from the server
+    const canvas = document.getElementById('maskCanvas');
+    const ctx = canvas.getContext('2d');
+    let drawing = false;
+
+    // Load the image
+    const img = new Image();
+    img.src = imageUrl;
+    img.onload = () => {
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+    };
+
+    // Drawing functionality
+    canvas.addEventListener('mousedown', () => {
+        drawing = true;
+    });
+
+    canvas.addEventListener('mouseup', () => {
+        drawing = false;
+        ctx.beginPath();
+    });
+
+    canvas.addEventListener('mousemove', draw);
+
+    function draw(event) {
+        if (!drawing) return;
+        ctx.lineWidth = 5;
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = 'white'; // Color for the mask
+
+        ctx.lineTo(event.clientX - canvas.offsetLeft, event.clientY - canvas.offsetTop);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(event.clientX - canvas.offsetLeft, event.clientY - canvas.offsetTop);
+    }
+
+    // Handle mask generation
+    document.getElementById('submitMask').addEventListener('click', () => {
+        const maskData = canvas.toDataURL('image/png'); // Get the mask image data
+        // Send maskData to your server for processing
+        fetch('/submit-mask', {
+            method: 'POST',
+            body: JSON.stringify({ mask: maskData }),
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            console.log('Mask generated:', data);
+            // Handle the response from the server
+        })
+        .catch(error => {
+            console.error('Error generating mask:', error);
+        });
+    });
+</script>

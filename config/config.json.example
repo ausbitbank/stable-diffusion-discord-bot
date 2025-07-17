@@ -34,7 +34,9 @@
         "scheduler":"dpmpp_2m_sde_k",
         "controlmode":"depth",
         "model":"stable-diffusion-v1-5",
-        "inpaintStrength":0.8
+        "loraweight":0.8,
+        "fluxclip":"clip-vit-large-patch14",
+        "fluxt5":"t5_bnb_int8_quantized_encoder"
     },
     "maximum":{
         "steps":100,

@@ -1,0 +1,359 @@
+<%- include('header') %>
+
+<!-- Modal for full-size media -->
+<div class="modal fade" id="mediaModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content bg-dark">
+            <div class="modal-body p-0">
+                <div id="modalContent" class="text-center"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="container mt-4">
+    <h2>Message Logs</h2>
+
+    <!-- Auto-refresh toggle -->
+    <div class="form-check form-switch mb-3">
+        <input class="form-check-input" type="checkbox" id="autoRefresh">
+        <label class="form-check-label" for="autoRefresh">Auto-refresh</label>
+    </div>
+
+    <!-- Filters -->
+    <form class="mb-4" method="GET" action="/logs" id="logsForm">
+        <div class="row g-3">
+            <div class="col-md-2">
+                <select name="guildId" class="form-select dark-select">
+                    <option value="">All Guilds</option>
+                    <% guilds.forEach(guild => { %>
+                        <option value="<%= guild.id %>" <%= query.guildId == guild.id ? 'selected' : '' %>>
+                            <%= guild.name %>
+                        </option>
+                    <% }) %>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <input 
+                    type="text" 
+                    name="channelId" 
+                    class="form-control dark-input" 
+                    placeholder="Channel ID"
+                    value="<%= query.channelId || '' %>"
+                >
+            </div>
+            <div class="col-md-2">
+                <input 
+                    type="text" 
+                    name="search" 
+                    class="form-control dark-input" 
+                    placeholder="Search messages..."
+                    value="<%= query.search || '' %>"
+                >
+            </div>
+            <div class="col-md-2">
+                <input 
+                    type="date" 
+                    name="startDate" 
+                    class="form-control dark-input"
+                    value="<%= query.startDate || '' %>"
+                >
+            </div>
+            <div class="col-md-2">
+                <input 
+                    type="date" 
+                    name="endDate" 
+                    class="form-control dark-input"
+                    value="<%= query.endDate || '' %>"
+                >
+            </div>
+            <div class="col-md-1">
+                <select name="pageSize" class="form-select dark-select">
+                    <% pageSizes.forEach(size => { %>
+                        <option value="<%= size %>" <%= pageSize == size ? 'selected' : '' %>>
+                            <%= size %>
+                        </option>
+                    <% }) %>
+                </select>
+            </div>
+            <div class="col-md-1">
+                <button type="submit" class="btn btn-primary w-100">Filter</button>
+            </div>
+        </div>
+        <div class="row mt-2">
+            <div class="col">
+                <a href="/logs" class="btn btn-secondary">Reset Filters</a>
+            </div>
+        </div>
+    </form>
+
+    <!-- Messages Table -->
+    <div class="table-responsive">
+        <table class="table table-dark table-hover">
+            <thead>
+                <tr>
+                    <th>Timestamp</th>
+                    <th>Guild</th>
+                    <th>Channel</th>
+                    <th>User</th>
+                    <th>Content</th>
+                </tr>
+            </thead>
+            <tbody>
+                <% messages.forEach(message => { %>
+                    <tr>
+                        <td><%= new Date(message.timestamp).toLocaleString() %></td>
+                        <td>
+                            <% if (message.guild) { %>
+                                <a href="/logs?guildId=<%= message.guildId %>&pageSize=<%= pageSize %>" 
+                                   class="text-decoration-none <%= query.guildId == message.guildId ? 'fw-bold' : '' %>">
+                                    <%= message.guild.name %>
+                                </a>
+                            <% } else { %>
+                                Unknown Guild
+                            <% } %>
+                        </td>
+                        <td>
+                            <% if (message.channel) { %>
+                                <a href="/logs?channelId=<%= message.channelId %>&pageSize=<%= pageSize %>" 
+                                   class="text-decoration-none <%= query.channelId == message.channelId ? 'fw-bold' : '' %>">
+                                    #<%= message.channel.name %>
+                                </a>
+                            <% } else { %>
+                                <%= message.channelId %>
+                            <% } %>
+                        </td>
+                        <td>
+                            <a href="/logs?userId=<%= message.userId %>&pageSize=<%= pageSize %>" 
+                               class="text-decoration-none <%= query.userId == message.userId ? 'fw-bold' : '' %>">
+                                <%= message.user ? message.user.username : message.userId %>
+                            </a>
+                        </td>
+                        <td class="message-content">
+                            <%= message.content %>
+                            <% if (message.attachments) { %>
+                                <div class="message-attachments mt-2">
+                                    <% 
+                                    const attachments = Array.isArray(message.attachments) 
+                                        ? message.attachments 
+                                        : (typeof message.attachments === 'string' 
+                                            ? JSON.parse(message.attachments) 
+                                            : [message.attachments]);
+                                    
+                                    attachments.forEach(attachment => { 
+                                    %>
+                                        <div class="attachment-item">
+                                            <% if (attachment.url.match(/\.(jpg|jpeg|png|gif|webp)$/i)) { %>
+                                                <a href="#" class="media-preview" data-url="<%= attachment.url %>" data-type="image">
+                                                    <img src="<%= attachment.proxy_url || attachment.url %>" 
+                                                         alt="Attachment" 
+                                                         class="attachment-thumbnail"
+                                                         style="max-width: 200px; max-height: 200px; border-radius: 3px;">
+                                                </a>
+                                            <% } else if (attachment.url.match(/\.(mp4|webm|mov)$/i)) { %>
+                                                <a href="#" class="media-preview" data-url="<%= attachment.url %>" data-type="video">
+                                                    <video src="<%= attachment.proxy_url || attachment.url %>"
+                                                           class="attachment-thumbnail"
+                                                           style="max-width: 200px; max-height: 200px;"
+                                                           controls
+                                                           preload="metadata"
+                                                           muted>
+                                                    </video>
+                                                </a>
+                                            <% } else if (attachment.url.includes('voice-message.ogg') || attachment.url.match(/\.(mp3|wav|ogg)$/i)) { %>
+                                                <div class="audio-container">
+                                                    <audio src="<%= attachment.proxy_url || attachment.url %>"
+                                                           controls
+                                                           preload="metadata"
+                                                           class="dark-audio">
+                                                        Your browser does not support the audio element.
+                                                    </audio>
+                                                    <a href="#" class="media-preview d-block mt-2" data-url="<%= attachment.url %>" data-type="audio">
+                                                        Open in modal
+                                                    </a>
+                                                </div>
+                                            <% } else { %>
+                                                <a href="<%= attachment.url %>" target="_blank" class="attachment-link">
+                                                    📎 <%= attachment.filename %> 
+                                                    (<%= Math.round(attachment.size / 1024) %> KB)
+                                                </a>
+                                            <% } %>
+                                        </div>
+                                    <% }) %>
+                                </div>
+                            <% } %>
+                            <% if (message.embeds) { %>
+                                <div class="message-embeds mt-2">
+                                    <% 
+                                    const embeds = Array.isArray(message.embeds) 
+                                        ? message.embeds 
+                                        : (typeof message.embeds === 'string' 
+                                            ? JSON.parse(message.embeds) 
+                                            : [message.embeds]);
+                                    
+                                    embeds.forEach(embed => { 
+                                    %>
+                                        <div class="embed-item mb-2 p-2 border rounded">
+                                            <% if (embed.type === 'video' || embed.provider?.name === 'YouTube') { %>
+                                                <% const videoId = embed.video?.url?.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/)?.[1]; %>
+                                                <% if (videoId) { %>
+                                                    <div class="embed-video-container" style="position: relative; padding-bottom: 56.25%; height: 0;">
+                                                        <iframe 
+                                                            src="https://www.youtube.com/embed/<%= videoId %>"
+                                                            style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"
+                                                            frameborder="0"
+                                                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                                            allowfullscreen>
+                                                        </iframe>
+                                                    </div>
+                                                <% } %>
+                                            <% } %>
+                                            <% if (embed.thumbnail?.url) { %>
+                                                <a href="#" class="media-preview" data-url="<%= embed.thumbnail.url %>" data-type="image">
+                                                    <img src="<%= embed.thumbnail.proxy_url || embed.thumbnail.url %>" 
+                                                         alt="Embed thumbnail" 
+                                                         class="embed-thumbnail mt-2"
+                                                         style="max-width: 200px; max-height: 200px; border-radius: 3px;">
+                                                </a>
+                                            <% } %>
+                                            <% if (embed.image?.url) { %>
+                                                <a href="#" class="media-preview" data-url="<%= embed.image.url %>" data-type="image">
+                                                    <img src="<%= embed.image.proxy_url || embed.image.url %>" 
+                                                         alt="Embed image" 
+                                                         class="embed-image mt-2"
+                                                         style="max-width: 200px; max-height: 200px; border-radius: 3px;">
+                                                </a>
+                                            <% } %>
+                                        </div>
+                                    <% }) %>
+                                </div>
+                            <% } %>
+                        </td>
+                    </tr>
+                <% }) %>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Pagination -->
+    <% if (totalPages > 1) { %>
+        <nav aria-label="Page navigation">
+            <ul class="pagination justify-content-center">
+                <% for(let i = 1; i <= totalPages; i++) { %>
+                    <li class="page-item <%= currentPage == i ? 'active' : '' %>">
+                        <a class="page-link bg-dark" href="?page=<%= i %>&pageSize=<%= pageSize %><%= query.guildId ? '&guildId=' + query.guildId : '' %><%= query.channelId ? '&channelId=' + query.channelId : '' %><%= query.userId ? '&userId=' + query.userId : '' %><%= query.search ? '&search=' + query.search : '' %><%= query.startDate ? '&startDate=' + query.startDate : '' %><%= query.endDate ? '&endDate=' + query.endDate : '' %>">
+                            <%= i %>
+                        </a>
+                    </li>
+                <% } %>
+            </ul>
+        </nav>
+    <% } %>
+
+    <!-- Results count -->
+    <div class="text-muted text-center mt-3">
+        Showing <%= messages.length %> of <%= total %> messages
+    </div>
+</div>
+
+<script>
+let autoRefreshInterval;
+const autoRefreshToggle = document.getElementById('autoRefresh');
+const logsForm = document.getElementById('logsForm');
+
+function refreshLogs() {
+    const currentUrl = new URL(window.location.href);
+    fetch(currentUrl)
+        .then(response => response.text())
+        .then(html => {
+            const parser = new DOMParser();
+            const newDoc = parser.parseFromString(html, 'text/html');
+            const newTable = newDoc.querySelector('.table-responsive');
+            document.querySelector('.table-responsive').innerHTML = newTable.innerHTML;
+        })
+        .catch(error => console.error('Error refreshing logs:', error));
+}
+
+autoRefreshToggle.addEventListener('change', function() {
+    if (this.checked) {
+        autoRefreshInterval = setInterval(refreshLogs, 5000); // Refresh every 5 seconds
+    } else {
+        clearInterval(autoRefreshInterval);
+    }
+});
+
+// Clear interval when leaving the page
+window.addEventListener('beforeunload', () => {
+    clearInterval(autoRefreshInterval);
+});
+
+// Initialize Bootstrap modal
+const modal = new bootstrap.Modal(document.getElementById('mediaModal'));
+
+// Handle media preview clicks
+document.addEventListener('click', function(e) {
+    if (e.target.closest('.media-preview')) {
+        e.preventDefault();
+        const link = e.target.closest('.media-preview');
+        const url = link.dataset.url;
+        const type = link.dataset.type;
+        const modalContent = document.getElementById('modalContent');
+        
+        modalContent.innerHTML = '';
+        
+        if (type === 'video') {
+            const video = document.createElement('video');
+            video.src = url;
+            video.controls = true;
+            video.style.maxWidth = '100%';
+            video.style.maxHeight = '80vh';
+            modalContent.appendChild(video);
+        } else if (type === 'audio' || url.endsWith('.ogg')) {
+            const audio = document.createElement('audio');
+            audio.src = url;
+            audio.controls = true;
+            audio.style.width = '100%';
+            audio.style.minHeight = '40px';
+            modalContent.appendChild(audio);
+        } else {
+            const img = document.createElement('img');
+            img.src = url;
+            img.style.maxWidth = '100%';
+            img.style.maxHeight = '80vh';
+            modalContent.appendChild(img);
+        }
+        
+        modal.show();
+    }
+});
+</script>
+
+<style>
+.dark-audio {
+    background-color: #2f3136;
+    border-radius: 4px;
+    padding: 5px;
+}
+
+.audio-container {
+    margin: 10px 0;
+}
+
+.attachment-thumbnail {
+    border: 1px solid #3282B8;
+    transition: opacity 0.2s;
+}
+
+.attachment-thumbnail:hover {
+    opacity: 0.8;
+}
+
+.modal-content video,
+.modal-content audio {
+    background-color: #2f3136;
+    border-radius: 4px;
+    margin: 10px 0;
+}
+</style>
+
+<%- include('footer') %> 

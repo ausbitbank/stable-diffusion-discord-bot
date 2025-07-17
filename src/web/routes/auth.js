@@ -8,7 +8,7 @@ const csrf = require('csurf')
 
 // Inject session messages
 router.use(function(req, res, next) {
-    console.log('Inject session messages into res.locals.messages')
+    //console.log('Inject session messages into res.locals.messages')
     var msgs = req.session.messages || []
     res.locals.messages = msgs
     res.locals.hasMessages = !! msgs.length
