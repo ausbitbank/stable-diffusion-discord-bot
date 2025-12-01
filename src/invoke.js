@@ -911,7 +911,7 @@ const getVersion = async(host)=>{
 
 const getConfig = async(host)=>{
     try{
-        let u = host.url+'/api/v1/app/config'
+        let u = host.url+'/api/v1/app/runtime_config'
         let response = await axios.get(u)
         return response.data
     } catch (err){
