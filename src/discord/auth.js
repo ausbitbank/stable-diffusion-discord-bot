@@ -81,6 +81,7 @@ userAllowedFeature=async(user,feature)=>{
         case 'sd-2':// 
         case 'sdxl':// 
         case 'flux':// 
+        case 'z-image'://
         case 'llm'://
             return true
         //case 'llm':// llm is members only

@@ -569,7 +569,8 @@ let commands = [
                 'sd-1': [],
                 'sd-2': [],
                 'sdxl': [],
-                'flux': []
+                'flux': [],
+                'z-image': []
             }
             for (const i in models) {
                 let m = models[i]
@@ -604,6 +605,15 @@ let commands = [
                         }
                         case 'flux': {
                             categories['flux'].push({
+                                label: m.name?.substring(0, 50),
+                                value: m.name,
+                                description: m.description?.substring(0, 50),
+                                emoji: null
+                            })
+                            break
+                        }
+                        case 'z-image': {
+                            categories['z-image'].push({
                                 label: m.name?.substring(0, 50),
                                 value: m.name,
                                 description: m.description?.substring(0, 50),

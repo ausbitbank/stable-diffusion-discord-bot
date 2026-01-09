@@ -42,7 +42,7 @@ const initHost=async(host)=>{
         //host.online=false // do not disable during sync or jobs will fail
         // todo update for invoke4 v2 models api, reduce to single call and filter afterwards
         // since invoke4 no controlnets or embeddings are visible ?
-        const [version, models, lora, ti, vae, controlnet, ip_adapter, t2i_adapter, t5_encoder, clip_embed, redux, siglip, cfg] = await Promise.all(
+        const [version, models, lora, ti, vae, controlnet, ip_adapter, t2i_adapter, t5_encoder, clip_embed, redux, siglip, qwen3, cfg] = await Promise.all(
             [
                 getVersion(host),
                 getModels(host,'main'),
@@ -56,6 +56,7 @@ const initHost=async(host)=>{
                 getModels(host,'clip_embed'),
                 getModels(host,'flux_redux'),
                 getModels(host,'siglip'),
+                getModels(host,'qwen3_encoder'),
                 getConfig(host)
             ])
         host.version = version
@@ -70,6 +71,7 @@ const initHost=async(host)=>{
         host.clip_embed = clip_embed
         host.redux = redux
         host.siglip = siglip
+        host.qwen3 = qwen3
         host.config = cfg
         host.activeJob = null // unused
         if(host.socket){host.socket.close();host.socket=null}// Close the existing socket connection, if any
@@ -153,7 +155,7 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         edges:[],
     }
     let data = []
-    let lastid={unet:null,clip:null,vae:null,latents:null,noise:null,image:null,width:null,height:null,controlnet:null,mask:null,denoise_mask:null,width:null,height:null,metadata:null,merge_metadata:null,core_metadata:null,metadata_item:null,ip_adapter:null,t2i_adapter:null,collect:null,string:null,transformer:null}
+    let lastid={unet:null,clip:null,vae:null,latents:null,noise:null,image:null,width:null,height:null,controlnet:null,mask:null,denoise_mask:null,width:null,height:null,metadata:null,merge_metadata:null,core_metadata:null,metadata_item:null,ip_adapter:null,t2i_adapter:null,collect:null,string:null,transformer:null,qwen3:null}
     const closestMultipleOf16 = num => Math.round(num / 16) * 16
     let pipe = (fromnode,fromfield,tonode,tofield)=>{
         //debugLog('pipe from '+fromnode+' field '+fromfield+' to '+tonode+' field '+tofield)
@@ -194,6 +196,11 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         if(['img_resize'].includes(type)){lastid.height=newid;lastid.width=newid}
         if(['flux_redux'].includes(type)){lastid.redux=newid}
         if(['flux_kontext'].includes(type)){lastid.kontext=newid}
+        if(['z_image_model_loader'].includes(type)){lastid.qwen3=newid;lastid.transformer=newid;lastid.vae=newid}
+        if(['z_image_text_encoder','z_image_seed_variance_enhancer'].includes(type)){lastid.conditioning=newid}
+        if(['z_image_denoise'].includes(type)){lastid.latents=newid}
+        if(['z_image_i2l'].includes(type)){lastid.latents=newid;lastid.width=newid;lastid.height=newid}
+        if(['z_image_lora_loader'].includes(type)){lastid.transformer=newid;lastid.qwen3=newid}
         edges?.forEach(e=>{
             if(!validUUID(e.destination.node_id)){ // not already plumbed with a valid UUID
                 if(e.destination.node_id==='SELF'){ e.destination.node_id=newid
@@ -446,6 +453,61 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         let noiseIds = Object.values(graph.nodes).filter(i=>i.type==='flux_denoise').map(i=>i.id)
         for (const id in noiseIds){data[0].push({node_path:noiseIds[id],field_name:'seed',items:dataitems})}
         return {batch:{graph,data,runs:1},prepend:false}
+
+    } else if (job.model.base==='z-image'){
+        log('Building z-image workflow')
+        // new z-image model support
+
+        // insert job metadata into string, pipe to metadata_item, pipe to metadata , pipe to collect alongside core_metadata output, into merge_metadata as final meta output
+        node('string',{value:buildWorkflowFromJob(job)})
+        node('metadata_item',{label:'arty'},[pipe(lastid.string,'value','SELF','value')])
+        node('metadata',{},[pipe(lastid.metadata_item,'item','SELF','items')]) // fails with no error when uncommented
+        node('core_metadata',metaObject,[])
+        node('collect',{},[pipe(lastid.metadata,'metadata','SELF','item'),pipe(lastid.core_metadata,'metadata','SELF','item')])
+        node('merge_metadata',{},[pipe(lastid.collect,'collection','SELF','collection')])
+
+        let zimagevae = await modelnameToObject(config.default.zimagevae||'FLUX.1-schnell_ae','vae')
+        let qwen3encoder = await modelnameToObject(config.default.zimageqwen3||'Z-Image Qwen3 Text Encoder (quantized)','qwen3_encoder')
+        
+        node('z_image_model_loader',{model:job.model,vae_model:zimagevae,qwen3_encoder_model:qwen3encoder},[])
+
+        // lora chain
+        if(job.loras?.length>0){
+            for (const l in job.loras) {
+                node('z_image_lora_loader',{is_intermediate:true,lora:{base:job.loras[l].model.base,name:job.loras[l].model.name,key:job.loras[l].model.key,hash:job.loras[l].model.hash,type:'lora'},weight:job.loras[l].weight},[pipe(lastid.transformer,'transformer','SELF','transformer'),pipe(lastid.transformer,'qwen3_encoder','SELF','qwen3_encoder')])}} // flux lora loader, chain multiple transformers into each other
+
+        node('z_image_text_encoder',{prompt:job.positive_prompt},[pipe(lastid.qwen3,'qwen3_encoder','SELF','qwen3_encoder')])
+
+        // insert custom node for more variety between seeds https://github.com/Pfannkuchensack/invokeai-z-image-seed-variance-enhancer
+        // takes in conditioning from text encoder + static vars + seed , outputs modified conditioning
+        node('z_image_seed_variance_enhancer',{seed:job.seed,strength:0.2,randomize_percent:50},[pipe(lastid.conditioning,'conditioning','SELF','conditioning')])
+
+        let denoisepipes = [
+            pipe(lastid.transformer,'transformer','SELF','transformer'),
+            pipe(lastid.conditioning,'conditioning','SELF','positive_conditioning'),
+            pipe(lastid.vae,'vae','SELF','vae')
+        ]
+        let denoiseoptions = {denoising_start:0,denoising_end:1,guidance_scale:job.scale,steps:job.steps,seed:job.seed,is_intermediate:true,use_cache:true}
+        if(job.initimgObject){ // input image support
+            debugLog('Adding z_image i2l init image node')
+            node('z_image_i2l',{image:job.initimgObject},[pipe(lastid.vae,'vae','SELF','vae')])
+            denoisepipes.push(pipe(lastid.latents,'latents','SELF','latents'))
+            denoisepipes.push(pipe(lastid.width,'width','SELF','width'))
+            denoisepipes.push(pipe(lastid.height,'height','SELF','height'))
+            denoiseoptions.denoising_start=1.0-job.strength
+        } else {
+            denoiseoptions.width=job.width
+            denoiseoptions.height=job.height
+        }
+        node('z_image_denoise',denoiseoptions,denoisepipes)
+        node('z_image_l2i',{},[pipe(lastid.latents,'latents','SELF','latents'),pipe(lastid.merge_metadata,'metadata','SELF','metadata'),pipe(lastid.vae,'vae','SELF','vae')])
+
+        let dataitems = [job.seed]
+        while(dataitems.length<job.number){dataitems.push(random.seed())}
+        data.push([{node_path:lastid.core_metadata,field_name:'seed',items:dataitems}])
+        let noiseIds = Object.values(graph.nodes).filter(i=>i.type==='flux_denoise').map(i=>i.id)
+        for (const id in noiseIds){data[0].push({node_path:noiseIds[id],field_name:'seed',items:dataitems})}
+        return {batch:{graph,data,runs:1},prepend:false}
     }
     // Add freeu node https://stable-diffusion-art.com/freeu/
     // current default settings :
@@ -623,6 +685,7 @@ const getJobCost = (job) =>{
         //debugLog('Cost after = '+cost)
     }
     //if(job.model.base==='sdxl'){cost=cost+0.45} // increased vram use, load time (higher base res already included earlier)
+    if(job.model.base==='z-image'){cost=cost+0.5}
     if(job.model.base==='flux'){cost=cost+1} // increased vram use, load time (higher base res already included earlier)
     if(job.loras&&job.loras.length>0){cost=cost+(job.loras.length*0.25)} // 0.25 for each lora
     // todo charge for ipa, controlnet
@@ -1979,6 +2042,8 @@ const modelnameToObject = async(modelname,modeltype='main')=>{
             model=host.redux.find(m=>{return m.name===modelname})
         } else if (modeltype==='siglip'){
             model=host.siglip.find(m=>{return m.name===modelname})
+        } else if (modeltype==='qwen3_encoder'){
+            model=host.qwen3.find(m=>{return m.name===modelname})
         }
         
         if(isObject(model)){
