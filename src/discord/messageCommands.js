@@ -658,16 +658,17 @@ let commands = [
             let sd2 = models.filter(obj => obj.base === 'sd-2')
             let sdxl = models.filter(obj => obj.base === 'sdxl')
             let flux = models.filter(obj => obj.base === 'flux')
+            let zimage = models.filter(obj => obj.base === 'z-image')
             let dialog = {
                 content:'',
                 flags:64,
                 embeds:[
-                    {description:'Models currently available\n**sd-1**: '+sd1.length+' , **sd-2**: '+sd2.length+' **sdxl**: '+sdxl.length+' **flux**: '+flux.length,color:getRandomColorDec()}
+                    {description:'Models currently available\n**sd-1**: '+sd1.length+' , **sd-2**: '+sd2.length+' **sdxl**: '+sdxl.length+' **flux**: '+flux.length+' **z-image**: '+zimage.length,color:getRandomColorDec()}
                 ],
                 components:[],
                 messageReference:{message_id:msg.id}
             }
-            let basemodels = ['sd-1','sd-2','sdxl','flux']
+            let basemodels = ['sd-1','sd-2','sdxl','flux','z-image']
             for (const modeltype in basemodels){
                 let filteredModels = models.filter(obj=>obj.base===basemodels[modeltype])
                 let marr=[]
