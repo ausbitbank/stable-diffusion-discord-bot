@@ -3,6 +3,7 @@ const axios = require('axios')
 const cheerio = require('cheerio')
 const OpenAI = require('openai')
 const {config,log,debugLog}=require('../../utils')
+const {getYouTubeVideoId, getYouTubeTranscript} = require('../../youtube')
 const url = config.llm?.url ?? 'http://localhost:9100/v1'
 const apiKey = config.llm?.apiKey ?? 'none'
 const openai = new OpenAI({apiKey: apiKey, baseURL:url})
@@ -33,55 +34,34 @@ async function scrapeWebsite(url) {
     }
 }
 
-function getYouTubeVideoId(url) {
-  // Regular expression pattern to match YouTube URL formats
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/
-  // Try to match the URL against the pattern
-    const match = url.match(regExp)
-  // If there's a match and the video ID is 11 characters long (standard YouTube video ID length)
-    if (match && match[2].length === 11) {
-        return match[2]
-    } else {
-        return null
-    }
-}
-
-getYoutubeTranscript=async(videoid)=>{
-    const response = await fetch(`https://www.youtube.com/watch?v=${videoid}`)
-    const html = await response.text()
-    const playerResponseMatch = html.match(/ytInitialPlayerResponse\s*=\s*({.+?})\s*;\s*(?:var\s+(?:meta|head)|<\/script|\n)/)
-    if (!playerResponseMatch) {throw new Error('Unable to parse player response')}
-    const playerResponse = JSON.parse(playerResponseMatch[1])
-    const tracks = playerResponse.captions.playerCaptionsTracklistRenderer.captionTracks
-    tracks.sort((a, b) => {
-        if (a.languageCode === 'en') return -1
-        if (b.languageCode === 'en') return 1
-        if (a.kind === 'asr') return 1
-        if (b.kind === 'asr') return -1
-        return 0
-    })
-    const transcriptResponse = await fetch(tracks[0].baseUrl + '&fmt=json3')
-    const transcriptData = await transcriptResponse.json()
-    const transcript = transcriptData.events
-        .filter(event => event.segs)
-        .map(event => event.segs.map(seg => seg.utf8).join(' '))
-        .join(' ')
-        .replace(/[\u200B-\u200D\uFEFF]/g, '')
-        .replace(/\s+/g, ' ')
-        .trim()
-    return transcript
-}
-
 async function scrape(prompt) {
     // Detect URLs, scrape content, return new appended prompt
-    if(!config.llm.scrapeUrls) return prompt // opt in via config
+    if(!config.llm?.scrapeUrls) return prompt
     const urls = detectUrls(prompt)
     let scrapedContent = ''
     for (let url of urls) {
         try {
             if(getYouTubeVideoId(url)){
-                const scrapedText = await getYoutubeTranscript(getYouTubeVideoId(url))
-                scrapedContent += `\nVideo Transcript of ${url} for Summarization: ${scrapedText}\n`
+                const videoId = getYouTubeVideoId(url)
+                const videoData = await getYouTubeTranscript(videoId)
+                
+                if (videoData.error) {
+                    scrapedContent += `Unable to scrape YouTube video from ${url}: ${videoData.error}\n`
+                } else {
+                    if (videoData.title) {
+                        scrapedContent += `\nVideo Title: ${videoData.title}\n`
+                    }
+                    if (videoData.description && videoData.description.length > 0) {
+                        const descPreview = videoData.description.length > 500 
+                            ? videoData.description.substring(0, 500) + '...' 
+                            : videoData.description
+                        scrapedContent += `Video Description: ${descPreview}\n`
+                    }
+                    if (videoData.transcript) {
+                        const langStr = videoData.language ? ` (${videoData.language})` : ''
+                        scrapedContent += `Video Transcript${langStr}:\n${videoData.transcript}\n`
+                    }
+                }
             } else {
                 const scrapedText = await scrapeWebsite(url)
                 scrapedContent += `\nWebpage Scrape of ${url} for Summarization: ${scrapedText}\n`
@@ -91,7 +71,6 @@ async function scrape(prompt) {
             log('Failed to scrape content');log(err)
         }
     }
-    // Return scraped content as new prompt
     return `${scrapedContent}\n${prompt}`
 }
 
@@ -130,7 +109,7 @@ async function chatStream(prompt,systemprompt,buffer=false,model=null,visionmode
     if (!systemprompt){systemprompt = config.llm?.systemprompt ?? 'You are a helpful chatbot. Do not censor your responses'}
     if (!model){model=config.llm.model ?? 'none'}
     if (!visionmodel){visionmodel=config.llm.visionmodel ?? null}
-    if(config.llm.scrapeUrls){prompt = await scrape(prompt)}
+    if(config.llm?.scrapeUrls){prompt = await scrape(prompt)}
     const data = {
         messages: [ 
             { role: "system", "content": systemprompt },
