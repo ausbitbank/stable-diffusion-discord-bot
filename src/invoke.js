@@ -196,9 +196,9 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         if(['img_resize'].includes(type)){lastid.height=newid;lastid.width=newid}
         if(['flux_redux'].includes(type)){lastid.redux=newid}
         if(['flux_kontext'].includes(type)){lastid.kontext=newid}
-        if(['z_image_model_loader'].includes(type)){lastid.qwen3=newid;lastid.transformer=newid;lastid.vae=newid}
-        if(['z_image_text_encoder','z_image_seed_variance_enhancer'].includes(type)){lastid.conditioning=newid}
-        if(['z_image_denoise'].includes(type)){lastid.latents=newid}
+        if(['z_image_model_loader','flux2_klein_model_loader'].includes(type)){lastid.qwen3=newid;lastid.transformer=newid;lastid.vae=newid}
+        if(['z_image_text_encoder','z_image_seed_variance_enhancer','flux2_klein_text_encoder'].includes(type)){lastid.conditioning=newid}
+        if(['z_image_denoise','flux2_denoise'].includes(type)){lastid.latents=newid}
         if(['z_image_i2l'].includes(type)){lastid.latents=newid;lastid.width=newid;lastid.height=newid}
         if(['z_image_lora_loader'].includes(type)){lastid.transformer=newid;lastid.qwen3=newid}
         edges?.forEach(e=>{
@@ -506,6 +506,42 @@ buildGraphFromJob = async(job)=>{ // Build new nodes graph based on job details
         while(dataitems.length<job.number){dataitems.push(random.seed())}
         data.push([{node_path:lastid.core_metadata,field_name:'seed',items:dataitems}])
         let noiseIds = Object.values(graph.nodes).filter(i=>i.type==='flux_denoise').map(i=>i.id)
+        for (const id in noiseIds){data[0].push({node_path:noiseIds[id],field_name:'seed',items:dataitems})}
+        return {batch:{graph,data,runs:1},prepend:false}
+
+    } else if (job.model.base==='flux2'){
+        // new flux2 / klein model support
+        debugLog('Building flux2/klein workflow')
+        job.control==null
+        node('string',{value:buildWorkflowFromJob(job)})
+        node('metadata_item',{label:'arty'},[pipe(lastid.string,'value','SELF','value')])
+        node('metadata',{},[pipe(lastid.metadata_item,'item','SELF','items')]) // fails with no error when uncommented
+        node('core_metadata',metaObject,[])
+        node('collect',{},[pipe(lastid.metadata,'metadata','SELF','item'),pipe(lastid.core_metadata,'metadata','SELF','item')])
+        node('merge_metadata',{},[pipe(lastid.collect,'collection','SELF','collection')])
+        let flux2vae = await modelnameToObject(config.default.flux2vae||'FLUX.2 VAE','vae')
+        let qwen3encoder = await modelnameToObject(config.default.zimageqwen3||'Z-Image Qwen3 Text Encoder (quantized)','qwen3_encoder')
+        node('flux2_klein_model_loader',{model:job.model,vae_model:flux2vae,qwen3_encoder_model:qwen3encoder, max_seq_len: 512},[])
+        node('flux2_klein_text_encoder',{prompt:job.positive_prompt},[pipe(lastid.qwen3,'qwen3_encoder','SELF','qwen3_encoder')])
+        let denoisepipes = [
+            pipe(lastid.transformer,'transformer','SELF','transformer'),
+            pipe(lastid.conditioning,'conditioning','SELF','positive_text_conditioning'),
+            pipe(lastid.vae,'vae','SELF','vae')
+        ]
+        let denoiseoptions = {denoising_start:0,denoising_end:1,add_noise:true,cfg_scale:job.scale??1,width:job.width,height:job.height,num_steps:job.steps??4,scheduler:'euler',seed:job.seed}
+        if(job.initimgObject){
+            node('flux_kontext',{image:job.initimgObject??null},[])
+            denoisepipes.push(pipe(lastid.kontext,'kontext_cond','SELF','kontext_conditioning'))
+            debugLog(job.initimgObject)
+            denoiseoptions.width = getDiffusionResolution(job.initimgObject.width,16)
+            denoiseoptions.height = getDiffusionResolution(job.initimgObject.height,16)
+        }
+        node('flux2_denoise',denoiseoptions,denoisepipes)
+        node('flux2_vae_decode',{},[pipe(lastid.latents,'latents','SELF','latents'),pipe(lastid.merge_metadata,'metadata','SELF','metadata'),pipe(lastid.vae,'vae','SELF','vae')])
+        let dataitems = [job.seed]
+        while(dataitems.length<job.number){dataitems.push(random.seed())}
+        data.push([{node_path:lastid.core_metadata,field_name:'seed',items:dataitems}])
+        let noiseIds = Object.values(graph.nodes).filter(i=>i.type==='flux2_denoise').map(i=>i.id)
         for (const id in noiseIds){data[0].push({node_path:noiseIds[id],field_name:'seed',items:dataitems})}
         return {batch:{graph,data,runs:1},prepend:false}
     }
@@ -1115,7 +1151,7 @@ const jobFromMeta = async(meta,img=null,tracking=null)=>{
 
 const getDiffusionResolution = (number,smallestResStep=8)=>{
     // Diffusion resolution needs to be divisible by a specific number
-    // invoke2 = 64 , invoke3 = 8
+    // invoke2 = 64 , invoke3 = 8 , flux2 = 16
     //let smallestResStep = 8
     const quotient = Math.floor(number / smallestResStep)  // Get the quotient of the division
     const closestNumber = quotient * smallestResStep  // Multiply the quotient by res step to get the closest number
