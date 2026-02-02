@@ -74,7 +74,7 @@
     "socket.io-client": "^4.7.5",
     "sqlite3": "^5.1.7",
     "stripe": "^15.6.0",
-    "web-streams-polyfill": "^4.0.0",
+    "web-streams-polyfill": "^4.2.0",
     "ws": "^8.17.1"
   }
 }
