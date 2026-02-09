@@ -30,7 +30,7 @@
     "@libp2p/tcp": "^8.0.3",
     "@libp2p/upnp-nat": "^2.0.10",
     "@stable-canvas/comfyui-client": "^1.2.11",
-    "axios": "^1.6.8",
+    "axios": "^1.13.5",
     "blockstore-fs": "^1.1.10",
     "canvas": "^2.11.2",
     "cheerio": "^1.0.0-rc.12",
