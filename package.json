@@ -50,7 +50,7 @@
     "exifreader": "^4.23.1",
     "express": "^4.19.2",
     "express-session": "^1.18.0",
-    "file-type": "^19.0.0",
+    "file-type": "^21.3.1",
     "form-data": "^4.0.0",
     "helia": "^2.0.3",
     "hive-uri": "^0.2.5",
